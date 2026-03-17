@@ -1,0 +1,5 @@
+{
+  "name": "RPWorld",
+  "description": "A role-playing game interface with quest logs, inventory, dialogue, and world memory.",
+  "requestFramePermissions": []
+}
