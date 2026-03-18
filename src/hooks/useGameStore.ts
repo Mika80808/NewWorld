@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import {
-  TimeState, Profile, Quest, Npc, LorebookEntry, SystemPrompt,
-  DiaryEntry, Message, WorldMap, MemoryEntry, InventoryItem, ConsumableItem, NpcMemory,
+  TimeState, Profile, Quest, Npc, NpcMemory, LorebookEntry, SystemPrompt,
+  DiaryEntry, Message, WorldMap, MemoryEntry, EquipmentItem, ItemEntry,
 } from '../types';
 import {
   INITIAL_SYSTEM_PROMPT, INITIAL_LOREBOOK_ENTRIES,
@@ -25,8 +25,12 @@ export interface GameSaveData {
   lorebookEntries: LorebookEntry[];
   npcs: Npc[];
   appearingNpcs: string[];
-  inventory: InventoryItem[];
-  consumables: ConsumableItem[];
+  // 新欄位名
+  equipment: EquipmentItem[];
+  items: ItemEntry[];
+  // 舊欄位名（向下相容，loadFromData 會處理）
+  inventory?: unknown[];
+  consumables?: unknown[];
   currentLocation: string;
   messages: Message[];
   memories: MemoryEntry[];
@@ -36,6 +40,37 @@ export interface GameSaveData {
   worldMap: WorldMap;
   adventureLog: string[];
   currentGoals: string[];
+}
+
+// ─── 舊存檔 EquipmentItem migrate helper ─────────────────────────────────────
+// 舊 InventoryItem = { id, name, quantity, description }
+// 新 EquipmentItem = { id, name, description, isEquipped }
+function migrateEquipment(raw: unknown[]): EquipmentItem[] {
+  return raw.map((i: unknown) => {
+    const item = i as Record<string, unknown>;
+    return {
+      id: (item.id as number) ?? Date.now(),
+      name: (item.name as string) ?? '',
+      description: (item.description as string) ?? '',
+      isEquipped: (item.isEquipped as boolean) ?? false,
+    };
+  });
+}
+
+// ─── 舊存檔 ItemEntry migrate helper ─────────────────────────────────────────
+// 舊 ConsumableItem = { id, name, quantity, description, effect? }
+// 新 ItemEntry      = { id, name, quantity, description }（移除 effect）
+function migrateItems(raw: unknown[]): ItemEntry[] {
+  return raw.map((i: unknown) => {
+    const item = i as Record<string, unknown>;
+    return {
+      id: (item.id as number) ?? Date.now(),
+      name: (item.name as string) ?? '',
+      quantity: (item.quantity as number) ?? 1,
+      description: (item.description as string) ?? '',
+      // effect 欄位刻意丟棄
+    };
+  });
 }
 
 // ─── Hook ─────────────────────────────────────────────────────────────────────
@@ -107,9 +142,6 @@ export function useGameStore() {
     () => (_s?.appearingNpcs as string[]) || []
   );
 
-// 注意：NpcMemory 需要從 types 引入，請在 useGameStore.ts 的 import 裡補上：
-// import { ..., NpcMemory } from '../types';
-
   // ── 地點 ────────────────────────────────────────────────────────────────────
   const [currentLocation, setCurrentLocation] = useState<string>(
     () => (_s?.currentLocation as string) || '迷霧森林'
@@ -141,13 +173,29 @@ export function useGameStore() {
     () => (_s?.lorebookEntries as LorebookEntry[]) || INITIAL_LOREBOOK_ENTRIES
   );
 
-  // ── 道具 ────────────────────────────────────────────────────────────────────
-  const [inventory, setInventory] = useState<InventoryItem[]>(
-    () => (_s?.inventory as InventoryItem[]) || []
-  );
-  const [consumables, setConsumables] = useState<ConsumableItem[]>(
-    () => (_s?.consumables as ConsumableItem[]) || []
-  );
+  // ── 裝備（新）────────────────────────────────────────────────────────────────
+  // migrate：優先讀 equipment，若無則從舊 inventory 轉換
+  const [equipment, setEquipment] = useState<EquipmentItem[]>(() => {
+    if (Array.isArray(_s?.equipment) && (_s.equipment as unknown[]).length > 0) {
+      return migrateEquipment(_s.equipment as unknown[]);
+    }
+    if (Array.isArray(_s?.inventory) && (_s.inventory as unknown[]).length > 0) {
+      return migrateEquipment(_s.inventory as unknown[]);
+    }
+    return [];
+  });
+
+  // ── 道具（新）────────────────────────────────────────────────────────────────
+  // migrate：優先讀 items，若無則從舊 consumables 轉換
+  const [items, setItems] = useState<ItemEntry[]>(() => {
+    if (Array.isArray(_s?.items) && (_s.items as unknown[]).length > 0) {
+      return migrateItems(_s.items as unknown[]);
+    }
+    if (Array.isArray(_s?.consumables) && (_s.consumables as unknown[]).length > 0) {
+      return migrateItems(_s.consumables as unknown[]);
+    }
+    return [];
+  });
 
   // ── 對話訊息 ────────────────────────────────────────────────────────────────
   const [messages, setMessages] = useState<Message[]>(
@@ -173,7 +221,8 @@ export function useGameStore() {
   const saveToStorage = (snapshot?: Partial<GameSaveData>): void => {
     const saveData: GameSaveData = {
       profile, systemPrompt, diaryEntries, lorebookEntries,
-      npcs, appearingNpcs, inventory, consumables,
+      npcs, appearingNpcs,
+      equipment, items,
       currentLocation, messages, memories, quickOptions,
       timeState, quests, worldMap,
       adventureLog, currentGoals,
@@ -200,48 +249,29 @@ export function useGameStore() {
     if (saveData.systemPrompt) setSystemPrompt(saveData.systemPrompt as SystemPrompt);
     if (saveData.diaryEntries) setDiaryEntries(saveData.diaryEntries as DiaryEntry[]);
     if (saveData.lorebookEntries) setLorebookEntries(saveData.lorebookEntries as LorebookEntry[]);
-    if (saveData.npcs) setNpcs(saveData.npcs as Npc[]);
-    if (saveData.appearingNpcs) setAppearingNpcs(saveData.appearingNpcs as string[]);
-    if (saveData.inventory) setInventory(saveData.inventory as InventoryItem[]);
-    if (saveData.consumables) setConsumables(saveData.consumables as ConsumableItem[]);
-    if (saveData.currentLocation) setCurrentLocation(saveData.currentLocation as string);
-    if (saveData.messages) setMessages(saveData.messages as Message[]);
-    if (saveData.worldMap) setWorldMap(saveData.worldMap as WorldMap);
-    if (saveData.adventureLog) setAdventureLog(saveData.adventureLog as string[]);
-    if (saveData.currentGoals) setCurrentGoals(saveData.currentGoals as string[]);
-
-    if (saveData.memories) {
-      setMemories(saveData.memories as MemoryEntry[]);
-    } else {
-      // ── 舊存檔自動轉換 ────────────────────────────────────────────────────
-      const migrated: MemoryEntry[] = [];
-      const nowStr = '（已匯入）';
-      const defaults = {
-        trigger: { scanDepth: 5, probability: 100, sticky: 0, cooldown: 0 },
-        isActive: true as const, source: 'manual' as const, createdAt: nowStr,
-      };
-      ((saveData.worldMemory as string[]) || []).forEach(text => migrated.push({
-        id: `mig_w_${Date.now()}_${Math.random()}`,
-        type: 'world', importance: 'critical', content: text,
-        tags: { locations: [], npcs: [], factions: [], keywords: [] }, ...defaults,
-      }));
-      ((saveData.factionMemory as { name: string; memories: string[] }[]) || []).forEach(f => {
-        (f.memories || []).forEach(text => migrated.push({
-          id: `mig_f_${Date.now()}_${Math.random()}`,
-          type: 'world', importance: 'normal', content: `[${f.name}] ${text}`,
-          tags: { locations: [], npcs: [], factions: [f.name], keywords: [] }, ...defaults,
-        }));
-      });
-      ((saveData.locationMemory as { name: string; memories: string[] }[]) || []).forEach(loc => {
-        (loc.memories || []).forEach(text => migrated.push({
-          id: `mig_l_${Date.now()}_${Math.random()}`,
-          type: 'scene', importance: 'normal', content: text,
-          tags: { locations: [loc.name], npcs: [], factions: [], keywords: [] }, ...defaults,
-        }));
-      });
-      if (migrated.length > 0) setMemories(migrated);
+    if (saveData.npcs) {
+      const rawNpcs = saveData.npcs as Npc[];
+      setNpcs(rawNpcs.map(npc => ({
+        ...npc,
+        memories: Array.isArray(npc.memories)
+          ? npc.memories.map((m: string | NpcMemory, i: number): NpcMemory =>
+              typeof m === 'string'
+                ? {
+                    id: `nmem_legacy_${npc.id}_${i}`,
+                    text: m,
+                    createdAt: '—',
+                    source: 'manual' as const,
+                    importance: 'normal' as const,
+                  }
+                : m
+            )
+          : [],
+      })));
     }
-
+    if (saveData.appearingNpcs) setAppearingNpcs(saveData.appearingNpcs as string[]);
+    if (saveData.currentLocation) setCurrentLocation(saveData.currentLocation as string);
+    if (saveData.memories) setMemories(saveData.memories as MemoryEntry[]);
+    if (saveData.messages) setMessages(saveData.messages as Message[]);
     if (saveData.quickOptions) setQuickOptions(saveData.quickOptions as string[]);
     if (saveData.timeState) {
       const t = saveData.timeState as Partial<TimeState>;
@@ -254,6 +284,28 @@ export function useGameStore() {
         weather: t.weather || '晴朗',
       });
     }
+    if (saveData.worldMap) setWorldMap(saveData.worldMap as WorldMap);
+    if (saveData.adventureLog) setAdventureLog(saveData.adventureLog as string[]);
+    if (saveData.currentGoals) setCurrentGoals(saveData.currentGoals as string[]);
+
+    // 裝備：優先讀新欄位 equipment，否則 migrate 舊 inventory
+    if (Array.isArray(saveData.equipment) && (saveData.equipment as unknown[]).length > 0) {
+      setEquipment(migrateEquipment(saveData.equipment as unknown[]));
+    } else if (Array.isArray(saveData.inventory) && (saveData.inventory as unknown[]).length > 0) {
+      setEquipment(migrateEquipment(saveData.inventory as unknown[]));
+    } else {
+      setEquipment([]);
+    }
+
+    // 道具：優先讀新欄位 items，否則 migrate 舊 consumables
+    if (Array.isArray(saveData.items) && (saveData.items as unknown[]).length > 0) {
+      setItems(migrateItems(saveData.items as unknown[]));
+    } else if (Array.isArray(saveData.consumables) && (saveData.consumables as unknown[]).length > 0) {
+      setItems(migrateItems(saveData.consumables as unknown[]));
+    } else {
+      setItems([]);
+    }
+
     if (saveData.quests) setQuests(
       (saveData.quests as Quest[]).map(q => ({ isGoalMet: false, ...q }))
     );
@@ -281,9 +333,9 @@ export function useGameStore() {
     diaryEntries, setDiaryEntries,
     // 設定集
     lorebookEntries, setLorebookEntries,
-    // 道具
-    inventory, setInventory,
-    consumables, setConsumables,
+    // 裝備 / 道具（新名稱）
+    equipment, setEquipment,
+    items, setItems,
     // 對話
     messages, setMessages,
     quickOptions, setQuickOptions,

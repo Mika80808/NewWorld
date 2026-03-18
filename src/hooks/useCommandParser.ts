@@ -1,7 +1,7 @@
 import React from 'react';
 import {
   Profile, Npc, Quest, LorebookEntry, MemoryEntry,
-  InventoryItem, ConsumableItem, TimeState, WorldMap, Message,
+  EquipmentItem, ItemEntry, TimeState, WorldMap, Message,
 } from '../types';
 
 // ─── 依賴的 Store 切面 ────────────────────────────────────────────────────────
@@ -11,7 +11,7 @@ export interface CommandParserDeps {
   currentLocation: string;
   quests: Quest[];
   memories: MemoryEntry[];
-  consumables: ConsumableItem[];
+  items: ItemEntry[];
   stickyCounters: Record<string, number>;
   cooldownCounters: Record<string, number>;
   messages: Message[];
@@ -22,8 +22,8 @@ export interface CommandParserDeps {
   setCurrentLocation: React.Dispatch<React.SetStateAction<string>>;
   setQuests: React.Dispatch<React.SetStateAction<Quest[]>>;
   setMemories: React.Dispatch<React.SetStateAction<MemoryEntry[]>>;
-  setInventory: React.Dispatch<React.SetStateAction<InventoryItem[]>>;
-  setConsumables: React.Dispatch<React.SetStateAction<ConsumableItem[]>>;
+  setEquipment: React.Dispatch<React.SetStateAction<EquipmentItem[]>>;
+  setItems: React.Dispatch<React.SetStateAction<ItemEntry[]>>;
   setNpcs: React.Dispatch<React.SetStateAction<Npc[]>>;
   setLorebookEntries: React.Dispatch<React.SetStateAction<LorebookEntry[]>>;
   setWorldMap: React.Dispatch<React.SetStateAction<WorldMap>>;
@@ -33,65 +33,68 @@ export interface CommandParserDeps {
   // UI 回呼
   showToast: (msg: string) => void;
   notifyCommandResult: (messages: string[]) => void;
-  onNewQuest?: () => void;     // 新任務時開啟 QuestModal
-  // AI 呼叫（封裝底層 API，不綁定特定服務）
+  onNewQuest?: () => void;
   callAI: (prompt: string) => Promise<string>;
 }
 
-// ─── Hook ─────────────────────────────────────────────────────────────────────
+// ─── 回傳型別 ─────────────────────────────────────────────────────────────────
+export interface ParseResult {
+  narrative: string;
+  newItems: string[];   // 本回合新增的道具名稱清單（供助理 GM 分類用）
+}
+
 export function useCommandParser(deps: CommandParserDeps) {
   const {
-    timeState, currentLocation, quests, memories, consumables,
+    timeState, currentLocation, quests, memories, items,
     stickyCounters, cooldownCounters, messages, lorebookEntries,
     setTimeState, setProfile, setCurrentLocation, setQuests,
-    setMemories, setInventory, setConsumables, setNpcs,
+    setMemories, setEquipment, setItems, setNpcs,
     setLorebookEntries, setWorldMap, setQuickOptions,
     setStickyCounters, setCooldownCounters,
     showToast, notifyCommandResult, onNewQuest, callAI,
   } = deps;
 
-  // ─── 關鍵字掃描 ────────────────────────────────────────────────────────────
-  const scanKeywords = (keywords: string[], scanDepth = 5, extraText = ''): boolean => {
-    if (!keywords || keywords.length === 0) return true;
-    const recentTexts = messages
-      .slice(-scanDepth)
-      .map(m => m.text.toLowerCase())
-      .join(' ') + ' ' + extraText.toLowerCase();
-    return keywords.some(kw => recentTexts.includes(kw.toLowerCase()));
-  };
-
-  // ─── 記憶觸發判斷 ──────────────────────────────────────────────────────────
-  const isMemoryTriggered = (mem: MemoryEntry, userInput = '', currentLocation = ''): boolean => {
+  // ─── 記憶觸發判斷 ─────────────────────────────────────────────────────────
+  const isMemoryTriggered = (mem: MemoryEntry, userInput: string, location: string): boolean => {
     if (!mem.isActive) return false;
-    if ((cooldownCounters[mem.id] || 0) > 0) return false;
-    if ((stickyCounters[mem.id] || 0) > 0) return true;
-    const prob = mem.trigger?.probability ?? 100;
-    if (prob < 100 && Math.random() * 100 > prob) return false;
 
-    // 🌍 【世界記憶】：無條件觸發（後續再由 importance 截斷數量）
-    if (mem.type === 'world') return true;
-
-    // 🗺️🏠 【區域與場景記憶】：精確地點比對
-    if (mem.type === 'region' || mem.type === 'scene') {
-      const locs = mem.tags?.locations || [];
-      // 只有當「當前地點」完全等於記憶標籤中的地點時才觸發
-      if (locs.some(loc => loc === currentLocation)) {
-        return true;
+    // 過期判斷
+    if (mem.expiresAt) {
+      const parts = mem.expiresAt.split('/');
+      if (parts.length === 2) {
+        const expMonth = parseInt(parts[0]);
+        const expDay = parseInt(parts[1]);
+        const currentTotalMins = timeState.month * 30 + timeState.day;
+        const expTotalMins = expMonth * 30 + expDay;
+        if (currentTotalMins > expTotalMins) return false;
       }
+    }
+
+    // sticky/cooldown 計數器
+    if (cooldownCounters[mem.id] > 0) return false;
+    if (stickyCounters[mem.id] > 0) return true;
+
+    // 地點比對
+    const locTags = mem.tags?.locations || [];
+    if (locTags.length > 0 && !locTags.some(l => location.includes(l) || l.includes(location))) {
       return false;
     }
 
-    // 👤 【NPC 記憶】或其他情況：保留關鍵字比對
-    const allKeywords = [
-      ...(mem.tags?.npcs || []),
-      ...(mem.tags?.factions || []),
-      ...(mem.tags?.keywords || []),
-    ];
-    return scanKeywords(allKeywords, mem.trigger?.scanDepth ?? 5, userInput);
+    // 關鍵字比對
+    const kwTags = mem.tags?.keywords || [];
+    const scanText = messages.slice(-(mem.trigger?.scanDepth ?? 5)).map(m => m.text).join(' ')
+      + ' ' + userInput + ' ' + location;
+    if (kwTags.length > 0 && !kwTags.some(k => scanText.toLowerCase().includes(k.toLowerCase()))) {
+      return false;
+    }
+
+    // 確率
+    const prob = mem.trigger?.probability ?? 100;
+    return Math.random() * 100 < prob;
   };
 
-  // ─── sticky / cooldown 計數器更新 ─────────────────────────────────────────
-  const tickMemoryCounters = (triggeredIds: string[]): void => {
+  // ─── 記憶計數器更新 ───────────────────────────────────────────────────────
+  const tickMemoryCounters = (triggeredIds: string[]) => {
     setStickyCounters(prev => {
       const next = { ...prev };
       triggeredIds.forEach(id => {
@@ -124,41 +127,73 @@ export function useCommandParser(deps: CommandParserDeps) {
     });
   };
 
-  // ─── 消耗品 effect 套用 ────────────────────────────────────────────────────
-  const applyItemEffect = (itemName: string): boolean => {
-    const item = consumables.find(i => i.name === itemName);
+  // ─── 道具使用（只扣數量，效果由 AI 敘事）────────────────────────────────
+  const useItem = (itemName: string): boolean => {
+    const item = items.find(i => i.name === itemName);
     if (!item) return false;
-    const effect = item.effect || {};
-
-    // 先在 callback 外計算好 toast 文字，避免 setter 非同步執行導致 parts 尚未填入
-    const parts: string[] = [];
-    if (effect.hp != null && effect.hp !== 0) parts.push(`HP ${effect.hp > 0 ? '+' : ''}${effect.hp}`);
-    if (effect.mp != null && effect.mp !== 0) parts.push(`MP ${effect.mp > 0 ? '+' : ''}${effect.mp}`);
-    if (effect.gold != null && effect.gold !== 0) parts.push(`Gold ${effect.gold > 0 ? '+' : ''}${effect.gold}`);
-    if (effect.status) parts.push(`狀態：${effect.status}`);
-
-    setProfile(prev => {
-      const next = { ...prev };
-      if (effect.hp != null && effect.hp !== 0) next.hp = Math.max(0, prev.hp + effect.hp);
-      if (effect.mp != null && effect.mp !== 0) next.mp = Math.max(0, prev.mp + effect.mp);
-      if (effect.gold != null && effect.gold !== 0) next.gold = Math.max(0, prev.gold + effect.gold);
-      if (effect.status) next.status = effect.status;
-      return next;
-    });
-
-    setConsumables(prev =>
+    setItems(prev =>
       prev
         .map(i => i.name === itemName ? { ...i, quantity: i.quantity - 1 } : i)
         .filter(i => i.quantity > 0)
     );
-
-    const effectDesc = parts.length > 0 ? `：${parts.join('、')}` : '';
-    showToast(`🧪 使用 ${itemName}${effectDesc}`);
+    showToast(`🎒 使用了 ${itemName}`);
     return true;
   };
 
+  // ─── 關鍵字掃描（日記觸發用）────────────────────────────────────────────
+  const scanKeywords = (keywords: string[]): boolean => {
+    if (keywords.length === 0) return true;
+    const recentText = messages.slice(-5).map(m => m.text).join(' ').toLowerCase();
+    return keywords.some(k => recentText.includes(k.toLowerCase()));
+  };
+
+  // ─── NPC 記憶 AI 融合 ────────────────────────────────────────────────────
+  const triggerNpcMemoryMerge = async (
+    npcId: number,
+    currentMemories: Array<{ id: string; text: string; isMerged?: boolean; [key: string]: unknown }>,
+    npcName: string,
+  ) => {
+    const toMerge = currentMemories.filter(m => !m.isMerged);
+    if (toMerge.length === 0) return;
+
+    const mergePrompt = `你是一個 RPG 遊戲的記憶整理助理。
+以下是 NPC「${npcName}」對玩家的記憶片段，請整合成一段簡潔的第一人稱摘要（100字以內）。
+重要：保留道具名稱、重要台詞、關鍵事件，壓縮重複情緒。
+只輸出摘要文字，不要任何前綴或說明。
+
+記憶片段：
+${toMerge.map(m => `- ${m.text}`).join('\n')}`;
+
+    try {
+      const mergedText = await callAI(mergePrompt);
+      if (!mergedText) return;
+
+      const mergedMemory = {
+        id: `nmem_${Date.now()}_${Math.floor(Math.random() * 9999)}`,
+        text: mergedText,
+        createdAt: `${timeState.month}/${timeState.day}`,
+        source: 'merged' as const,
+        importance: 'normal' as const,
+        isMerged: false,
+        mergedFrom: toMerge.map(m => m.id),
+      };
+
+      setNpcs(prev => prev.map(npc => {
+        if (npc.id !== npcId) return npc;
+        const updatedMemories = npc.memories.map(m =>
+          toMerge.some(tm => tm.id === m.id) ? { ...m, isMerged: true } : m
+        );
+        return { ...npc, memories: [...updatedMemories, mergedMemory] };
+      }));
+
+      showToast(`💫 ${npcName} 的記憶已自動整合`);
+    } catch (e) {
+      console.error('NPC memory merge failed:', e);
+    }
+  };
+
   // ─── 前端 COMMANDS 解析器 ──────────────────────────────────────────────────
-  const parseAndExecuteCommands = (rawText: string): string => {
+  const parseAndExecuteCommands = (rawText: string): ParseResult => {
     const commandBlockRegex = /<<COMMANDS>>([\s\S]*?)(?:<<\/COMMANDS>>|<\/COMMANDS>>|<\/COMMANDS>|(?=\n\n)|(?=<<OPTIONS>>)|$)/gi;
     const optionsBlockRegex = /<<OPTIONS>>([\s\S]*?)(?:<<\/OPTIONS>>|<\/OPTIONS>>|<\/OPTIONS>|$)/gi;
     let narrative = rawText;
@@ -195,7 +230,9 @@ export function useCommandParser(deps: CommandParserDeps) {
       setQuickOptions(['觀察四周', '檢查自己', '大聲求助']);
     }
 
-    if (allCommands.length === 0) return narrative.replace(/```[a-z]*\s*```/gi, '').trim();
+    if (allCommands.length === 0) {
+      return { narrative: narrative.replace(/```[a-z]*\s*```/gi, '').trim(), newItems: [] };
+    }
 
     // ── 收集數值增量，最後一次性套用 ───────────────────────────────────────
     let hpDelta = 0;
@@ -203,7 +240,8 @@ export function useCommandParser(deps: CommandParserDeps) {
     let goldDelta = 0;
     let timeDeltaMinutes = 0;
     const affinityUpdates: { name: string; delta: number }[] = [];
-    const toastQueue: string[] = [];
+    const cmdResults: string[] = [];
+    const newItemNames: string[] = [];  // 本回合新增的道具名稱
 
     for (const cmd of allCommands) {
       // HP / MP / GOLD
@@ -228,11 +266,11 @@ export function useCommandParser(deps: CommandParserDeps) {
       if (locationMatch) {
         const newLoc = locationMatch[1].trim();
         setCurrentLocation(newLoc);
-        toastQueue.push(`📍 移動至 ${newLoc}`);
+        cmdResults.push(`📍 移動至 ${newLoc}`);
         continue;
       }
 
-      // TIME
+      // TIME（累加，最後一次性套用）
       const timeMatch = cmd.match(/^TIME:\+(\d+)(h|m)$/i);
       if (timeMatch) {
         const amount = parseInt(timeMatch[1]);
@@ -241,63 +279,56 @@ export function useCommandParser(deps: CommandParserDeps) {
         continue;
       }
 
-      // ITEM_ADD
+      // ITEM_ADD：全部進道具欄（items），等助理 GM 分類後再移至裝備欄
       if (cmd.toUpperCase().startsWith('ITEM_ADD:')) {
         const rawParts = cmd.slice('ITEM_ADD:'.length).split(':');
         const itemName = rawParts[0]?.trim() || '';
         const qty = parseInt(rawParts[1] || '1') || 1;
-        const EFFECT_KEYS = /^(hp|mp|gold|status)=/i;
-        const descParts: string[] = [];
-        const effectMap: Record<string, string> = {};
-        for (let pi = 2; pi < rawParts.length; pi++) {
-          if (EFFECT_KEYS.test(rawParts[pi])) {
-            const eqIdx = rawParts[pi].indexOf('=');
-            effectMap[rawParts[pi].slice(0, eqIdx).toLowerCase()] = rawParts[pi].slice(eqIdx + 1);
-          } else {
-            descParts.push(rawParts[pi]);
-          }
-        }
-        const desc = descParts.join(':').trim();
-        const hasEffect = Object.keys(effectMap).length > 0;
-        const effect: ConsumableItem['effect'] = {};
-        if (effectMap.hp) effect.hp = parseInt(effectMap.hp);
-        if (effectMap.mp) effect.mp = parseInt(effectMap.mp);
-        if (effectMap.gold) effect.gold = parseInt(effectMap.gold);
-        if (effectMap.status) effect.status = effectMap.status;
+        // 從第 2 個 part 開始全部合併為 description（移除 effect 解析）
+        const desc = rawParts.slice(2).join(':').trim();
 
-        if (hasEffect) {
-          setConsumables(prev => {
+        if (itemName) {
+          setItems(prev => {
             const exists = prev.find(i => i.name === itemName);
-            if (exists) return prev.map(i => i.name === itemName ? { ...i, quantity: i.quantity + qty } : i);
-            return [...prev, { id: Date.now(), name: itemName, quantity: qty, description: desc, effect }];
+            if (exists) {
+              return prev.map(i =>
+                i.name === itemName
+                  ? { ...i, quantity: i.quantity + qty, description: desc || i.description }
+                  : i
+              );
+            }
+            return [...prev, { id: Date.now() + Math.floor(Math.random() * 999), name: itemName, quantity: qty, description: desc }];
           });
-        } else {
-          setInventory(prev => {
-            const exists = prev.find(i => i.name === itemName);
-            if (exists) return prev.map(i => i.name === itemName ? { ...i, quantity: i.quantity + qty } : i);
-            return [...prev, { id: Date.now(), name: itemName, quantity: qty, description: desc }];
-          });
+          cmdResults.push(`🎒 獲得 ${itemName} x${qty}`);
+          newItemNames.push(itemName);  // 記錄本回合新增的道具
         }
-        toastQueue.push(`🎒 獲得 ${itemName} x${qty}`);
         continue;
       }
 
-      // ITEM_REMOVE
+      // ITEM_REMOVE：先查道具欄，再查裝備欄
       const itemRemoveMatch = cmd.match(/^ITEM_REMOVE:(.+):(\d+)$/i);
       if (itemRemoveMatch) {
         const [, name, qty] = itemRemoveMatch;
-        setInventory(prev =>
-          prev
-            .map(i => i.name === name.trim() ? { ...i, quantity: i.quantity - parseInt(qty) } : i)
-            .filter(i => i.quantity > 0)
-        );
+        const trimName = name.trim();
+        const removeQty = parseInt(qty);
+
+        // 先檢查道具欄
+        setItems(prev => {
+          const exists = prev.find(i => i.name === trimName);
+          if (!exists) return prev;
+          return prev
+            .map(i => i.name === trimName ? { ...i, quantity: i.quantity - removeQty } : i)
+            .filter(i => i.quantity > 0);
+        });
+        // 再檢查裝備欄（裝備通常數量為 1，直接移除）
+        setEquipment(prev => prev.filter(i => i.name !== trimName));
         continue;
       }
 
-      // ITEM_USE
+      // ITEM_USE：只扣數量，Toast 顯示名稱，AI 接劇情
       const itemUseMatch = cmd.match(/^ITEM_USE:(.+)$/i);
       if (itemUseMatch) {
-        applyItemEffect(itemUseMatch[1].trim());
+        useItem(itemUseMatch[1].trim());
         continue;
       }
 
@@ -346,7 +377,7 @@ export function useCommandParser(deps: CommandParserDeps) {
           ...(expires ? { expiresAt: expires } : {}),
         };
         setMemories(prev => [...prev, newMem]);
-        toastQueue.push(`📝 新增${rawType === 'world' ? '世界' : rawType === 'region' ? '區域' : rawType === 'scene' ? '場景' : 'NPC'}記憶`);
+        cmdResults.push(`📝 新增${rawType === 'world' ? '世界' : rawType === 'region' ? '區域' : rawType === 'scene' ? '場景' : 'NPC'}記憶`);
         continue;
       }
 
@@ -378,7 +409,7 @@ export function useCommandParser(deps: CommandParserDeps) {
               createdAtTotalDays,
             }];
           });
-          toastQueue.push(`📋 新任務：${title}`);
+          cmdResults.push(`📋 新任務：${title}`);
           onNewQuest?.();
         }
         continue;
@@ -395,7 +426,7 @@ export function useCommandParser(deps: CommandParserDeps) {
               ? { ...q, isGoalMet: true }
               : q
           ));
-          toastQueue.push(`🎯 任務目標達成：${titleTrimmed}（請向委託人回報）`);
+          cmdResults.push(`🎯 任務目標達成：${titleTrimmed}（請向委託人回報）`);
         }
         continue;
       }
@@ -406,23 +437,26 @@ export function useCommandParser(deps: CommandParserDeps) {
         const titleTrimmed = questCompleteMatch[1].trim();
         const quest = quests.find(q => q.title === titleTrimmed && q.status === 'active');
         if (quest) {
-          if (quest.reward?.gold) goldDelta += quest.reward.gold;
-          if (quest.reward?.items?.length) {
-            quest.reward.items.forEach(item => {
-              setInventory(prev => {
-                const exists = prev.find(i => i.name === item);
-                if (exists) return prev.map(i => i.name === item ? { ...i, quantity: i.quantity + 1 } : i);
-                return [...prev, { id: Date.now() + Math.floor(Math.random() * 999), name: item, quantity: 1, description: '' }];
+          // 發放獎勵
+          if (quest.reward?.gold && quest.reward.gold > 0) {
+            goldDelta += quest.reward.gold;
+          }
+          if (quest.reward?.items && quest.reward.items.length > 0) {
+            quest.reward.items.forEach(itemName => {
+              setItems(prev => {
+                const exists = prev.find(i => i.name === itemName);
+                if (exists) return prev.map(i => i.name === itemName ? { ...i, quantity: i.quantity + 1 } : i);
+                return [...prev, { id: Date.now() + Math.floor(Math.random() * 999), name: itemName, quantity: 1, description: '' }];
               });
+              newItemNames.push(itemName);
             });
           }
-          const rewardStr = quest.reward?.gold ? `，獲得 ${quest.reward.gold} 銅` : '';
-          toastQueue.push(`✅ 任務完成：${titleTrimmed}${rewardStr}`);
           setQuests(prev => prev.map(q =>
             q.title === titleTrimmed && q.status === 'active'
               ? { ...q, status: 'completed' as const, completedAt: `${timeState.month}/${timeState.day}` }
               : q
           ));
+          cmdResults.push(`✅ 任務完成：${titleTrimmed}`);
         }
         continue;
       }
@@ -440,14 +474,13 @@ export function useCommandParser(deps: CommandParserDeps) {
           const newThought = { text: text.trim(), createdAt: `${timeState.month}/${timeState.day}` };
           const updatedThoughts = [newThought, ...(npc.thoughts || [])];
 
-          // thoughts 未滿上限：正常累積
           if (updatedThoughts.length < THOUGHTS_LIMIT) {
             return { ...npc, thoughts: updatedThoughts };
           }
 
-          // thoughts 滿 5 則：串接全部 thoughts，寫入 memories（source: 'pre_merge'），清空 thoughts
+          // thoughts 滿 5 則：串接寫入 memories，清空 thoughts
           const mergedText = [...updatedThoughts]
-            .reverse() // 由舊到新排列
+            .reverse()
             .map(t => `[${t.createdAt}] ${t.text}`)
             .join('；');
 
@@ -461,8 +494,6 @@ export function useCommandParser(deps: CommandParserDeps) {
           };
 
           const updatedMemories = [...(npc.memories || []), newMemory];
-
-          // 未融合記錄超過門檻時，非同步觸發 AI 融合
           const unmergedCount = updatedMemories.filter(m => !m.isMerged).length;
           if (unmergedCount > MEMORIES_MERGE_THRESHOLD) {
             triggerNpcMemoryMerge(npc.id, updatedMemories, npc.name);
@@ -505,7 +536,7 @@ export function useCommandParser(deps: CommandParserDeps) {
             id: newId + 1, name: npcName, job, affection: 0, affectionLabel: '陌生人',
             appearance, personality, other: race,
             category: 'NPC', isActive: true, isPinned: false, memories: [], thoughts: [],
-            location: currentLocation, lastSeenLocation: currentLocation
+            location: currentLocation, lastSeenLocation: currentLocation,
           }];
         });
         showToast(`📝 新增 NPC：${npcName}`);
@@ -547,7 +578,6 @@ export function useCommandParser(deps: CommandParserDeps) {
       if (locDiscoverMatch) {
         const locName = locDiscoverMatch[1].trim();
 
-        // 依地點名稱關鍵字推斷類型（建築優先，避免「月湖鎮酒館」誤判為 town）
         const inferLocationType = (name: string): 'town' | 'wilderness' | 'building' => {
           if (/館|店|坊|院|殿|堂|所|塔|屋|宅|公寓|廢墟|遺址|驛站|市集|詩社|花園/.test(name)) return 'building';
           if (/鎮|城|村|市|港|聚落|街/.test(name)) return 'town';
@@ -567,7 +597,7 @@ export function useCommandParser(deps: CommandParserDeps) {
           setLorebookEntries(prev => [...prev, {
             id: Date.now(),
             title: locName,
-            content: '旅途中發現的神秘地點，尚待探索。',
+            content: '',
             category: '地點',
             isActive: true,
             mapStatus: 'discovered' as const,
@@ -578,67 +608,51 @@ export function useCommandParser(deps: CommandParserDeps) {
             insertionOrder: 100,
           }]);
         }
-        toastQueue.push(`🗺️ 發現新地點：${locName}`);
+        cmdResults.push(`🗺️ 發現新地點：${locName}`);
         continue;
       }
-
     } // end for
 
+    // ── 一次性套用數值 ──────────────────────────────────────────────────────
     if (timeDeltaMinutes > 0) {
-      const baseMinutes = timeState.hour * 60 + timeState.minute;
-      const totalMinutes = baseMinutes + timeDeltaMinutes;
-      const addedDays = Math.floor(totalMinutes / (24 * 60));
-      const remainMinutes = totalMinutes % (24 * 60);
+      setTimeState(prev => {
+        let totalMinutes = prev.hour * 60 + prev.minute + timeDeltaMinutes;
+        let extraDays = Math.floor(totalMinutes / (24 * 60));
+        totalMinutes = totalMinutes % (24 * 60);
+        const newHour = Math.floor(totalMinutes / 60);
+        const newMinute = totalMinutes % 60;
 
-      // 處理日/月/年進位（每月 30 天，每年 12 月）
-      let newDay = timeState.day + addedDays;
-      let newMonth = timeState.month;
-      let newYear = timeState.year;
-      while (newDay > 30) { newDay -= 30; newMonth++; }
-      while (newMonth > 12) { newMonth -= 12; newYear++; }
+        let day = prev.day + extraDays;
+        let month = prev.month;
+        let year = prev.year;
+        while (day > 30) { day -= 30; month++; }
+        while (month > 12) { month -= 12; year++; }
 
-      setTimeState(prev => ({
-        ...prev,
-        hour: Math.floor(remainMinutes / 60),
-        minute: remainMinutes % 60,
-        day: newDay,
-        month: newMonth,
-        year: newYear,
-      }));
+        // 任務逾期判斷
+        const newTotalDays = year * 360 + (month - 1) * 30 + day;
+        setQuests(prevQ => prevQ.map(q => {
+          if (q.status !== 'active' || !q.deadline) return q;
+          const daysElapsed = newTotalDays - q.createdAtTotalDays;
+          if (daysElapsed >= q.deadline) {
+            cmdResults.push(`⏰ 任務逾期：${q.title}`);
+            return { ...q, status: 'failed' as const };
+          }
+          return q;
+        }));
 
-      // 任務期限自動失敗
-      if (addedDays > 0) {
-        const newTotalDays = newYear * 360 + (newMonth - 1) * 30 + newDay;
-        const failedTitles = quests
-          .filter(q =>
-            q.status === 'active' &&
-            q.deadline != null &&
-            q.createdAtTotalDays != null &&
-            newTotalDays >= q.createdAtTotalDays + q.deadline
-          )
-          .map(q => q.title);
-
-        failedTitles.forEach(title => toastQueue.push(`❌ 任務失敗：${title}`));
-        if (failedTitles.length > 0) {
-          setQuests(prev => prev.map(q =>
-            failedTitles.includes(q.title) && q.status === 'active'
-              ? { ...q, status: 'failed' as const }
-              : q
-          ));
-        }
-      }
+        return { ...prev, hour: newHour, minute: newMinute, day, month, year };
+      });
     }
 
-    // ── 一次性套用數值變化 ─────────────────────────────────────────────────
     if (hpDelta !== 0 || mpDelta !== 0 || goldDelta !== 0) {
       setProfile(prev => {
         const newHp = Math.max(0, prev.hp + hpDelta);
         const newMp = Math.max(0, prev.mp + mpDelta);
         const newGold = Math.max(0, prev.gold + goldDelta);
-        if (hpDelta !== 0) toastQueue.push(hpDelta > 0 ? `❤️ HP +${hpDelta}` : `💔 HP ${hpDelta}`);
-        if (mpDelta !== 0) toastQueue.push(mpDelta > 0 ? `💙 MP +${mpDelta}` : `💙 MP ${mpDelta}`);
-        if (goldDelta !== 0) toastQueue.push(goldDelta > 0 ? `🪙 +${goldDelta} G` : `🪙 ${goldDelta} G`);
-        if (newHp === 0) toastQueue.push('💀 HP 歸零！');
+        if (hpDelta !== 0) cmdResults.push(hpDelta > 0 ? `❤️ HP +${hpDelta}` : `💔 HP ${hpDelta}`);
+        if (mpDelta !== 0) cmdResults.push(mpDelta > 0 ? `💙 MP +${mpDelta}` : `💙 MP ${mpDelta}`);
+        if (goldDelta !== 0) cmdResults.push(goldDelta > 0 ? `🪙 +${goldDelta} G` : `🪙 ${goldDelta} G`);
+        if (newHp === 0) cmdResults.push('💀 HP 歸零！');
         return { ...prev, hp: newHp, mp: newMp, gold: newGold };
       });
     }
@@ -650,63 +664,26 @@ export function useCommandParser(deps: CommandParserDeps) {
         );
         if (!update) return npc;
         const newAffinity = Math.max(-100, Math.min(100, npc.affection + update.delta));
-        toastQueue.push(`${update.delta > 0 ? '💛' : '🖤'} ${npc.name} 好感度 ${update.delta > 0 ? '+' : ''}${update.delta}`);
+        cmdResults.push(`${update.delta > 0 ? '💛' : '🖤'} ${npc.name} 好感度 ${update.delta > 0 ? '+' : ''}${update.delta}`);
         return { ...npc, affection: newAffinity };
       }));
     }
 
-    if (toastQueue.length > 0) {
-      notifyCommandResult(toastQueue);
+    if (cmdResults.length > 0) {
+      notifyCommandResult(cmdResults);
     }
 
-    return narrative.replace(/```[a-z]*\s*```/gi, '').trim();
+    return {
+      narrative: narrative.replace(/```[a-z]*\s*```/gi, '').trim(),
+      newItems: newItemNames,
+    };
   };
 
-  // ─── NPC 記憶 AI 融合 ────────────────────────────────────────────────────────
-  // 當未融合記憶超過門檻時自動觸發，使用 callAI 封裝層，不綁定特定 API 服務
-  const triggerNpcMemoryMerge = async (
-    npcId: number,
-    currentMemories: Array<{ id: string; text: string; isMerged?: boolean; [key: string]: unknown }>,
-    npcName: string,
-  ) => {
-    const toMerge = currentMemories.filter(m => !m.isMerged);
-    if (toMerge.length === 0) return;
-
-    const mergePrompt = `你是一個 RPG 遊戲的記憶整理助理。
-以下是 NPC「${npcName}」對玩家的記憶片段，請整合成一段簡潔的第一人稱摘要（100字以內）。
-重要：保留道具名稱、重要台詞、關鍵事件，壓縮重複情緒。
-只輸出摘要文字，不要任何前綴或說明。
-
-記憶片段：
-${toMerge.map(m => `- ${m.text}`).join('\n')}`;
-
-    try {
-      const mergedText = await callAI(mergePrompt);
-      if (!mergedText) return;
-
-      const mergedMemory = {
-        id: `nmem_${Date.now()}_${Math.floor(Math.random() * 9999)}`,
-        text: mergedText,
-        createdAt: `${timeState.month}/${timeState.day}`,
-        source: 'merged' as const,
-        importance: 'normal' as const,
-        isMerged: false,
-        mergedFrom: toMerge.map(m => m.id),
-      };
-
-      setNpcs(prev => prev.map(npc => {
-        if (npc.id !== npcId) return npc;
-        const updatedMemories = npc.memories.map(m =>
-          toMerge.some(tm => tm.id === m.id) ? { ...m, isMerged: true } : m
-        );
-        return { ...npc, memories: [...updatedMemories, mergedMemory] };
-      }));
-
-      showToast(`💫 ${npcName} 的記憶已自動整合`);
-    } catch (e) {
-      console.error('NPC memory merge failed:', e);
-    }
+  return {
+    parseAndExecuteCommands,
+    useItem,
+    scanKeywords,
+    isMemoryTriggered,
+    tickMemoryCounters,
   };
-
-  return { parseAndExecuteCommands, applyItemEffect, scanKeywords, isMemoryTriggered, tickMemoryCounters };
 }

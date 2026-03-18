@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { GoogleGenAI } from "@google/genai";
 import { DiaryModal } from './components/DiaryModal';
 import { LorebookModal } from './components/LorebookModal';
-import { Npc, LorebookEntry, Message, NpcMemory, MemoryEntry } from './types';
+import { Npc, LorebookEntry, Message, NpcMemory, EquipmentItem, ItemEntry } from './types';
 import { NpcModal } from './components/NpcModal';
 import { QuestModal } from './components/QuestModal';
 import { ProfileModal } from './components/ProfileModal';
@@ -94,18 +94,24 @@ export default function App() {
   const [isUpdatingLog, setIsUpdatingLog] = useState(false);
 
   // 背景處理：整理冒險日誌與目標（使用 callAI 封裝層，不綁定特定 API）
-  const updateAdventureState = async (history: Message[]) => {
+
+const updateAdventureState = async (history: Message[], newItems: string[] = []) => {
     if (history.length < 2) return;
     setIsUpdatingLog(true);
     try {
       const lastMessages = history.slice(-6).map(m => `${m.role}: ${m.text}`).join('\n');
-      const prompt = `你是一個冒險日誌整理員。請根據以下最近的對話內容，整理出目前的冒險狀態。
-請嚴格輸出 JSON 格式，不要加任何前綴或說明：
+      const itemClassifySection = newItems.length > 0
+        ? `\n\n另外，請判斷以下新增道具各屬於「裝備」（武器、防具、飾品等穿戴型）還是「道具」（消耗品、材料、卷軸等使用型）。
+請在 JSON 中加入 "item_types" 欄位，key 為道具名，value 為 "equipment" 或 "item"。
+新增道具：${newItems.join('、')}`
+        : '';
+      const prompt = `你是一個 RPG 後台資料整理員，不負責說故事。
+請根據以下最近的對話，輸出固定 JSON 格式，只輸出 JSON，不要任何說明：
 {
   "summary": "一句話總結剛發生的事",
-  "goals": ["短期目標1", "短期目標2"],
-  "status_tags": ["標籤1", "標籤2"]
+  "goals": ["短期目標1", "短期目標2"]${newItems.length > 0 ? `,\n  "item_types": { "道具名": "equipment 或 item" }` : ''}
 }
+${itemClassifySection}
 
 對話內容：
 ${lastMessages}`;
@@ -119,6 +125,26 @@ ${lastMessages}`;
       }
       if (data.goals) {
         setCurrentGoals(data.goals);
+      }
+      if (data.item_types && typeof data.item_types === 'object') {
+        const toEquip: string[] = Object.entries(data.item_types)
+          .filter(([, v]) => v === 'equipment')
+          .map(([k]) => k);
+        if (toEquip.length > 0) {
+          setItems(prev => {
+            const moving = prev.filter(i => toEquip.includes(i.name));
+            setEquipment(eq => {
+              const next = [...eq];
+              moving.forEach(item => {
+                if (!next.some(e => e.name === item.name)) {
+                  next.push({ id: item.id, name: item.name, description: item.description, isEquipped: false });
+                }
+              });
+              return next;
+            });
+            return prev.filter(i => !toEquip.includes(i.name));
+          });
+        }
       }
     } catch (error) {
       console.error("Failed to update adventure state:", error);
@@ -168,8 +194,8 @@ ${lastMessages}`;
     quests, setQuests,
     diaryEntries, setDiaryEntries,
     lorebookEntries, setLorebookEntries,
-    inventory, setInventory,
-    consumables, setConsumables,
+    equipment, setEquipment,
+    items, setItems,
     messages, setMessages,
     quickOptions, setQuickOptions,
     worldMap, setWorldMap,
@@ -306,12 +332,12 @@ ${lastMessages}`;
   }, [geminiApiKey]);
 
   // ─── 指令解析器（useCommandParser）─────────────────────────────────────────
-  const { parseAndExecuteCommands, applyItemEffect, scanKeywords, isMemoryTriggered, tickMemoryCounters } =
+  const { parseAndExecuteCommands, useItem, scanKeywords, isMemoryTriggered, tickMemoryCounters } =
     useCommandParser({
-      timeState, currentLocation, quests, memories, consumables,
+      timeState, currentLocation, quests, memories, items,
       stickyCounters, cooldownCounters, messages, lorebookEntries,
       setTimeState, setProfile, setCurrentLocation, setQuests,
-      setMemories, setInventory, setConsumables, setNpcs,
+      setMemories, setEquipment, setItems, setNpcs,
       setLorebookEntries, setWorldMap, setQuickOptions,
       setStickyCounters, setCooldownCounters,
       notifyCommandResult,
@@ -790,21 +816,21 @@ ${recentChat}
     const worldMems    = filterByImportance(triggeredMemories.filter(m => m.type === 'world'), 8, 3);
     const regionMems   = filterByImportance(triggeredMemories.filter(m => m.type === 'region'), 5, 2);
     const sceneMems    = filterByImportance(triggeredMemories.filter(m => m.type === 'scene'), 5, 2);
-    const npcMems      = triggeredMemories.filter(m => {
-      if (m.type !== 'npc') return false;
-      const npcTags = m.tags?.npcs || [];
-      return npcTags.some(npcName => 
-        appearingNpcs.includes(npcName) || npcs.some(n => n.isPinned && n.name === npcName)
-      );
-    });
-
-        // 已在 relevantLorebook 完整注入的 NPC 不重複出現於 [Pinned NPCs] 區塊
+    const sceneMems    = filterByImportance(triggeredMemories.filter(m => m.type === 'scene'), 5, 2);
     const relevantLorebookNpcTitles = new Set(
       relevantLorebook.filter(e => e.category === 'NPC').map(e => e.title)
     );
     const pinnedNpcs = npcs.filter(
       n => n.isPinned && !relevantLorebookNpcTitles.has(n.name)
     );
+
+    const npcMems      = triggeredMemories.filter(m => {
+      if (m.type !== 'npc') return false;
+     const npcTags = m.tags?.npcs || [];
+      return npcTags.some(npcName => 
+        appearingNpcs.includes(npcName) || pinnedNpcs.some(p => p.name === npcName)
+      );
+    });
 
     const recentMessages = currentMessages.slice(-SLIDING_WINDOW);
 
@@ -965,10 +991,8 @@ AFFINITY:角色名:+10
 LOCATION:新地點名稱
 TIME:+1h
 ITEM_ADD:道具名:1:說明文字
-ITEM_ADD:草藥:1:回復生命的藥草:hp=20
-ITEM_ADD:魔法藥水:2:恢復魔力:mp=30
-ITEM_ADD:毒藥:1:造成中毒:status=poisoned:hp=-5
-ITEM_USE:道具名
+- ITEM_ADD：當玩家獲得道具時輸出。若道具為消耗品（藥水、食物、卷軸等），請加上 effect 欄位（hp/mp/gold/status=值），前端會自動分類為消耗品欄並套用數值。
+- ITEM_USE：當玩家在對話中明確表示使用某消耗品時輸出，使用與道具欄完全相同的道具名稱，前端會套用 effect 並扣除數量。
 QUEST_ADD:任務名稱:委託人NPC:目標描述:獎勵金幣:獎勵道具(逗號分隔可留空):期限天數(可留空=無期限)
 QUEST_GOAL_MET:任務名稱
 QUEST_COMPLETE:任務名稱
@@ -994,8 +1018,9 @@ MEMORY_ADD:world:critical:魔王宣布向月湖鎮宣戰:keywords=魔王,宣戰
 當玩家與 NPC 初次建立明確關係（如：成為顧客、僱主、同行者、對手），或關係發生重大轉變時（如：從陌生人變成盟友、從朋友變成仇人），輸出一句簡短的關係描述（例如「偶爾光顧的旅行者」「被委託的冒險者」「礙眼的外來者」）。
 
 【AI 何時應輸出 ITEM_ADD / ITEM_USE】
-- ITEM_ADD：當玩家獲得道具時輸出。若道具為消耗品（藥水、食物、卷軸等），請加上 effect 欄位（hp/mp/gold/status=值），前端會自動分類為消耗品欄並套用數值。
-- ITEM_USE：當玩家在對話中明確表示使用某消耗品時輸出，使用與道具欄完全相同的道具名稱，前端會套用 effect 並扣除數量。
+- ITEM_ADD：當玩家獲得任何道具時輸出，格式 ITEM_ADD:名稱:數量:說明文字。說明文字請詳細描述外觀與效果，玩家使用時 AI 根據說明生成劇情。
+- ITEM_USE：當玩家明確使用某道具時輸出，前端會扣除數量並送訊息給 AI 接續描述。
+- ITEM_USE：當玩家明確使用某道具時輸出，前端會扣除數量並送訊息給 AI 接續描述。
 
 【AI 何時應輸出 QUEST_ADD】
 當 NPC 正式委託玩家任務、或玩家從布告欄接取任務時輸出。格式：QUEST_ADD:任務名:委託人:目標描述:獎勵金幣(數字):獎勵道具(逗號分隔,可留空):期限天數(數字,可留空)。任務名稱之後的欄位均可留空。
@@ -1077,7 +1102,12 @@ Please respond as the DM.`;
         }
       }
 
-      const rawNarrative = parseAndExecuteCommands(fullText);
+      const { narrative: parsedNarrative, newItems } = parseAndExecuteCommands(fullText);
+      const rawNarrative = parsedNarrative;
+
+      // ── 助理 GM 接口：有新增道具時才觸發分類（Sub GM 實裝後補完）──────────
+      // newItems 為本回合新增的道具名稱清單，updateAdventureState 會請助理 GM 分類
+      // 解析所有 [出場:] 標記
 
       // 解析所有 [出場:] 標記（matchAll），合併去重後更新 appearingNpcs
       // 防呆：AI 若重複輸出同一角色的 [出場:] 標記，前端只計一次
@@ -1119,8 +1149,10 @@ Please respond as the DM.`;
       tickMemoryCounters(triggeredIds);
 
       // 觸發背景整理
-      updateAdventureState([...newMessages, { id: aiMessageId, role: 'assistant', text: narrative }]);
-
+      updateAdventureState(
+        [...newMessages, { id: aiMessageId, role: 'assistant', text: narrative }],
+        newItems,
+      );
     } catch (error) {
       console.error('Error calling Gemini API:', error);
       showToast('API 呼叫失敗，請檢查設定或網路連線');
@@ -1236,7 +1268,7 @@ Please respond as the DM.`;
                 className={`w-full p-3 flex items-center justify-between hover:bg-[#1a2e50] transition rounded-[5px] ${isInventoryOpen ? 'bg-[#1a2e50]' : ''}`}
               >
                 <h3 className="flex items-center text-[#e2eaf8] font-bold">
-                  <Package className="w-4 h-4 mr-2" /> 道具 ({inventory.reduce((acc, item) => acc + item.quantity, 0)})
+                  <Package className="w-4 h-4 mr-2" /> 裝備 ({equipment.length})
                 </h3>
                 <ChevronRight className={`w-4 h-4 text-[#3a5a8a] transition-transform ${isInventoryOpen ? 'rotate-90 text-[#e6bf55]' : ''}`} />
               </button>
@@ -1253,13 +1285,13 @@ Please respond as the DM.`;
                   style={{ maxHeight: '60vh' }}
                 >
                   <div className="sticky top-0 bg-[#0d1f3c]/90 backdrop-blur-md p-3 border-b border-[#2a4a7f] flex justify-between items-center z-10">
-                    <h3 className="text-[#e6bf55] font-bold flex items-center text-sm"><Package className="w-4 h-4 mr-2" /> 道具清單</h3>
+                    <h3 className="text-[#e6bf55] font-bold flex items-center text-sm"><Package className="w-4 h-4 mr-2" /> 裝備清單</h3>
                     <button onClick={() => setIsInventoryOpen(false)} className="text-[#3a5a8a] hover:text-[#e2eaf8] transition-colors p-1 rounded-full hover:bg-white/5">
                       <X className="w-4 h-4" />
                     </button>
                   </div>
                   <div className="p-3 space-y-2 overflow-y-auto custom-scrollbar flex-1">
-                    {inventory.length > 0 ? inventory.map(item => (
+                    {equipment.length > 0 ? equipment.map(item => (
                       <div 
                         key={item.id} 
                         className={`bg-[#1a2e50]/50 p-2.5 rounded-lg border cursor-pointer transition-all ${selectedInventoryItem === item.id ? 'border-[#e6bf55]/50 shadow-[0_0_10px_rgba(230,191,85,0.1)]' : 'border-[#2a4a7f]/50 hover:border-[#2a4a7f] hover:bg-[#1a2e50]'}`}
@@ -1295,9 +1327,9 @@ Please respond as the DM.`;
                                 className="flex-1 bg-rose-900/20 hover:bg-rose-900/40 text-rose-400 border border-rose-900/30 text-xs py-1.5 rounded-lg transition font-medium"
                                 onClick={(e) => { 
                                   e.stopPropagation(); 
-                                  setInventory(prev => prev.map(i => i.id === item.id ? { ...i, quantity: i.quantity - 1 } : i).filter(i => i.quantity > 0));
-                                  showToast(`丟棄了 ${item.name}`); 
-                                  setSelectedInventoryItem(null); 
+                                  setItems(prev => prev.filter(i => i.id !== item.id));
+                                  showToast(`丟棄了 ${item.name}`);
+                                  setSelectedItemEntry(null);
                                 }}
                               >
                                 丟棄
@@ -1350,7 +1382,7 @@ Please respond as the DM.`;
                     </button>
                   </div>
                   <div className="p-3 space-y-2 overflow-y-auto custom-scrollbar flex-1">
-                    {consumables.length > 0 ? consumables.map(item => (
+                    {items.length > 0 ? items.map(item => (
                       <div 
                         key={item.id} 
                         className={`bg-[#1a2e50]/50 p-2.5 rounded-lg border cursor-pointer transition-all ${selectedConsumableItem === item.id ? 'border-[#e6bf55]/50 shadow-[0_0_10px_rgba(230,191,85,0.1)]' : 'border-[#2a4a7f]/50 hover:border-[#2a4a7f] hover:bg-[#1a2e50]'}`}
@@ -1374,9 +1406,9 @@ Please respond as the DM.`;
                                 className="flex-1 bg-emerald-900/20 hover:bg-emerald-900/40 text-emerald-400 border border-emerald-900/30 text-xs py-1.5 rounded-lg transition font-medium"
                                 onClick={(e) => {
                                   e.stopPropagation();
-                                  applyItemEffect(item.name);
-                                  setSelectedConsumableItem(null);
-                                  handleSendMessage(`（玩家使用了 ${item.name}，效果已套用）`);
+                                  useItem(item.name);
+                                  setSelectedItemEntry(null);
+                                  handleSendMessage(`（我使用了 ${item.name}（${item.description}））`);
                                 }}
                               >
                                 使用
@@ -1385,9 +1417,9 @@ Please respond as the DM.`;
                                 className="flex-1 bg-rose-900/20 hover:bg-rose-900/40 text-rose-400 border border-rose-900/30 text-xs py-1.5 rounded-lg transition font-medium"
                                 onClick={(e) => { 
                                   e.stopPropagation(); 
-                                  setConsumables(prev => prev.map(i => i.id === item.id ? { ...i, quantity: i.quantity - 1 } : i).filter(i => i.quantity > 0));
-                                  showToast(`丟棄了 ${item.name}`); 
-                                  setSelectedConsumableItem(null); 
+                                  setItems(prev => prev.filter(i => i.id !== item.id));
+                                  showToast(`丟棄了 ${item.name}`);
+                                  setSelectedItemEntry(null);
                                 }}
                               >
                                 丟棄

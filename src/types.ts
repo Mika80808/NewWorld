@@ -71,7 +71,7 @@ export interface Npc {
   category: string;
   isActive: boolean;
   isPinned?: boolean;
-  memories: NpcMemory[];                              // 升級：string[] → NpcMemory[]
+  memories: NpcMemory[];
 }
 
 export interface LorebookEntry {
@@ -137,25 +137,28 @@ export interface MemoryEntry {
   expiresAt?: string;
 }
 
-export interface InventoryItem {
+// ─── 裝備（穿戴型，無消耗）────────────────────────────────────────────────────
+// 舊名：InventoryItem
+export interface EquipmentItem {
   id: number;
   name: string;
-  quantity: number;
-  description: string;
+  description: string;                // 裝備說明（防禦力、魔法屬性等）
+  isEquipped: boolean;                // 是否正在穿戴
 }
 
-export interface ConsumableItem {
+// ─── 道具（使用型，有數量）────────────────────────────────────────────────────
+// 舊名：ConsumableItem（移除 effect 欄位，效果由 AI 敘事處理）
+export interface ItemEntry {
   id: number;
   name: string;
   quantity: number;
-  description: string;
-  effect?: {
-    hp?: number;
-    mp?: number;
-    gold?: number;
-    status?: string;
-  };
+  description: string;                // 道具說明，AI 使用時根據此說明生成劇情
 }
+
+// ─── 向下相容型別別名（舊存檔 migrate 用）────────────────────────────────────
+// App.tsx / useGameStore.ts 讀取舊存檔時使用，新程式碼不應再引用這兩個型別
+export type InventoryItem = EquipmentItem;
+export type ConsumableItem = ItemEntry;
 
 export interface Message {
   id: number;
