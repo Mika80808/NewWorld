@@ -59,14 +59,28 @@ export function useCommandParser(deps: CommandParserDeps) {
   };
 
   // ─── 記憶觸發判斷 ──────────────────────────────────────────────────────────
-  const isMemoryTriggered = (mem: MemoryEntry, userInput = ''): boolean => {
+  const isMemoryTriggered = (mem: MemoryEntry, userInput = '', currentLocation = ''): boolean => {
     if (!mem.isActive) return false;
     if ((cooldownCounters[mem.id] || 0) > 0) return false;
     if ((stickyCounters[mem.id] || 0) > 0) return true;
     const prob = mem.trigger?.probability ?? 100;
     if (prob < 100 && Math.random() * 100 > prob) return false;
+
+    // 🌍 【世界記憶】：無條件觸發（後續再由 importance 截斷數量）
+    if (mem.type === 'world') return true;
+
+    // 🗺️🏠 【區域與場景記憶】：精確地點比對
+    if (mem.type === 'region' || mem.type === 'scene') {
+      const locs = mem.tags?.locations || [];
+      // 只有當「當前地點」完全等於記憶標籤中的地點時才觸發
+      if (locs.some(loc => loc === currentLocation)) {
+        return true;
+      }
+      return false;
+    }
+
+    // 👤 【NPC 記憶】或其他情況：保留關鍵字比對
     const allKeywords = [
-      ...(mem.tags?.locations || []),
       ...(mem.tags?.npcs || []),
       ...(mem.tags?.factions || []),
       ...(mem.tags?.keywords || []),

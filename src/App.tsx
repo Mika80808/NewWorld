@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { Settings, Send, RefreshCw, MoreVertical, Book, BookOpen, User, Package, Beaker, Globe, Users, Heart, MapPin, Zap, Coins, Calendar, Shield, CheckSquare, ChevronDown, ChevronRight, Map as MapIcon, Cloud, Sun, CloudRain, Snowflake, Moon, Wind, Sparkles, Brain, ScrollText, History, X } from 'lucide-react';
+import { Settings, Send, RefreshCw, MoreVertical, Book, BookOpen, User, Package, Beaker, Globe, Users, Heart, MapPin, Zap, Coins, Calendar, Shield, CheckSquare, ChevronDown, ChevronRight, Map as MapIcon, Cloud, Sun, CloudRain, Snowflake, Moon, Wind, Sparkles, Brain, ScrollText, History, X, Edit2, Trash2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { GoogleGenAI } from "@google/genai";
 import { DiaryModal } from './components/DiaryModal';
@@ -148,6 +148,8 @@ export default function App() {
   const [activeMenuId, setActiveMenuId] = useState<number | null>(null);
   const [editingMessageId, setEditingMessageId] = useState<number | null>(null);
   const [editMessageText, setEditMessageText] = useState('');
+  const [editingMemoryId, setEditingMemoryId] = useState<string | null>(null);
+  const [editingMemoryContent, setEditingMemoryContent] = useState('');
   const [isMapOpen, setIsMapOpen] = useState(false);
   const [inputText, setInputText] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -742,12 +744,25 @@ ${recentChat}
       })
       .sort((a, b) => (a.insertionOrder ?? 100) - (b.insertionOrder ?? 100));
 
-    const triggeredMemories = memories.filter(m => isMemoryTriggered(m, userInput));
-    const worldMems    = triggeredMemories.filter(m => m.type === 'world');
-    const regionMems   = triggeredMemories.filter(m => m.type === 'region');
-    const sceneMems    = triggeredMemories.filter(m => m.type === 'scene' &&
-      (m.tags?.locations || []).some((l: string) => l === currentLocation || currentLocation.includes(l)));
-    const npcMems      = triggeredMemories.filter(m => m.type === 'npc');
+    const triggeredMemories = memories.filter(m => isMemoryTriggered(m, userInput, currentLocation));
+    
+    const filterByImportance = (mems: MemoryEntry[], maxNormal: number, maxFlavor: number) => {
+      const critical = mems.filter(m => m.importance === 'critical');
+      const normal = mems.filter(m => m.importance === 'normal').slice(0, maxNormal);
+      const flavor = mems.filter(m => m.importance === 'flavor').slice(0, maxFlavor);
+      return [...critical, ...normal, ...flavor];
+    };
+
+    const worldMems    = filterByImportance(triggeredMemories.filter(m => m.type === 'world'), 8, 3);
+    const regionMems   = filterByImportance(triggeredMemories.filter(m => m.type === 'region'), 5, 2);
+    const sceneMems    = filterByImportance(triggeredMemories.filter(m => m.type === 'scene'), 5, 2);
+    const npcMems      = triggeredMemories.filter(m => {
+      if (m.type !== 'npc') return false;
+      const npcTags = m.tags?.npcs || [];
+      return npcTags.some(npcName => 
+        appearingNpcs.includes(npcName) || pinnedNpcs.some(p => p.name === npcName)
+      );
+    });
 
     const pinnedNpcs = npcs.filter(n => n.isPinned);
     const recentMessages = currentMessages.slice(-SLIDING_WINDOW);
@@ -1007,7 +1022,7 @@ Please respond as the DM.`;
       }));
 
       const triggeredIds = memories
-        .filter(m => isMemoryTriggered(m, inputText))
+        .filter(m => isMemoryTriggered(m, inputText, currentLocation))
         .map(m => m.id);
       tickMemoryCounters(triggeredIds);
 

@@ -15,45 +15,187 @@
 > - AI 改功能前必須先讀取對應組件檔案
 
 ---
-## 已知BUG (需先修復)
 
-🥇 第一階段：核心體驗與資料安全 (最優先)
+- [ ] 整體架構分工
 
-- [x] 修復 AI 回覆輸出完畢後消失，只剩下「```」的問題 
-  2026-03-17 [Gemini]: 修復 `useCommandParser` 中 `commandBlockRegex` 吞噬整個字串的問題。將 `COMMANDS` 區塊的處理順序移至 `OPTIONS` 之前，並在正則表達式中加入 `(?=\n\n)` 與 `(?=<<OPTIONS>>)` 作為防呆機制，避免 AI 忘記輸出結尾標籤時把後續敘事內容刪除。
+  這個遊戲由兩個 AI 角色協同運作，各司其職：
 
-- [x] 修復自動存檔功能 (清單第 2 點)
-  2026-03-17 [Gemini]: 將 AI 回覆角色從 `system` 改為 `assistant` 以觸發 `useEffect`；將 `adventureLog` 與 `currentGoals` 移入 `useGameStore` 確保被納入存檔；優化 `useEffect` 依賴與觸發條件。
+  - **主 GM（Main GM）**
+  負責所有面向玩家的故事內容，包含場景敘事、NPC 對話、劇情推進、數值變化指令輸出，以及決定哪些 NPC 在當前場景出場。使用較強的模型，token 消耗大。
 
-- [x] 修復玩家對話框的[刪除]與[編輯]功能失效問題
-  2026-03-17 [Gemini]: 在 `App.tsx` 中，當玩家刪除或編輯訊息時，除了更新 React state 外，同步呼叫 `saveToStorage({ messages: newMessages })`，確保變更立即寫入 localStorage，避免重新整理後恢復原狀。同時在發送新訊息時也立即存檔。
+  - **GM 助理（Sub GM）**
+  負責後台資料整理，不直接面向玩家。工作包含整理冒險摘要、更新當前目標、判斷是否值得自動生成日記、以及未來協助撈取 NPC 候選名單交給主 GM 參考。使用輕量模型節省費用。
 
-🥈 第二階段：UI 佈局與空間優化
+  - GM 助理不是每次都觸發，只有在主 GM 的回覆達到一定字數，或者發生了任務新增、地點移動、世界記憶寫入等重要指令時才啟動，避免在玩家只說「嗯」或「好的」這類輕量互動時浪費 API 呼叫。
+  - 【防呆】建議加入冷卻與節流：例如每 3 回合最多觸發一次 Sub GM，或若上一回合已觸發且本回合沒有關鍵事件，就跳過。
 
-- [x] 3. 道具與消耗品欄位改版
-  2026-03-17 [Gemini]: 於 `App.tsx` 將道具與消耗品區塊從手風琴折疊改為向右展開的絕對定位懸浮面板 (Popover)，並加入關閉按鈕與毛玻璃特效。
+---
 
-實作想法：如您所建議，當道具變多時，原本的列表會撐爆版面。我們可以將這兩個區塊改成 「點擊後向右展開的懸浮面板 (Popover / Drawer)」。左側只保留一個帶有數量標示的按鈕（例如：🎒 道具 (5)），點擊後才在旁邊彈出詳細清單。
-效益：徹底解決物品過多導致的排版崩壞問題。
+- [ ] 模型選擇設計
 
-🥉 第三階段：進階邏輯與系統功能
+  - 玩家可以自行設定主 GM 和 GM 助理各自使用的模型，以及輸出 token 上限。API Key 方面，GM 助理預設與主 GM 共用同一組 Key，進階玩家才需要另外設定。UI 上提供「使用同一組 API Key」的勾選框，預設勾選，取消後才開放獨立輸入。
 
-4. 右欄位 [當前場景人物] 的動態更新 (清單第 3 點)
-實作想法：這需要前後端配合。我們需要檢查 AI 的 System Prompt，確保有強制要求 AI 在每次回覆時，都要在 JSON 中輸出 currentCharacters 陣列。接著檢查前端在接收到 AI 回覆時，是否有正確將這個陣列更新到 React State 中。
-優先度：中。這牽涉到 AI 的行為穩定度，可能需要反覆測試 Prompt。
+  - 主 GM 的模型選項面向故事品質，GM 助理的選項面向輕量省費，兩者的 token 上限選項範圍也不同，GM 助理只需要輸出 JSON 格式的摘要，不需要長篇故事的空間。
+
+  - 這些設定都存在 localStorage，與遊戲存檔分開，不會隨存檔匯出匯入。模型使用下拉選單而非自由輸入，避免打錯模型名稱導致靜默失敗。
+  - 【防呆】建議在 UI 顯示目前模型與 token 上限的「最後更新時間」與「當前生效值」，避免玩家誤以為切換後已生效但其實未保存。
+
+---
+
+- [ ] Prompt 效率優化
+
+  **COMMAND FORMAT 壓縮**
+  - COMMAND FORMAT 區塊永遠硬寫在 buildPrompt 函數結尾，與玩家可編輯的 systemPrompt 完全隔離，玩家看不到也改不了。壓縮的目標是縮短這段硬寫內容的字數，不是移動它的位置。
+
+  **道具資訊分層**
+  - 道具欄位完整傳送在大多數場景是浪費，建議分兩層：帶有 effect 的消耗品和數量大於 1 的道具完整傳送，其餘只傳名字和數量。
+  - 【防呆】若道具欄超過上限，僅保留最近變動的道具完整資訊。
+
+  **GM 助理自動生成日記**
+  - 配合現有的魔法日記功能，GM 助理可主動觸發，在符合條件時自動生成日記。GM 助理生成日記後，只在左側欄位的「日記與記憶」卡片標題處顯示亮點提示。玩家是否點進日記、是否勾選日記，完全由玩家控制。未勾選日記不注入，不會造成 AI 多讀不該讀的內容。
+  - 【新日記】亮點提示顯示後，玩家點開日記即消除，避免長期佔用視覺注意力。
 
 
-## 🧭 架構討論
+- [ ] 記憶系統分層
+
+記憶分為四層，每層的注入條件不同：
+
+  **world（世界記憶）**
+  - 影響整個世界的重大事件，如魔王宣戰、天象異變。目前是只要 isActive 就全部注入，建議加入 importance 加權截斷，critical 無上限，normal 最多 8 條，flavor 最多 3 條，避免在平凡場景塞入過多不相關的世界資訊。
+  - 【防呆】同一回合 world 類型寫入數量做硬上限（例如最多 2 條），避免 AI 一次產生大量世界事件。
+
+  **region（區域記憶）**
+  - 特定區域的動態變化。地點比對需要改為精確相等，避免「月湖鎮」的記憶誤觸發「月湖鎮酒館」的場景，或反過來。別名管理集中在 LorebookEntry 的地點資料上，加入 aliases 欄位，記憶本身保持乾淨。
+  - 【防呆】透過 aliases 欄位處理漏觸發問題，例如「酒館」對應到「月湖鎮酒館」，避免精確相等造成誤判。
+
+  **scene（場景記憶）**
+  - 當前地點的物理或狀態改變。同樣需要精確地點比對，而非字串包含比對。
+  - 【防呆】若 scene 記憶超過上限，優先保留最近建立的紀錄，避免舊場景狀態反覆干擾新狀態。
+
+  **npc（NPC 記憶）**
+  - NPC 透露的關鍵情報或重要決定。目前沒有地點限制，任何場景都會注入所有 NPC 記憶，建議配合 NPC 出場狀態做篩選。
+  - 【防呆】未出場的 NPC 記憶禁止注入；Pinned 或高好感 NPC 例外可保留 1~2 條關鍵記憶。
+
+  - 整體篩選邏輯建議分三道關卡：第一道排除過期記憶，第二道做精確地點或關鍵字比對，第三道依 importance 截斷數量。
+  - 【防呆】若記憶數量過多且無法篩選，提供「降級策略」：只注入 importance=critical。
+
+---
+
+- [ ] NPC 出場流程
+
+  目前的兩階段注入架構方向正確，但有一個時序缺口需要補強。
+
+  - **Phase 1（候選名單）**
+  - 玩家進入某地點時，前端根據 homeLocation 和 roamLocations 篩選候選 NPC，以輕量格式（名字＋職業）注入 Prompt，讓主 GM 知道場景裡可能有誰。候選名單上限依地點類型調整：城鎮類最多 8 個，野外或建築內最多 3 個。
+  - 【防呆】若候選名單為空，提供明確提示「可自由創造新角色」，避免主 GM 卡住。
+
+  **Phase 2（完整資料注入）**
+  - 主 GM 在敘事開頭輸出 `[出場:姓名]` 標記，前端偵測後將對應 NPC 的完整資料（外貌、個性、近期想法）注入下一輪的 Prompt。
+
+  **時序缺口的處理**
+  - 由於完整資料在下一輪才注入，對於好感度高、記憶庫豐富的 NPC，第一輪互動品質可能受影響。建議的補強方式是：如果候選名單裡有 isPinned 的 NPC，或好感度達到 60 以上的 NPC，直接升級為完整注入，不等出場標記確認。這樣對玩家最在意的核心角色，AI 每一輪都能看到完整資料。
+
+  **NPC 資料去重**
+  - 目前 Pinned NPC 和出場 NPC 的資料可能重複注入，需要在 buildPrompt 裡加入去重邏輯，確保同一個 NPC 的資料只出現一次。
+  - 【防呆】若 AI 重複輸出 `[出場:]` 同一角色，前端忽略重複並避免重複注入。
+
+---
+
+- [ ] NPC 記憶庫設計
+
+  好感度達到 60 時解鎖，屬於永久性功能，不會因好感度下降而關閉。
+
+  **資料結構**
+  - 目前 memories 是純字串陣列，建議升級為結構化物件，包含 id、文字內容、遊戲內建立日期、來源（玩家手動輸入 / AI 自動生成 / 融合後產物），以及融合相關的標記欄位。
+  - 【防呆】加上 importance 或 priority 欄位，避免所有記憶都被視為同等重要。
+
+  **記憶來源**
+  - 玩家手動記錄的事件，以及 AI 透過 NPC_THOUGHT 指令自動寫入的想法，都會進入記憶庫。兩者來源不同但格式統一。
+  - 【防呆】AI 自動寫入限制每回合最多 1~2 則，避免爆量堆疊。
+
+  **注入條件**
+  - 只有當 NPC 出現在 appearingNpcs 或 isPinned 時，才注入其記憶庫內容。未出場的 NPC 記憶庫不注入，即使已解鎖也不例外。注入時優先選最近幾則原文，融合後的摘要版本排在後面補充。
+
+  **融合機制**
+  - 當記憶庫累積到一定數量時，由玩家主動觸發融合，不自動強制融合。建議只融合一定天數前（遊戲內時間）的舊記憶，保留最近幾則原文。融合邏輯與日記的融合日記功能完全相同，可直接複用。
+  - 【防呆】融合時保留每個 NPC 最近 N 則（如 3 則）原文，避免把剛發生的重要事件壓縮掉。
+
+  **Prompt 注入格式**
+  - 目前是將記憶串成一行字串，建議改為分行列出，並標示建立日期，讓主 GM 更容易判斷事件的時序和 NPC 對玩家的態度演變。
+  - 【防呆】若記憶欄位過長，優先顯示「摘要」版本，避免 prompt 被單一 NPC 佔滿。
+
+---
+
+- [ ] GM 助理輸出格式
+
+GM 助理每次執行輸出固定 JSON 格式，包含三個欄位：
+
+- summary：一句話總結剛發生的事，用於左欄冒險摘要
+- goals：短期目標陣列，用於左欄當前目標
+- diary_worthy：布林值，判斷這一輪劇情是否值得觸發自動日記生成
+
+三個任務合併成一次 API 呼叫，比分散觸發更有效率。只有當 diary_worthy 為 true 時，才會再發起水晶球日記的 API 呼叫。
+【防呆】為 diary_worthy 加上冷卻時間（例如 5 回合內最多 true 一次），避免連續觸發成本暴增。
+
+---
+
+- [ ] 日記機制
+
+- 日記維持「關鍵字觸發」機制，只有命中關鍵字才會注入，需保留此機制。
+- GM 助理在符合條件時自動生成日記，但不彈出提示。
+- 生成完成後只透過 UI 亮點提示玩家有新日記可查看。
+- 是否讓 GM 助理自動新增關鍵字仍未採用，避免 AI 代替玩家決定記憶焦點，保持玩家主控。
+
+---
+
+- [ ] 串流顯示策略
+
+主 GM 的回覆採用**延遲顯示**而非即時串流。原因是串流過程中 AI 輸出的 `<<COMMANDS>>` 原始指令文字會短暫顯示在對話框，造成出戲感。延遲顯示更符合玩家閱讀故事的沉浸體驗，等同於「翻頁才看到內容」的閱讀節奏。
+
+**執行順序**
+
+```
+玩家送出訊息
+  → 前端 buildPrompt（組裝主 GM 的 Prompt）
+  → 主 GM 串流回覆（背景接收，不顯示）
+  → 串流結束，parseAndExecuteCommands 執行
+  → 解析 [出場:] 標記，更新 appearingNpcs
+  → setMessages 顯示最終 narrative（一次性呈現）
+  → 判斷是否觸發 GM 助理
+      → 若觸發：Sub GM 輸出 JSON，更新摘要與目標
+      → 若 diary_worthy 為 true：觸發水晶球日記生成，UI 亮點提示
+  → 自動存檔
+```
+
+- [ ] 等待串流期間的視覺呈現
+  串流進行中顯示金色動畫省略號 `✦ 異世界正在回應···` 讓玩家知道 AI 正在思考，避免誤以為當機。
+
+---
+
+### 待開發優先順序
+
+**高優先（buildPrompt / 邏輯調整，風險低）**
+- NPC 資料去重（pinned 與 appearing 重疊問題）
+- 記憶地點比對改為精確相等
+- COMMAND FORMAT 壓縮
+- GM 助理觸發條件加入判斷邏輯
+- 串流改為延遲顯示，等待期間顯示風格化提示
+
+**中優先（需調整資料結構）**
+- NPC memories 升級為結構化物件
+- 高好感度 NPC 的預測性完整注入
+- GM 助理加入 diary_worthy 欄位
+- 模型選擇介面實作
+- LorebookEntry 地點資料加入 aliases 欄位
+
+**低優先（體驗優化）**
+- 道具資訊分層注入
+- 日記注入截斷
+- 玩家記憶超出範圍的前端提示（低干擾 UI 亮點）
 
 
-- [x] P1｜刪除功能: GitHub PAT (Gist 權限)
-  2026-03-17 [Gemini]: 於 `SettingsModal.tsx` 移除 GitHub PAT 相關的 UI、狀態與匯出邏輯。
+## 🧭 架構
 
-- [x] P1｜左側 UI 瘦身：簡化四大功能按鈕
-  2026-03-17 [Gemini]: 於 `App.tsx` 將 [個人資訊]、[設定集]、[Prompt]、[設定] 改為 2x2 網格，並移除底部舊的設定按鈕。
-
-- [x] P1｜點擊匯出檔案時，讓玩家選擇存檔路徑
-  2026-03-17 [Gemini]: 於 `App.tsx` 實作 `window.showSaveFilePicker`，並加入 fallback 機制退回傳統 `<a>` 下載模式。
 
 - [ ] P1｜任務鏈與後果分歧
   討論主題：任務加入部分完成、被他人捷足先登等中間態。
@@ -167,260 +309,4 @@
 ---
 
 ## ✅ 已完成
-
-- [x] Bug 修正與地圖視覺優化
-  2026-03-16 GPT-5.2-Codex: 修正 `TIME` 指令同回合累加覆蓋、匯入存檔遺漏 `appearingNpcs` 還原、馬車費扣款可能出現負金幣；地圖新增當前位置脈衝/徽章、節點標籤防重疊偏移、路線層連線與目前路徑高亮。
-
-- [x] 介面與提示詞優化
-  2026-03-12 Gemini: 增加編輯訊息的文字框高度、限制快捷選項在 10 字以內、對話視窗底部毛玻璃效果改為往上淡出、修改初始訊息（ID 1）開場白。
-
-- [x] 個人資訊與數值系統調整
-  2026-03-12 Gemini: 個人資訊的職業預設為「異鄉人」，補充各欄位提示文字，預設 MP、金錢為 0，並移除 HP / MP 的上限設定（`maxHp` / `maxMp`）。
-
-- [x] 快捷選項與重新生成功能修復
-  2026-03-12 Gemini: 修復快捷選項點擊無效的問題，並將其改為動態生成（AI 透過 `<<OPTIONS>>` 輸出）。實作 `handleRegenerate` 函數以支援 AI 回覆的重新生成功能。修復 AI 輸出 `</OPTIONS>>` 或忘記閉合標籤導致解析失敗的問題，並過濾掉選項前面的數字編號。
-
-- [x] 日記系統升級（水晶球日記 + 融合日記）
-  2026-03-12 Claude: 新增 `handleGenerateDiary()` / `handleMergeDiary()`，新增 state `isDiaryMergeMode` / `diaryMergeSelection` / `isDiaryGenerating` / `expandedMergedIds`。日記 Modal 按鈕區重構為三個 icon 按鈕。DiaryEntry 新增 `source` / `mergedFrom` / `isMerged` 欄位。
-
-- [x] 前端 COMMANDS 解析器
-  2026-03-12 Claude: 實作於 `parseAndExecuteCommands()`，支援 HP/MP/金幣/好感度/位置/時間/道具。串流結束後執行，Toast 間隔 600ms。
-
-- [x] 日記關鍵字觸發系統
-  2026-03-12 Claude: 新增 `keywords[]` 欄位，`scanKeywords()` 函數掃最近 5 則。UI 在日記 Modal 編輯區塊底部。
-
-- [x] 統一記憶資料結構（world/region/scene/npc 四層）
-  2026-03-12 Claude: 移除 `worldMemory` / `factionMemory` / `locationMemory`，改為 `memories[]`。新增 `isMemoryTriggered()` / `tickMemoryCounters()`。舊存檔自動 migrate。
-
-- [x] MEMORY_ADD 指令升級
-  2026-03-12 Claude: 支援完整 tags（locations/npcs/factions/keywords）+ sticky + expires。解析邏輯在 `parseAndExecuteCommands()` 的 memAddMatch 區塊。
-
-- [x] Lorebook secondaryKeys + AND 邏輯 + insertionOrder
-  2026-03-12 Claude: 新增 `lorebookHitsKeywords()` 函數，`selective` 欄位控制 AND/OR。UI 在 Lorebook Modal 編輯區塊底部，檢視模式顯示標籤。
-
-- [x] 右側面板四層記憶顯示
-  2026-03-12 Claude: 依 type 分組顯示 🌍/🗺️/🏠/👤，只顯示當前地點相關記憶。
-
-- [x] 系統設定 Gemini API Key 輸入欄
-  2026-03-12 Claude: 加在系統設定 Modal 頂部，password 類型，儲存至 `localStorage('gemini_api_key')`。API 呼叫優先使用此 Key。
-
-- [x] 快速存檔後的紀錄顯示（bug）
-  2026-03-13 Claude: 新增 `lastSavedAt` state，`handleQuickSave` 存檔後呼叫 `setLastSavedAt(new Date())`，存檔按鈕下方顯示「上次存檔 HH:MM:SS」。
-
-- [x] 對話框 Markdown 渲染
-  2026-03-13 Claude: 新增 `renderInline()` + `renderMarkdown()` 於 component 外部。支援 `` `code` ``（玫紅）、`bold`、`*italic*`（石板灰）、`>` 引用區塊（連續行合併）、`---` 分隔線。`msg.role !== 'user'` 時呼叫，玩家訊息維持 `whitespace-pre-wrap`。引用區塊樣式：`border-l-2 border-stone-500 bg-stone-800/30`。
-
-- [x] Scrollbar 樣式統一
-  2026-03-13 Gemini: 在 `src/index.css` 新增全域捲軸樣式，配合深色系 UI。
-
-- [x] 世界地圖視覺化
-  2026-03-13 Claude: 重寫 `MapModal.tsx`，改用 SVG 節點地圖；依 type 分色（town/danger/city/poi）；可滑鼠拖曳 pan；hover tooltip；地形裝飾線；節點連線；圖例；搜尋欄；undiscovered 霧化效果。
-
-- [x] 旅途中發現地點融入故事
-  2026-03-13 Claude: 在 `parseAndExecuteCommands` 新增 `LOCATION_DISCOVER` 解析；模糊比對已知地點設 discovered=true；未知地點加入 dynamic 陣列標記「待探索」；Toast 通知；Prompt 說明 AI 何時應輸出。
-
-- [x] NPC「角色想法」功能
-  2026-03-13 Gemini: 實作 NPC 角色想法功能，包含資料結構更新、UI 呈現、`NPC_THOUGHT` 指令解析、自動更新上次見面時間地點，以及 Prompt 注入。
-  2026-03-13 Claude: 依新規格更新：`relationship` 改為 AI 生成，新增 `NPC_RELATIONSHIP` 指令解析與 Prompt 說明；NpcModal 標題列改為三行（第二行合併關係 ｜ 好感度）。
-
-- [x] App.tsx 組件拆分重構
-  2026-03-13 Claude: 確認所有 8 個 Modal 已獨立於 `src/components/`，App.tsx 只保留 import + `<ComponentName props />` 使用方式，無內嵌 Modal JSX。
-
-- [x] Prompt 記憶寫入規則
-  2026-03-13 Gemini: 在 `buildPrompt` 的 COMMAND FORMAT 區塊新增【AI 何時應輸出 MEMORY_ADD】說明，定義五大情境與布告欄觸發規則。
-
-- [x] 任務系統動態化（初版）
-  2026-03-13 Gemini: 新增 `quests` state，在 `parseAndExecuteCommands` 實作 `QUEST_ADD` 與 `QUEST_COMPLETE` 解析，並傳遞至 `QuestModal` 顯示進行中、可接取、已完成任務。
-
-- [x] NPC 出沒系統 + 兩階段注入
-  2026-03-13 Claude: LorebookModal.tsx 介面、App.tsx（state/parseAndExecuteCommands/buildPrompt/stream 後處理）。LorebookEntry 新增 `homeLocation`、`roamLocations`（滑動窗口最近 3 個）。COMMANDS 新增 `NPC_NEW`、`NPC_HOME`、`NPC_LOCATION`。Phase 1 注入候選名單（輕量，最多 5 個）；Phase 2 偵測 `[出場:姓名]` 後注入完整資料。
-
-- [x] 重構 App.tsx 狀態管理
-  功能意義：目前 `App.tsx` 仍持有大量與 `useGameStore` 重複的冗餘 state，且初始化邏輯不一致。
-  任務內容：
-  - 將 `App.tsx` 的所有遊戲狀態完全遷移至 `useGameStore`。
-  - 統一 `localStorage` 鍵名，確保存檔讀取路徑唯一。
-  - 確保 `App.tsx` 只作為 UI 容器，邏輯由 Hooks 驅動。
-  2026-03-14 [Claude]: 建立 `src/hooks/useGameStore.ts`（所有遊戲 state + saveToStorage/loadFromData）、`src/hooks/useCommandParser.ts`（parseAndExecuteCommands/applyItemEffect/scanKeywords/isMemoryTriggered/tickMemoryCounters）。App.tsx 移除約 509 行冗餘程式碼，改為 UI 容器。修正 `src/types.ts`（DiaryEntry 欄位修正、新增 MemoryEntry/InventoryItem/ConsumableItem）。重建被刪除的 `src/main.tsx` 與 `src/index.css`。TypeScript 零錯誤，伺服器正常啟動。
-
-    - [x] 任務系統規格升級
-  2026-03-14 [Claude]: 新增 `isGoalMet` 欄位至 `Quest` 型別；`useCommandParser` 新增 `QUEST_GOAL_MET` 指令解析；`useGameStore` 舊存檔自動 migrate；`buildPrompt` 依 `isGoalMet` 狀態輸出不同格式；`QuestModal` 擴充為四狀態頭部（進行中/待回報/已完成/失敗）+ 勾選框 + 琥珀色待回報樣式。TypeScript 零錯誤。
-
-  功能意義：實作「目標達成 → 回報領賞」的兩階段任務流程。AI 判斷目標達成時輸出隱藏指令，玩家回報後才正式結案並發放獎勵。
-
-  資料結構（`quests` state，在現有基礎上新增 `isGoalMet`）：
-```typescript
-  {
-    id: string,
-    title: string,
-    giver: string,
-    description: string,
-    reward: { gold?: number, items?: string[] },
-    deadline?: number,
-    status: 'active' | 'completed' | 'failed',
-    isGoalMet: boolean,          // 新增：目標是否已達成（對應勾選框狀態）
-    createdAt: string,           // 遊戲內日期 M/D
-    createdAtTotalDays: number,  // 計算期限用
-    completedAt?: string
-  }
-```
-
-  COMMANDS 新增 / 修正指令（於 `parseAndExecuteCommands` 解析）：
-  - `QUEST_ADD:任務名:委託人:目標描述:獎勵金幣:獎勵道具:期限天數`
-    - 建立新任務，`status='active'`，`isGoalMet=false`，自動開啟 QuestModal
-    - Toast：「📋 新任務：XX」
-  - `QUEST_GOAL_MET:任務名`（新增，放在 COMMANDS 區塊，取代舊的內文標記方式）
-    - 將對應任務 `isGoalMet` 設為 `true`
-    - 從對話顯示文字中不做任何輸出（純靜默更新）
-    - Toast：「🎯 任務目標達成：XX（請向委託人回報）」
-  - `QUEST_COMPLETE:任務名`
-    - 條件：玩家向委託人回報後，AI 判斷確實完成
-    - 將對應任務 `status` 改為 `'completed'`
-    - 自動發放獎勵：gold 加入 `profile.gold`，items 加入 `inventory`
-    - Toast：「✅ 任務完成：XX，獲得 XX 銅」
-
-  期限自動失敗：
-  - 每次 `TIME_ADVANCE` 指令執行後，前端掃描所有 `status='active'` 的任務
-  - 計算 `createdAtTotalDays + deadline` 是否小於當前遊戲總天數
-  - 超過則自動標記 `status='failed'`
-  - Toast：「❌ 任務失敗：XX」
-
-  Prompt 注入（於 `buildPrompt`）：
-  - 掃描所有 `status='active'` 的任務，依 `isGoalMet` 狀態輸出不同格式：
-```
-    [進行中任務]
-    尋找失蹤的藥草（委託：烏爾夫，剩 3 天）
-    送信給獵人公會（委託：芬里爾，目標已達成，待玩家回報）
-```
-  - COMMAND FORMAT 說明補充：
-    - `QUEST_ADD`：NPC 委託玩家任務、或布告欄出現可接取的任務時輸出
-    - `QUEST_GOAL_MET`：AI 判斷玩家已完成任務目標（但玩家尚未回報）時輸出，放在 COMMANDS 區塊
-    - `QUEST_COMPLETE`：玩家向委託人回報、AI 確認結案時輸出，必須使用與 QUEST_ADD 完全相同的任務名稱
-
-  QuestModal UI（`src/components/QuestModal.tsx`）：
-  - 頂部狀態計數：進行中 / 待回報 / 已完成 / 失敗（四種）
-  - 每張任務卡片顯示：任務名、委託人、目標描述（前方勾選框由前端依 `isGoalMet` 控制）、獎勵、接受日期
-  - 進行中（`isGoalMet=false`）：綠色邊框，右上角顯示剩餘天數或「無期限」
-  - 待回報（`isGoalMet=true`）：琥珀色邊框 + 右上角「待回報」標籤，勾選框變為 `☑`
-  - 已完成：灰化＋刪除線＋綠色「✓ 完成」標籤＋完成日期
-  - 失敗：灰化＋刪除線＋紅色「✗ 失敗」標籤＋「期限超過」
-
-- [x] 修復 Profile 屬性與類型安全
-  - 移除 `useCommandParser` 與 `useGameStore` 中的 `any` 類型，改用 `src/types.ts` 定義。
-  2026-03-14 [Claude]: `types.ts` 補齊 DiaryEntry（修正欄位對應實際用法）、MemoryEntry、InventoryItem、ConsumableItem 型別定義。useGameStore/useCommandParser 全面使用具體型別，消除 `any`。
-
-- [x] Prompt 靜態資料提取至 constants.ts
-  2026-03-14 [Claude]: 確認已於 v9 完成。`src/constants.ts` 已匯出 MONTHS_DATA、INITIAL_SYSTEM_PROMPT、INITIAL_LOREBOOK_ENTRIES、INITIAL_WORLD_MAP、INITIAL_MESSAGES、TOKEN_OPTIONS；`useGameStore.ts` 與 `App.tsx` 均已正確 import。
-
-  背景：`App.tsx` 中有大量靜態文字以 hardcode 方式嵌入 useState 初始值，導致檔案臃腫。`buildPrompt()` 函數本體與 COMMAND FORMAT 說明不移動（依賴 state），只搬靜態資料。
-
-  移至 `src/constants.ts`：
-  - `INITIAL_SYSTEM_PROMPT`：`systemPrompt` useState 初始值三段長文字（worldPremise / roleplayRules / writingStyle），約 60–80 行
-  - `INITIAL_LOREBOOK_ENTRIES`：`lorebookEntries` useState 初始值的 14 個地點資料，約 60 行
-  - `MONTHS_DATA`：App.tsx 頂部的 12 個月份雅稱陣列，約 15 行
-
-  App.tsx 修改方式：
-  ```typescript
-  import { INITIAL_SYSTEM_PROMPT, INITIAL_LOREBOOK_ENTRIES, MONTHS_DATA } from './constants'
-
-  const [systemPrompt, setSystemPrompt] = useState(() => _s?.systemPrompt || INITIAL_SYSTEM_PROMPT)
-  const [lorebookEntries, setLorebookEntries] = useState(() => _s?.lorebookEntries || INITIAL_LOREBOOK_ENTRIES)
-  ```
-
-* [x] 世界地圖重寫（深藍金風格 + 旅行系統）
-2026-03-14 ~ 2026-03-15 [Claude]: `types.ts` LorebookEntry 新增 mapX/mapY/cartFare/mapStatus/adjacentTo 等可選欄位；`constants.ts` 初始化地點補上座標與車資；`useCommandParser` 新增 LOCATION_DISCOVER 指令；`MapModal.tsx` 完整視覺與邏輯重寫（深海藍底色+金色手稿風格、八角星芒節點、bezier 曲線、右欄兩段式旅行選擇、羅盤、搜尋欄）；`App.tsx` 移除舊旅行計算，新增 handleTravel 與 showToast。TypeScript 零錯誤。後續修正部分 bug（v14）。
-視覺設計語彙（深海藍 × 金色手稿風）：
-* 整體底色：`#0a1628`（深海藍）
-* 強調色：`#c9a84c`（金色）——節點星芒、標題上邊線、分隔菱形、啟程按鈕
-* 次要文字色：`#8ab4e8`（淡藍）——地點描述、區域記憶、已知節點標籤
-* 目標節點色：`#cc2200`（深紅）——選中目標地點
-* 容器背景：`#0d1f3c`，邊框 `0.5px solid #2a4a7f`，頂邊 `1.5px solid #c9a84c`
-* 字體：`Georgia, serif`（全站）
-* 紙張紋理：細格線疊加層（`rgba(100,140,200,0.03)`）
-* 暗角：`radial-gradient` 邊緣加深至 `rgba(5,12,28,0.7)`
-* 四角 L 型裝飾線：金色 `#c9a84c`，`stroke-width: 1.2`（純裝飾）
-
-
-地點狀態與節點視覺（兩狀態，移除舊有 visited）：
-* discovered（預設）：尚未造訪。虛線圓圈，`stroke: #5a8fc9`，`opacity: 0.35`，標籤顯示「???」
-* known：造訪後解鎖。八角星芒節點，藍色星芒 `#4a7ac9`，中心亮點 `#8ab4e8`
-* 玩家所在地（currentLocation）：金色八角星芒 `#c9a84c`，三層暈光，中心 `#fde68a`
-* 選中目標：深紅八角星芒 `#cc4422`，三層暈光，中心 `#ff8866`
-* 地圖開啟時，自動以玩家所在節點為視覺中心。玩家抵達某地後，前端自動將該地點狀態改為 known
-
-
-節點連線邏輯：
-* 平時不顯示任何連線
-* 點選第一個節點後再點選第二個，出現金色虛線 bezier 曲線（`stroke: #c9a84c`, `stroke-dasharray: 5 3`）
-* 取消選取或關閉 Modal 時曲線消失
-
-
-資料結構異動（lorebookEntries，category='地點'）新增欄位：
-* `mapX: number`、`mapY: number`：節點座標，固定，手動設定
-* `adjacentTo: string[]`：相鄰地點名稱陣列（保留，供未來旅行時間計算用）
-* `cartFare: number`：馬車車費（銅幣），`0` 表示不可搭馬車（例如大斷崖）
-* `mapStatus: 'discovered' | 'known'`：解鎖狀態，預設 `'discovered'`
-
-
-地圖 UI 佈局（src/components/MapModal.tsx）：
-* SVG canvas：背景 `#0a1628`，細格線 + 暗角疊加
-* 羅盤（左下角）：深藍底 + 金色八角星芒，指北針為金色。點擊可重置地圖視角並觸發「視角已重置」Toast
-* 搜尋欄（Header）：深藍底，佔位文字「搜尋地點...」，即時篩選右欄地點列表
-
-
-右欄資訊面板（點選節點後顯示）：
-* 標題列：✦ 【地點名稱】 + 狀態標籤（目標 / 當前位置）
-* 菱形分隔線與地點簡述（content 欄位）
-* 區域記憶：✦ 區域記憶 標題 + 金色左邊線條列。篩選 memories 中 `type === 'region'` 且 `tags.locations` 包含該地點名稱的項目
-* 行動選擇（玩家不在該地點時才顯示）：
-* 🚶 徒步前往（藍色邊框）
-* 🐴 馬車 XXG（金色邊框，`cartFare > 0` 時才顯示）
-
-
-* 啟程按鈕：金底深藍字，全寬，固定於底部
-
-
-旅行邏輯：
-* 坐馬車：點擊「啟程」 → 判定 `profile.gold >= cartFare`。足夠則扣除金幣、更新 currentLocation 與 mapStatus、送出訊息「你決定搭馬車前往[地點]。」讓 AI 安排情節；不足則於按鈕下方顯示「阮囊羞澀」，不執行動作。
-* 徒步：點擊「啟程」 → 更新 currentLocation 與 mapStatus → 送出訊息「你決定徒步前往[地點]。」讓 AI 安排旅途事件。
-
-
-COMMANDS 新增指令：
-* `LOCATION_DISCOVER:地點名`：將對應地點的 `mapStatus` 改為 `'known'`；若不存在則新增一筆 `mapStatus='discovered'` 的條目
-* 觸發 Toast：「🗺️ 發現新地點：XX」
-* buildPrompt 補充：當玩家在旅途中路過、聽說或間接發現尚未踏足的地點時輸出此指令
-
-
-* [x] 全站 UI 色碼微調
-  2026-03-16 Gemini: 將所有 Modal 與主介面的欄位解說文字、次要資訊色碼從 `#3a5a8a` 統一修改為 `#8ab4e8`，提升深色主題下的閱讀清晰度。包含：QuestModal、ProfileModal、NpcModal、LorebookModal、SettingsModal、DiaryModal、SystemPromptModal 與 App.tsx。
-
-* [x] 主介面全站深藍金主題
-2026-03-16 [Claude]: `src/index.css` 新增深藍金 CSS Variables（--bg0 至 --danger）；App.tsx 及全部組件文件批量替換 stone-*/indigo-*/amber-* Tailwind 類為新色票；字體改為 Georgia, serif；「✦ 關注」標題；記憶卡片左邊線統一金色；Markdown 引用邊線金色；送出按鈕改金底深藍字；五個 Modal 組件同步色票更新。CHANGELOG v15。
-
-- [x] 系統設定與世界觀設定介面優化
-  2026-03-16 Gemini: 優化 `SystemPromptModal` 與 `LorebookModal` 介面。`SystemPromptModal` 移除標題圖示、實作輸入框自動高度、合併功能說明至標題行。`LorebookModal` 統一按鈕與輸入框圓角為 `rounded-[8px]`、優化分類按鈕樣式、為前三項設定卡片增加邊框強調。
-
-- [x] 指令執行結果顯示一致化（toastQueue → notifyCommandResult）
-  2026-03-17 [Claude]: 
-    1. useCommandParser.ts
-
-CommandParserDeps 介面新增 notifyCommandResult: (msgs: string[]) => void，並加上註解說明它與 showToast 的分工
-解構時加入 notifyCommandResult
-局部變數 toastQueue 改名為 cmdResults，避免與 App.tsx 的 state 同名造成混淆
-結尾的 forEach + setTimeout(i * 600) 排隊邏輯整個移除，改為一行 notifyCommandResult(cmdResults)
-
-    2. App.tsx
-
-import 補上 useCallback
-新增 toastTimerRef（useRef），統一管理所有 toast timer，避免多個 setTimeout 互相干擾
-showToast 改為 useCallback，每次呼叫前先 clearTimeout 舊 timer，確保單則訊息不會被後來的計時器提早清掉
-新增 getToastInterval：佇列長度 ≤ 3 用 700ms，4–6 用 500ms，7+ 用 350ms
-新增 drainToastQueue：按自適應間隔逐條推進，最後一條顯示 3 秒後清除
-新增 notifyCommandResult：單則直接走 showToast，多則走 drainToastQueue
-useCommandParser 呼叫處補上 notifyCommandResult
-
-
-- [x] P2｜清單虛擬化與訊息快取
-  2026-03-17 [Codex]訊息區、Lorebook、NPC 導入 virtualized list，對話採 session chunk。先做顯示層截斷（只影響 UI render，state 保持完整），避免影響 AI context。`session chunk` 必須明確區分顯示層截斷與 AI context 管理（後者由 `buildPrompt` 的 `SLIDING_WINDOW` 處理）。觸發條件採可執行基準值：`scroll long task > 50ms`（後續量測可調整）；訊息數與 DOM 節點數僅作為觀察值。三個清單分開決策：訊息區優先，Lorebook/NPC 依量測再決定。
-
 
