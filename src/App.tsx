@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { GoogleGenAI } from "@google/genai";
 import { DiaryModal } from './components/DiaryModal';
 import { LorebookModal } from './components/LorebookModal';
-import { Npc, LorebookEntry, Message, NpcMemory } from './types';
+import { Npc, LorebookEntry, Message, NpcMemory, MemoryEntry } from './types';
 import { NpcModal } from './components/NpcModal';
 import { QuestModal } from './components/QuestModal';
 import { ProfileModal } from './components/ProfileModal';
@@ -794,7 +794,7 @@ ${recentChat}
       if (m.type !== 'npc') return false;
       const npcTags = m.tags?.npcs || [];
       return npcTags.some(npcName => 
-        appearingNpcs.includes(npcName) || pinnedNpcs.some(p => p.name === npcName)
+        appearingNpcs.includes(npcName) || npcs.some(n => n.isPinned && n.name === npcName)
       );
     });
 

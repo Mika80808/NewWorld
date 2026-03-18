@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import {
   TimeState, Profile, Quest, Npc, LorebookEntry, SystemPrompt,
-  DiaryEntry, Message, WorldMap, MemoryEntry, InventoryItem, ConsumableItem,
+  DiaryEntry, Message, WorldMap, MemoryEntry, InventoryItem, ConsumableItem, NpcMemory,
 } from '../types';
 import {
   INITIAL_SYSTEM_PROMPT, INITIAL_LOREBOOK_ENTRIES,
@@ -101,6 +101,10 @@ export function useGameStore() {
           : [],
       }));
     }
+  );
+
+  const [appearingNpcs, setAppearingNpcs] = useState<string[]>(
+    () => (_s?.appearingNpcs as string[]) || []
   );
 
 // 注意：NpcMemory 需要從 types 引入，請在 useGameStore.ts 的 import 裡補上：
