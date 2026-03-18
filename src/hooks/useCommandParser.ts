@@ -34,6 +34,8 @@ export interface CommandParserDeps {
   showToast: (msg: string) => void;
   notifyCommandResult: (messages: string[]) => void;
   onNewQuest?: () => void;     // 新任務時開啟 QuestModal
+  // AI 呼叫（封裝底層 API，不綁定特定服務）
+  callAI: (prompt: string) => Promise<string>;
 }
 
 // ─── Hook ─────────────────────────────────────────────────────────────────────
@@ -45,7 +47,7 @@ export function useCommandParser(deps: CommandParserDeps) {
     setMemories, setInventory, setConsumables, setNpcs,
     setLorebookEntries, setWorldMap, setQuickOptions,
     setStickyCounters, setCooldownCounters,
-    showToast, notifyCommandResult, onNewQuest,
+    showToast, notifyCommandResult, onNewQuest, callAI,
   } = deps;
 
   // ─── 關鍵字掃描 ────────────────────────────────────────────────────────────
@@ -429,12 +431,44 @@ export function useCommandParser(deps: CommandParserDeps) {
       const npcThoughtMatch = cmd.match(/^NPC_THOUGHT:(.+):(.+)$/i);
       if (npcThoughtMatch) {
         const [, name, text] = npcThoughtMatch;
+        const THOUGHTS_LIMIT = 5;
+        const MEMORIES_MERGE_THRESHOLD = 8;
+
         setNpcs(prev => prev.map(npc => {
-          if (npc.name.includes(name.trim()) || name.trim().includes(npc.name)) {
-            const newThought = { text: text.trim(), createdAt: `${timeState.month}/${timeState.day}` };
-            return { ...npc, thoughts: [newThought, ...(npc.thoughts || [])].slice(0, 5) };
+          if (!(npc.name.includes(name.trim()) || name.trim().includes(npc.name))) return npc;
+
+          const newThought = { text: text.trim(), createdAt: `${timeState.month}/${timeState.day}` };
+          const updatedThoughts = [newThought, ...(npc.thoughts || [])];
+
+          // thoughts 未滿上限：正常累積
+          if (updatedThoughts.length < THOUGHTS_LIMIT) {
+            return { ...npc, thoughts: updatedThoughts };
           }
-          return npc;
+
+          // thoughts 滿 5 則：串接全部 thoughts，寫入 memories（source: 'pre_merge'），清空 thoughts
+          const mergedText = [...updatedThoughts]
+            .reverse() // 由舊到新排列
+            .map(t => `[${t.createdAt}] ${t.text}`)
+            .join('；');
+
+          const newMemory = {
+            id: `nmem_${Date.now()}_${Math.floor(Math.random() * 9999)}`,
+            text: mergedText,
+            createdAt: `${timeState.month}/${timeState.day}`,
+            source: 'pre_merge' as const,
+            importance: 'normal' as const,
+            isMerged: false,
+          };
+
+          const updatedMemories = [...(npc.memories || []), newMemory];
+
+          // 未融合記錄超過門檻時，非同步觸發 AI 融合
+          const unmergedCount = updatedMemories.filter(m => !m.isMerged).length;
+          if (unmergedCount > MEMORIES_MERGE_THRESHOLD) {
+            triggerNpcMemoryMerge(npc.id, updatedMemories, npc.name);
+          }
+
+          return { ...npc, thoughts: [], memories: updatedMemories };
         }));
         continue;
       }
@@ -626,6 +660,52 @@ export function useCommandParser(deps: CommandParserDeps) {
     }
 
     return narrative.replace(/```[a-z]*\s*```/gi, '').trim();
+  };
+
+  // ─── NPC 記憶 AI 融合 ────────────────────────────────────────────────────────
+  // 當未融合記憶超過門檻時自動觸發，使用 callAI 封裝層，不綁定特定 API 服務
+  const triggerNpcMemoryMerge = async (
+    npcId: number,
+    currentMemories: Array<{ id: string; text: string; isMerged?: boolean; [key: string]: unknown }>,
+    npcName: string,
+  ) => {
+    const toMerge = currentMemories.filter(m => !m.isMerged);
+    if (toMerge.length === 0) return;
+
+    const mergePrompt = `你是一個 RPG 遊戲的記憶整理助理。
+以下是 NPC「${npcName}」對玩家的記憶片段，請整合成一段簡潔的第一人稱摘要（100字以內）。
+重要：保留道具名稱、重要台詞、關鍵事件，壓縮重複情緒。
+只輸出摘要文字，不要任何前綴或說明。
+
+記憶片段：
+${toMerge.map(m => `- ${m.text}`).join('\n')}`;
+
+    try {
+      const mergedText = await callAI(mergePrompt);
+      if (!mergedText) return;
+
+      const mergedMemory = {
+        id: `nmem_${Date.now()}_${Math.floor(Math.random() * 9999)}`,
+        text: mergedText,
+        createdAt: `${timeState.month}/${timeState.day}`,
+        source: 'merged' as const,
+        importance: 'normal' as const,
+        isMerged: false,
+        mergedFrom: toMerge.map(m => m.id),
+      };
+
+      setNpcs(prev => prev.map(npc => {
+        if (npc.id !== npcId) return npc;
+        const updatedMemories = npc.memories.map(m =>
+          toMerge.some(tm => tm.id === m.id) ? { ...m, isMerged: true } : m
+        );
+        return { ...npc, memories: [...updatedMemories, mergedMemory] };
+      }));
+
+      showToast(`💫 ${npcName} 的記憶已自動整合`);
+    } catch (e) {
+      console.error('NPC memory merge failed:', e);
+    }
   };
 
   return { parseAndExecuteCommands, applyItemEffect, scanKeywords, isMemoryTriggered, tickMemoryCounters };

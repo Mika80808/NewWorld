@@ -93,36 +93,27 @@ export default function App() {
   const [isConsumablesOpen, setIsConsumablesOpen] = useState(false);
   const [isUpdatingLog, setIsUpdatingLog] = useState(false);
 
-  // 背景處理：整理冒險日誌與目標
+  // 背景處理：整理冒險日誌與目標（使用 callAI 封裝層，不綁定特定 API）
   const updateAdventureState = async (history: Message[]) => {
     if (history.length < 2) return;
     setIsUpdatingLog(true);
     try {
-      const key = geminiApiKey.trim() || process.env.GEMINI_API_KEY || '';
-      if (!key) return;
-      const aiLite = new GoogleGenAI({ apiKey: key });
-      
       const lastMessages = history.slice(-6).map(m => `${m.role}: ${m.text}`).join('\n');
-      const prompt = `
-        你是一個冒險日誌整理員。請根據以下最近的對話內容，整理出目前的冒險狀態。
-        請嚴格輸出 JSON 格式：
-        {
-          "summary": "一句話總結剛發生的事",
-          "goals": ["短期目標1", "短期目標2"],
-          "status_tags": ["標籤1", "標籤2"]
-        }
-        
-        對話內容：
-        ${lastMessages}
-      `;
+      const prompt = `你是一個冒險日誌整理員。請根據以下最近的對話內容，整理出目前的冒險狀態。
+請嚴格輸出 JSON 格式，不要加任何前綴或說明：
+{
+  "summary": "一句話總結剛發生的事",
+  "goals": ["短期目標1", "短期目標2"],
+  "status_tags": ["標籤1", "標籤2"]
+}
 
-      const response = await aiLite.models.generateContent({
-        model: "gemini-3.1-flash-lite-preview",
-        contents: prompt,
-        config: { responseMimeType: "application/json" }
-      });
+對話內容：
+${lastMessages}`;
 
-      const data = JSON.parse(response.text || '{}');
+      const text = await callAI(prompt);
+      if (!text) return;
+      const clean = text.replace(/```json|```/g, '').trim();
+      const data = JSON.parse(clean);
       if (data.summary) {
         setAdventureLog(prev => [data.summary, ...prev].slice(0, 10));
       }
@@ -297,6 +288,23 @@ export default function App() {
     drainToastQueue(messages);
   }, [showToast, drainToastQueue]);
 
+  // ─── AI 呼叫封裝（API 無關層）────────────────────────────────────────────────
+  // 所有內部 AI 呼叫（updateAdventureState、NPC 記憶融合等）統一走這個函數
+  // 未來換 API 服務只需修改此處，其他邏輯不動
+  const callAI = useCallback(async (prompt: string): Promise<string> => {
+    const key = geminiApiKey.trim() || process.env.GEMINI_API_KEY || '';
+    if (!key) return '';
+    try {
+      const ai = new GoogleGenAI({ apiKey: key });
+      const response = await ai.models.generateContent({
+        model: 'gemini-2.0-flash',
+        contents: prompt,
+        config: { maxOutputTokens: 500 },
+      });
+      return response.text?.trim() || '';
+    } catch { return ''; }
+  }, [geminiApiKey]);
+
   // ─── 指令解析器（useCommandParser）─────────────────────────────────────────
   const { parseAndExecuteCommands, applyItemEffect, scanKeywords, isMemoryTriggered, tickMemoryCounters } =
     useCommandParser({
@@ -309,8 +317,7 @@ export default function App() {
       notifyCommandResult,
       showToast,
       onNewQuest: () => setIsQuestModalOpen(true),
-      geminiApiKey,
-      maxTokens,
+      callAI,
     });
 
   // ─── 地圖旅行 ────────────────────────────────────────────────────────────────
