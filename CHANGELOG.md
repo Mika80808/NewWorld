@@ -19,6 +19,30 @@
 - `src/App.tsx`（`handleSendMessage`）：`[出場:]` 改用 `matchAll` 收集，去重後再 `setAppearingNpcs`，防止重複標記造成重複注入。
 - `src/components/LorebookModal.tsx`：地點編輯表單新增 `locationType` 下拉選單（自動推斷 / 城鎮 / 野外 / 建築）。
 
+### NPC 記憶庫系統 2026-03-18 [Claude Sonnet 4.6]
+
+升級 NPC memories 從純字串陣列為結構化物件，實作 thoughts 自動轉寫與 AI 融合機制。
+
+- **`src/types.ts`**：新增 `NpcMemory` interface（id / text / createdAt / source / importance / isMerged / mergedFrom）；`Npc.memories` 型別從 `string[]` 升級為 `NpcMemory[]`。
+- **`src/hooks/useGameStore.ts`**（`npcs` 初始化）：存檔讀入時自動 migrate 舊 `string[]` → `NpcMemory[]`（source: 'manual', importance: 'normal'）。
+- **`src/hooks/useCommandParser.ts`**：
+  - `CommandParserDeps` 新增 `callAI: (prompt: string) => Promise<string>`，移除對特定 API 的直接依賴。
+  - `NPC_THOUGHT` 邏輯升級：thoughts 滿 5 則時自動串接寫入 `memories[]`（source: 'pre_merge'）並清空 thoughts；未融合記憶超過 8 則時自動呼叫 `triggerNpcMemoryMerge`。
+  - 新增 `triggerNpcMemoryMerge`：透過 `callAI` 呼叫 Sub GM 融合舊記憶，生成摘要寫入 memories（source: 'merged'），原始記錄標記 `isMerged: true` 保留不注入。
+- **`src/App.tsx`**：
+  - 新增 `callAI` 封裝函數（`useCallback`），統一所有內部 AI 呼叫入口，不綁定特定 API 服務，未來換 API 只需改此處。
+  - `updateAdventureState` 改用 `callAI`，移除直接 `new GoogleGenAI(...)` 呼叫。
+  - `handleAddNpcMemory` 升級：接收 `importance` 參數，寫入完整 `NpcMemory` 物件。
+  - `handleRemoveNpcMemory` 改為用 `memId: string` 刪除（原本用 index）。
+  - 新增 `handleUpdateNpcMemory`：支援直接編輯記憶文字與 importance 切換。
+  - `buildPrompt` `[Scene Lorebook]` NPC 區塊加入記憶庫注入（好感度 ≥ 60 才注入，截斷規則：core 全部 / normal 最近 5 則 / merged 最近 2 則 / 超過 300 字縮到 3 則）。
+  - `[Pinned NPCs]` 區塊同步套用相同的記憶庫注入格式。
+- **`src/components/NpcModal.tsx`**（完整改寫）：
+  - 加入 Tab 切換（資料 / 記憶庫），避免 Modal 過長。
+  - 記憶庫 Tab：好感度 ≥ 60 才顯示；每筆記憶顯示日期、來源標籤（手動 / 想法 / 摘要）、★ 切換 core/normal、可直接編輯文字、可刪除。
+  - `isMerged: true` 的封存記錄摺疊於「查看已封存的原始記錄」。
+
+
 ## [2026-03-17] v15
 
 ### 清單虛擬化與訊息快取 2026-03-17 [Codex]

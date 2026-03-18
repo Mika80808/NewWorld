@@ -16,276 +16,201 @@
 
 ---
 
-- [ ] 整體架構分工
+## 群組 A｜Prompt 品質
+> 直接影響每次 AI 回應，改動風險低，優先處理。
 
-  這個遊戲由兩個 AI 角色協同運作，各司其職：
+- [ ] Prompt 效率優化 / COMMAND FORMAT 壓縮
+  - COMMAND FORMAT 區塊永遠硬寫在 `buildPrompt` 函數結尾，與玩家可編輯的 `systemPrompt` 完全隔離，玩家看不到也改不了。
+  - 壓縮目標：縮短這段硬寫內容的字數，不是移動位置。
 
-  - **主 GM（Main GM）**
-  負責所有面向玩家的故事內容，包含場景敘事、NPC 對話、劇情推進、數值變化指令輸出，以及決定哪些 NPC 在當前場景出場。使用較強的模型，token 消耗大。
+- [ ] Prompt 記憶寫入規則（再次確認）
+  - 在 `buildPrompt` 的 COMMAND FORMAT 說明裡，加入「AI 何時應輸出 MEMORY_ADD」的規則。
+  - 包含五種情境：世界事件 / 區域事件 / 場景狀態改變 / NPC 情報 / 玩家重要事件。
+  - 特別規則：AI 回應裡出現 `[ ]` 布告欄內容時，必定觸發 `MEMORY_ADD:region`。
 
-  - **GM 助理（Sub GM）**
-  負責後台資料整理，不直接面向玩家。工作包含整理冒險摘要、更新當前目標、判斷是否值得自動生成日記、以及未來協助撈取 NPC 候選名單交給主 GM 參考。使用輕量模型節省費用。
+- [ ] 記憶系統分層（注入條件精確化）
 
-  - GM 助理不是每次都觸發，只有在主 GM 的回覆達到一定字數，或者發生了任務新增、地點移動、世界記憶寫入等重要指令時才啟動，避免在玩家只說「嗯」或「好的」這類輕量互動時浪費 API 呼叫。
-  - 【防呆】建議加入冷卻與節流：例如每 3 回合最多觸發一次 Sub GM，或若上一回合已觸發且本回合沒有關鍵事件，就跳過。
-
----
-
-- [ ] 模型選擇設計
-
-  - 玩家可以自行設定主 GM 和 GM 助理各自使用的模型，以及輸出 token 上限。API Key 方面，GM 助理預設與主 GM 共用同一組 Key，進階玩家才需要另外設定。UI 上提供「使用同一組 API Key」的勾選框，預設勾選，取消後才開放獨立輸入。
-
-  - 主 GM 的模型選項面向故事品質，GM 助理的選項面向輕量省費，兩者的 token 上限選項範圍也不同，GM 助理只需要輸出 JSON 格式的摘要，不需要長篇故事的空間。
-
-  - 這些設定都存在 localStorage，與遊戲存檔分開，不會隨存檔匯出匯入。模型使用下拉選單而非自由輸入，避免打錯模型名稱導致靜默失敗。
-  - 【防呆】建議在 UI 顯示目前模型與 token 上限的「最後更新時間」與「當前生效值」，避免玩家誤以為切換後已生效但其實未保存。
-
----
-
-- [ ] Prompt 效率優化
-
-  **COMMAND FORMAT 壓縮**
-  - COMMAND FORMAT 區塊永遠硬寫在 buildPrompt 函數結尾，與玩家可編輯的 systemPrompt 完全隔離，玩家看不到也改不了。壓縮的目標是縮短這段硬寫內容的字數，不是移動它的位置。
-
-  **道具資訊分層**
-  - 道具欄位完整傳送在大多數場景是浪費，建議分兩層：帶有 effect 的消耗品和數量大於 1 的道具完整傳送，其餘只傳名字和數量。
-  - 【防呆】若道具欄超過上限，僅保留最近變動的道具完整資訊。
-
-  **GM 助理自動生成日記**
-  - 配合現有的魔法日記功能，GM 助理可主動觸發，在符合條件時自動生成日記。GM 助理生成日記後，只在左側欄位的「日記與記憶」卡片標題處顯示亮點提示。玩家是否點進日記、是否勾選日記，完全由玩家控制。未勾選日記不注入，不會造成 AI 多讀不該讀的內容。
-  - 【新日記】亮點提示顯示後，玩家點開日記即消除，避免長期佔用視覺注意力。
-
-
-- [ ] 記憶系統分層
-
-記憶分為四層，每層的注入條件不同：
+  記憶分為四層，每層的注入條件不同：
 
   **world（世界記憶）**
-  - 影響整個世界的重大事件，如魔王宣戰、天象異變。目前是只要 isActive 就全部注入，建議加入 importance 加權截斷，critical 無上限，normal 最多 8 條，flavor 最多 3 條，避免在平凡場景塞入過多不相關的世界資訊。
-  - 【防呆】同一回合 world 類型寫入數量做硬上限（例如最多 2 條），避免 AI 一次產生大量世界事件。
+  - 目前只要 `isActive` 就全部注入，建議加入 `importance` 加權截斷：`critical` 無上限，`normal` 最多 8 條，`flavor` 最多 3 條。
+  - 【防呆】同一回合 world 類型寫入數量硬上限 2 條，避免 AI 一次產生大量世界事件。
 
   **region（區域記憶）**
-  - 特定區域的動態變化。地點比對需要改為精確相等，避免「月湖鎮」的記憶誤觸發「月湖鎮酒館」的場景，或反過來。別名管理集中在 LorebookEntry 的地點資料上，加入 aliases 欄位，記憶本身保持乾淨。
-  - 【防呆】透過 aliases 欄位處理漏觸發問題，例如「酒館」對應到「月湖鎮酒館」，避免精確相等造成誤判。
+  - 地點比對改為精確相等，避免「月湖鎮」誤觸發「月湖鎮酒館」。
+  - 別名管理集中在 `LorebookEntry` 的地點資料，加入 `aliases` 欄位，記憶本身保持乾淨。
+  - 【防呆】透過 `aliases` 處理漏觸發，例如「酒館」對應到「月湖鎮酒館」。
 
   **scene（場景記憶）**
-  - 當前地點的物理或狀態改變。同樣需要精確地點比對，而非字串包含比對。
-  - 【防呆】若 scene 記憶超過上限，優先保留最近建立的紀錄，避免舊場景狀態反覆干擾新狀態。
+  - 同樣需要精確地點比對，非字串包含比對。
+  - 【防呆】超出上限時優先保留最近建立的紀錄。
 
   **npc（NPC 記憶）**
-  - NPC 透露的關鍵情報或重要決定。目前沒有地點限制，任何場景都會注入所有 NPC 記憶，建議配合 NPC 出場狀態做篩選。
-  - 【防呆】未出場的 NPC 記憶禁止注入；Pinned 或高好感 NPC 例外可保留 1~2 條關鍵記憶。
+  - 目前任何場景都注入所有 NPC 記憶，建議配合出場狀態篩選。
+  - 【防呆】未出場 NPC 記憶禁止注入；Pinned 或高好感 NPC 例外保留 1–2 條關鍵記憶。
 
-  - 整體篩選邏輯建議分三道關卡：第一道排除過期記憶，第二道做精確地點或關鍵字比對，第三道依 importance 截斷數量。
-  - 【防呆】若記憶數量過多且無法篩選，提供「降級策略」：只注入 importance=critical。
+  整體篩選三道關卡：
+  1. 排除過期記憶
+  2. 精確地點或關鍵字比對
+  3. 依 `importance` 截斷數量
 
----
+  - 【防呆】記憶過多無法篩選時，降級策略：只注入 `importance=critical`。
 
-
----
-
-- [ ] NPC 記憶庫設計
-
-  好感度達到 60 時解鎖，屬於永久性功能，不會因好感度下降而關閉。
-
-  **資料結構**
-  - 目前 memories 是純字串陣列，建議升級為結構化物件，包含 id、文字內容、遊戲內建立日期、來源（玩家手動輸入 / AI 自動生成 / 融合後產物），以及融合相關的標記欄位。
-  - 【防呆】加上 importance 或 priority 欄位，避免所有記憶都被視為同等重要。
-
-  **記憶來源**
-  - 玩家手動記錄的事件，以及 AI 透過 NPC_THOUGHT 指令自動寫入的想法，都會進入記憶庫。兩者來源不同但格式統一。
-  - 【防呆】AI 自動寫入限制每回合最多 1~2 則，避免爆量堆疊。
-
-  **注入條件**
-  - 只有當 NPC 出現在 appearingNpcs 或 isPinned 時，才注入其記憶庫內容。未出場的 NPC 記憶庫不注入，即使已解鎖也不例外。注入時優先選最近幾則原文，融合後的摘要版本排在後面補充。
-
-  **融合機制**
-  - 當記憶庫累積到一定數量時，由玩家主動觸發融合，不自動強制融合。建議只融合一定天數前（遊戲內時間）的舊記憶，保留最近幾則原文。融合邏輯與日記的融合日記功能完全相同，可直接複用。
-  - 【防呆】融合時保留每個 NPC 最近 N 則（如 3 則）原文，避免把剛發生的重要事件壓縮掉。
-
-  **Prompt 注入格式**
-  - 目前是將記憶串成一行字串，建議改為分行列出，並標示建立日期，讓主 GM 更容易判斷事件的時序和 NPC 對玩家的態度演變。
-  - 【防呆】若記憶欄位過長，優先顯示「摘要」版本，避免 prompt 被單一 NPC 佔滿。
+- [ ] 模型選擇設計
+  - 玩家可分別設定主 GM 和 GM 助理的模型與 token 上限。
+  - API Key：GM 助理預設共用主 GM 的 Key，UI 提供「使用同一組 API Key」勾選框（預設勾選），取消後開放獨立輸入。
+  - 設定存 `localStorage`，與遊戲存檔分開，不隨存檔匯出匯入。
+  - 模型使用下拉選單，避免打錯名稱導致靜默失敗。
+  - 【防呆】UI 顯示「最後更新時間」與「當前生效值」，避免玩家誤以為切換後已生效但未保存。
 
 ---
+
+## 群組 B｜GM 助理（Sub GM）系統
+> 依賴 Prompt 品質穩定後再實作，各子任務有執行順序。
+
+- [ ] 整體架構分工（Sub GM 基礎）
+
+  兩個 AI 角色協同運作：
+
+  - **主 GM（Main GM）**：面向玩家，負責場景敘事、NPC 對話、劇情推進、數值指令輸出。使用較強模型，token 消耗大。
+  - **GM 助理（Sub GM）**：後台資料整理，不直接面向玩家。負責整理冒險摘要、更新目標、判斷是否自動生成日記。使用輕量模型節省費用。
+
+  觸發條件：主 GM 回覆達到一定字數，或發生任務新增、地點移動、世界記憶寫入等重要指令時才啟動。
+  - 【防呆】加入冷卻與節流：每 3 回合最多觸發一次；若上一回合已觸發且本回合無關鍵事件，跳過。
 
 - [ ] GM 助理輸出格式
 
-GM 助理每次執行輸出固定 JSON 格式，包含三個欄位：
+  每次執行輸出固定 JSON，三個欄位：
+  - `summary`：一句話總結剛發生的事，用於左欄冒險摘要
+  - `goals`：短期目標陣列，用於左欄當前目標
+  - `diary_worthy`：布林值，判斷本輪是否值得觸發自動日記生成
 
-- summary：一句話總結剛發生的事，用於左欄冒險摘要
-- goals：短期目標陣列，用於左欄當前目標
-- diary_worthy：布林值，判斷這一輪劇情是否值得觸發自動日記生成
+  三個任務合併成一次 API 呼叫。只有 `diary_worthy: true` 時才再發起水晶球日記呼叫。
+  - 【防呆】`diary_worthy` 加冷卻：5 回合內最多 `true` 一次，避免連續觸發成本暴增。
 
-三個任務合併成一次 API 呼叫，比分散觸發更有效率。只有當 diary_worthy 為 true 時，才會再發起水晶球日記的 API 呼叫。
-【防呆】為 diary_worthy 加上冷卻時間（例如 5 回合內最多 true 一次），避免連續觸發成本暴增。
+- [ ] 串流顯示策略（延遲顯示）
 
----
+  主 GM 採用**延遲顯示**而非即時串流，避免 `<<COMMANDS>>` 原始指令短暫顯示在對話框造成出戲感。
 
-- [ ] 日記機制
-
-- 日記維持「關鍵字觸發」機制，只有命中關鍵字才會注入，需保留此機制。
-- GM 助理在符合條件時自動生成日記，但不彈出提示。
-- 生成完成後只透過 UI 亮點提示玩家有新日記可查看。
-- 是否讓 GM 助理自動新增關鍵字仍未採用，避免 AI 代替玩家決定記憶焦點，保持玩家主控。
-
----
-
-- [ ] 串流顯示策略
-
-主 GM 的回覆採用**延遲顯示**而非即時串流。原因是串流過程中 AI 輸出的 `<<COMMANDS>>` 原始指令文字會短暫顯示在對話框，造成出戲感。延遲顯示更符合玩家閱讀故事的沉浸體驗，等同於「翻頁才看到內容」的閱讀節奏。
-
-**執行順序**
-
-```
-玩家送出訊息
-  → 前端 buildPrompt（組裝主 GM 的 Prompt）
-  → 主 GM 串流回覆（背景接收，不顯示）
-  → 串流結束，parseAndExecuteCommands 執行
-  → 解析 [出場:] 標記，更新 appearingNpcs
-  → setMessages 顯示最終 narrative（一次性呈現）
-  → 判斷是否觸發 GM 助理
-      → 若觸發：Sub GM 輸出 JSON，更新摘要與目標
-      → 若 diary_worthy 為 true：觸發水晶球日記生成，UI 亮點提示
-  → 自動存檔
-```
+  **執行順序**
+  ```
+  玩家送出訊息
+    → buildPrompt 組裝主 GM Prompt
+    → 主 GM 串流回覆（背景接收，不顯示）
+    → 串流結束，parseAndExecuteCommands 執行
+    → 解析 [出場:] 標記，更新 appearingNpcs
+    → setMessages 顯示最終 narrative（一次性呈現）
+    → 判斷是否觸發 GM 助理
+        → 若觸發：Sub GM 輸出 JSON，更新摘要與目標
+        → 若 diary_worthy 為 true：觸發水晶球日記，UI 亮點提示
+    → 自動存檔
+  ```
 
 - [ ] 等待串流期間的視覺呈現
-  串流進行中顯示金色動畫省略號 `✦ 異世界正在回應···` 讓玩家知道 AI 正在思考，避免誤以為當機。
+  串流進行中顯示金色動畫省略號 `✦ 異世界正在回應···`，讓玩家知道 AI 正在思考，避免誤以為當機。
+
+- [ ] GM 助理自動生成日記
+  - GM 助理在符合條件時主動觸發，生成後不彈出提示。
+  - 只在左欄「日記與記憶」卡片標題處顯示亮點提示【新日記】，玩家點開即消除。
+  - 玩家是否勾選日記完全自主，未勾選不注入。
+
+- [ ] 日記機制確認
+  - 日記維持「關鍵字觸發」機制，只有命中關鍵字才注入，需保留。
+  - 不讓 GM 助理自動新增關鍵字，保持玩家主控記憶焦點。
 
 ---
 
-### 待開發優先順序
+## 群組 C｜前端數值與 UI
+> 各項目互相獨立，可並行或逐一完成。
 
-**高優先（buildPrompt / 邏輯調整，風險低）**
-- 記憶地點比對改為精確相等
-- COMMAND FORMAT 壓縮
-- GM 助理觸發條件加入判斷邏輯
-- 串流改為延遲顯示，等待期間顯示風格化提示
+- [x] 道具 effect 前端處理
+  2026-03-18 [Claude Sonnet 4.6]: types.ts ConsumableItem 已有 effect 欄位；useCommandParser applyItemEffect 修正 race condition（parts 移出 setter callback）與負值防呆（Math.max(0,...)）；ITEM_ADD 解析已支援 effect 寫入；ITEM_USE 指令已解析並呼叫 applyItemEffect；App.tsx 道具欄「使用」按鈕已呼叫 applyItemEffect 並送訊息給 AI。
 
-**中優先（需調整資料結構）**
-- NPC memories 升級為結構化物件
-- GM 助理加入 diary_worthy 欄位
-- 模型選擇介面實作
-- LorebookEntry 地點資料加入 aliases 欄位
-
-**低優先（體驗優化）**
-- 道具資訊分層注入
-- 日記注入截斷
-- 玩家記憶超出範圍的前端提示（低干擾 UI 亮點）
-
-
-## 🧭 架構
-
-
-- [ ] P1｜任務鏈與後果分歧
-  討論主題：任務加入部分完成、被他人捷足先登等中間態。
-  討論過程：原文件定位為增加世界演化感的方式，尚未進一步細化。
-
-- [ ] P1｜行動端（Mobile Web）基本可用
-  討論主題：手機瀏覽器可正常開啟、可操作、可存檔，不做 App/PWA。
-  討論過程：明確定位為 Mobile Web，避免先期投入 App/PWA 成本；優先確保 safe-area、輸入區、基本訊息載入策略可用。
-
-- [ ] P2｜時間推進與任務期限判定（純函式化）
-  討論主題：`TIME:+...` 計算與逾期判斷集中為純函式（如 `advanceTimeAndResolveQuestDeadlines`）。
-  討論過程：針對 `totalDays` 重複計算的疑問，決議「要統一，`totalDays` 應由純函式計算並回傳，UI（`buildPrompt`）只讀取結果，避免不一致」。
-
-- [ ] P2｜存檔匯入/匯出 schema 正規化
-  討論主題：`loadFromData` 完整映射欄位（含 `appearingNpcs`）並提供 migrate 流程，獨立 `saveDataMapper` / `saveDataMigration`。
-  討論過程：針對 migration 觸發條件的疑問，決議「新增 `schemaVersion`，migration 依版本號觸發，欄位存在與否只作為輔助判斷」。
-
-- [ ] P2｜Command Parser 分層
-  討論主題：拆成 `parse` / `reduce` / `effects` 三層。
-  討論過程：原文件定位為提升可測試性與責任清楚的核心架構整理，尚未進一步細化。
-
-- [ ] P2｜App.tsx 狀態切片與渲染隔離
-  討論主題：`App.tsx` 拆為容器 + memoized 子區塊，分離高頻/低頻狀態。
-  討論過程：針對「先拆分或並行虛擬化」的疑問，決議「先完成拆分與狀態切片，再導入虛擬化，避免雙向重工」。
-
-- [ ] P2｜儲存層升級
-  討論主題：localStorage → IndexedDB，建立版本化 migration。
-
-- [ ] P2｜網路韌性
-  討論主題：AI 請求加入 timeout/retry/abort，顯示請求狀態，背景恢復。
-
-- [ ] P3｜指令 DSL 版本化
-  討論主題：例如 `COMMANDS v2`，維護向下相容 parser。
-
-- [ ] P3｜事件溯源（Event Sourcing）輕量化
-  討論主題：儲存事件而非只儲存最終 state。
-
-- [ ] P3｜內容安全與邊界控制
-  討論主題：內容等級與禁忌主題開關。
-
----
-
-## 🔴 高優先
-
-- [ ] 道具 effect 前端處理
-
-  功能意義：消耗品使用後由前端直接套用數值變化，不需要 AI 介入計算，減少 token 消耗並確保數值即時更新。
-
-  資料結構異動（`consumables` 陣列每個項目）新增欄位：
-  - `effect?: { hp?: number, mp?: number, gold?: number, status?: string }`
-  - 數值正數為增加，負數為扣除
-  - `status` 為狀態異常字串，例如 `'poisoned'`、`'blessed'`（目前前端顯示用，暫不做複雜邏輯）
-  - effect 由 AI 透過 `ITEM_ADD` 指令建立消耗品時一併寫入，玩家不能修改
-
-  抽出共用函數 `applyItemEffect(itemName: string)`（兩種觸發方式共用）：
-  - 在 `consumables` 中找到對應道具
-  - 套用 effect：`hp` 加入 `profile.hp`、`mp` 加入 `profile.mp`、`gold` 加入 `profile.gold`、`status` 寫入 `profile.status`
-  - 數量 -1，歸零時從 `consumables` 移除
-  - Toast：「🧪 使用 XX：HP +30」（依實際 effect 內容動態產生）
-
-  觸發方式一：道具欄點擊「使用」按鈕：
-  - 前端呼叫 `applyItemEffect(itemName)`
-  - 同時送出訊息給 AI：「（玩家使用了 XX，效果已套用）」，讓 AI 接續描述場景反應
-
-  觸發方式二：AI 輸出 ITEM_USE 指令：
-  - 格式：`ITEM_USE:道具名`
-  - 於 `parseAndExecuteCommands` 解析，呼叫 `applyItemEffect(itemName)`
-  - 沉浸式玩家在對話中描述使用道具時，AI 自行判斷並輸出此指令
-
-  buildPrompt COMMAND FORMAT 說明補充：
-  - `ITEM_USE`：當玩家在對話中明確表示使用某消耗品時輸出，使用與道具欄完全相同的道具名稱
-
-- [ ] Prompt 記憶寫入規則(再次確認)
-  在 `buildPrompt` 的 COMMAND FORMAT 說明裡，加入「AI 何時應輸出 MEMORY_ADD」的規則。
-  包含五種情境：世界事件 / 區域事件 / 場景狀態改變 / NPC 情報 / 玩家重要事件。
-  特別規則：AI 回應裡出現 `[ ]` 布告欄內容時，必定觸發 `MEMORY_ADD:region`。
-
-
----
-
-## 🟡 中優先
-
-- [ ] 多配色主題
-  用 `data-theme` + CSS variables 切換主題。設定 Modal 加色塊選擇器，儲存至 localStorage。
-
-
-  預期效果：App.tsx 瘦身約 150–200 行，靜態世界觀資料與邏輯分離。
+- [ ] 道具資訊分層注入（buildPrompt 優化）
+  - 帶有 effect 的消耗品和數量 > 1 的道具完整傳送，其餘只傳名字和數量。
+  - 【防呆】道具欄超過上限時，僅保留最近變動的道具完整資訊。
 
 - [ ] 更多前端處理項目
   - 時間系統視覺化（日夜循環 icon / 天空漸層背景）
   - HP/MP 動態條動畫（數字跳動、條縮短）
 
+- [ ] 多配色主題
+  - 用 `data-theme` + CSS variables 切換主題。
+  - 設定 Modal 加色塊選擇器，儲存至 `localStorage`。
+
 ---
 
-## 🟢 之後（低優先）
+## 群組 D｜架構重構
+> 有明確依賴順序，必須按序執行，勿跳著做。
+
+- [ ] D1｜App.tsx 狀態切片與渲染隔離
+  - `App.tsx` 拆為容器 + memoized 子區塊（聊天區、狀態列、快捷操作、側欄）。
+  - 分離高頻狀態（輸入框、loading、toast）與低頻狀態（世界設定、長清單）。
+  - 決議：先完成拆分，再做虛擬化，避免雙向重工。
+
+- [ ] D2｜Command Parser 分層
+  - 拆成三層：`parse`（文字→結構化指令）、`reduce`（純函式計算 state patch）、`effects`（toast、modal 等 UI side effects）。
+  - 依賴 D1 完成後進行。
+
+- [ ] D3｜時間推進與任務期限判定（純函式化）
+  - `TIME:+...` 計算與逾期判斷集中為純函式 `advanceTimeAndResolveQuestDeadlines`。
+  - `totalDays` 由純函式計算並回傳，`buildPrompt` 只讀取結果。
+  - 依賴 D2 完成後進行。
+
+- [ ] D4｜清單虛擬化與訊息快取
+  - 訊息區、Lorebook、NPC 列表導入 virtualized list。
+  - 觸發條件：scroll long task > 50ms（量測後確認）；訊息數、DOM 節點數作為輔助觀察值。
+  - 第一步：`slice(-N)` 顯示層截斷（只影響 UI render，state 保持完整，AI context 由 `buildPrompt` 的 `SLIDING_WINDOW` 管理）。
+  - 依賴 D1 完成後進行。
+
+- [ ] D5｜存檔匯入/匯出 schema 正規化
+  - `loadFromData` 完整映射所有欄位，獨立 `saveDataMapper` / `saveDataMigration`。
+  - 新增 `schemaVersion`，migration 依版本號觸發，欄位存在與否作為輔助判斷。
+
+- [ ] D6｜儲存層升級（localStorage → IndexedDB）
+  - 存檔改為 IndexedDB，建立版本化 migration。
+  - `localStorage` 僅保留最後遊玩快照索引與必要 metadata。
+  - 依賴 D5 完成後進行。
+
+- [ ] D7｜網路韌性
+  - AI 請求加入 timeout / retry / abort。
+  - 顯示「請求中 / 已中斷 / 可重試」狀態。
+  - 手機切背景返回後自動檢查是否需恢復未完成回合。
+
+---
+
+## 群組 E｜長期功能
+> 不阻塞主線開發，可隨時插入。
+
+- [ ] P1｜行動端（Mobile Web）基本可用
+  - 手機瀏覽器可正常開啟、操作、存檔，不做 App/PWA。
+  - 優先確保 safe-area、輸入區、基本訊息載入策略可用。
+
+- [ ] P1｜任務鏈與後果分歧
+  - 任務加入部分完成、被他人捷足先登等中間態，增加世界演化感。
+  - 尚未進一步細化。
+
+- [ ] P3｜指令 DSL 版本化
+  - 例如 `COMMANDS v2`，維護向下相容 parser。
+
+- [ ] P3｜事件溯源（Event Sourcing）輕量化
+  - 儲存事件而非只儲存最終 state（如 `QuestAccepted`、`GoldSpent`）。
+
+- [ ] P3｜內容安全與邊界控制
+  - 內容等級（PG-13 / 成人向）與禁忌主題開關。
 
 - [ ] 對話摘要壓縮
-  超過 N 輪後，舊對話壓縮成摘要節省 token。
-  建議：保留最近 20 則原文，更早的壓縮成 200 字摘要。
-
-- [ ] Firebase 雲端儲存
-  取代 localStorage，支援跨裝置同步。（目前已決定暫緩）
+  - 超過 N 輪後，舊對話壓縮成摘要節省 token。
+  - 建議：保留最近 20 則原文，更早的壓縮成 200 字摘要。
 
 - [ ] 向量語意搜尋記憶
-  進階記憶檢索，不依賴關鍵字，改用語意相似度判斷是否注入。
+  - 進階記憶檢索，以語意相似度取代關鍵字判斷是否注入。
+
+- [ ] Firebase 雲端儲存
+  - 取代 localStorage，支援跨裝置同步。（目前已決定暫緩）
 
 - [ ] Scrollbar 樣式統一
-  用 `::-webkit-scrollbar` CSS 自訂滾動條樣式，配合現有石板/棕色系 UI。
-
+  - 用 `::-webkit-scrollbar` CSS 自訂滾動條，配合現有石板/棕色系 UI。
 
 ---
 
@@ -294,4 +219,17 @@ GM 助理每次執行輸出固定 JSON 格式，包含三個欄位：
 - [x] NPC 出場流程
   2026-03-18 [Claude Sonnet 4.6]: buildPrompt npcCandidates 上限動態化、relevantLorebook 加入 affection≥60 條件（限候選名單內）、pinnedNpcs 去重、handleSendMessage [出場:] 改用 matchAll；types.ts 加 locationType；constants.ts 15 筆地點補值；useCommandParser LOCATION_DISCOVER 加 inferLocationType；LorebookModal 加地點類型下拉
 
+- [x] NPC 記憶庫設計
+  好感度達到 60 時解鎖，屬於永久性功能，不會因好感度下降而關閉。NPC_THOUGHT 跟 memories 優化。只有當 NPC 出現在 appearingNpcs 或 isPinned 時，才注入其記憶庫內容。當記憶庫累積到一定數量時，由助理 GM 主動觸發融合。
 
+- [x] 道具 effect 前端處理
+  2026-03-18 [Claude Sonnet 4.6]: types.ts ConsumableItem 已有 effect 欄位；useCommandParser applyItemEffect 修正 race condition 與負值防呆；ITEM_ADD / ITEM_USE 指令完整支援；App.tsx 道具欄「使用」按鈕整合完成。
+
+- [x] 指令執行結果顯示一致化（toastQueue → notifyCommandResult）
+  2026-03-18 [Claude Sonnet 4.6]: App.tsx 新增 notifyCommandResult（自適應間隔：≤3 條 700ms、4–6 條 500ms、7+ 條 350ms）、toastTimerRef 統一管理 timer；useCommandParser 局部變數改名 cmdResults，移除硬編碼 setTimeout 排隊，改呼叫 notifyCommandResult。
+
+- [x] Bug 修復：月份/年份進位溢出
+  2026-03-18 [Claude Sonnet 4.6]: useCommandParser.ts TIME 計算加入日/月/年進位邏輯（每月 30 天、每年 12 月），setTimeState 同步更新 month/year，newTotalDays 改用進位後數值。
+
+- [x] Bug 修復：applyItemEffect race condition
+  2026-03-18 [Claude Sonnet 4.6]: parts 陣列移出 setProfile setter callback，改在 callback 外預先計算，確保 showToast 呼叫時 effectDesc 已填入。
