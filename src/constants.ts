@@ -22,22 +22,23 @@ export const INITIAL_SYSTEM_PROMPT: SystemPrompt = {
 };
 
 export const INITIAL_LOREBOOK_ENTRIES: LorebookEntry[] = [
-  { id: 1, title: '月湖鎮', content: '世界中心，醉醺醺酒館、任務板(日常任務)、情報來源、各類店家、住宅與商店街混合，在這裡可以見到各種奇幻種族。外圍有各種公會的據點，例如異鄉人公會、獵人公會、冒險者公會等等。西邊外圍有成人紅燈區。', category: '地點', isActive: true, mapX: 0, mapY: 0, cartFare: 0, mapStatus: 'known' },
-  { id: 2, title: '迷霧森林', content: '小紅帽副本：公會奶奶負責保管紅色斗篷，獵人公會訓練出來的學徒，每年都會派一位代表披上「紅斗篷」，跟狼族學徒決鬥一次(切磋性質)', category: '地點', isActive: true, mapX: 100, mapY: 50, cartFare: 30, mapStatus: 'discovered' },
-  { id: 3, title: '狼族領地', content: '黑牙氏族領地，非請勿擾', category: '地點', isActive: true, mapX: 110, mapY: 70, cartFare: 0, mapStatus: 'discovered' },
-  { id: 4, title: '大斷崖', content: '靠近地圖北端的懸崖，懸崖山洞裡有寶藏跟龍，附近是矮人堡壘', category: '地點', isActive: true, mapX: 0, mapY: 140, cartFare: 0, mapStatus: 'discovered' },
-  { id: 5, title: '失序谷', content: '「失序谷」是一個地理名稱，因其內部地形崎嶇、生態系統混亂且不合邏輯而得名。廣義上屬於魔王的勢力範圍，因此也被稱為「魔族區域」。\n「魔王城」坐落在山峰之中。谷中有群聚鬧區也有散落居住的居民。\n氣氛歡樂鬆散，會欺騙、惡作劇。\n有各式各樣的種族，包括媚魔、吸血鬼、骷髏怪等等。\n偶爾會有人被惡作劇，變成其他種族或性別。適合投機份子的去處。', category: '地點', isActive: true, mapX: -100, mapY: 100, cartFare: 80, mapStatus: 'discovered' },
-  { id: 6, title: '白樺樹之森', content: '白雪公主副本：皇后送了白雪公主一顆「Apple 」，這個「Apple」可以傳遞聲音、拍照，還可以看世界各地的迷因影片，白雪公主每天玩蘋果玩到三更半夜，非常不自律。', category: '地點', isActive: true, mapX: 0, mapY: 100, cartFare: 40, mapStatus: 'discovered' },
-  { id: 7, title: '永夜沙灘', content: '人魚氏族：有魔法藥劑可以讓人魚上岸，偶爾會偽裝成人類去貿易，但新上岸的人魚對陸地生活較陌生，容易發生尷尬的事，需要老手帶領。人魚除了外表好看之外，多少帶點魚類的特性，例如：海豚可以用高頻率傳遞訊息，鯊魚喜歡吃生魚片。嚴禁有「接吻魚」習性的人魚上岸。大魚吃小魚，人魚也吃魚。', category: '地點', isActive: true, mapX: -100, mapY: 0, cartFare: 50, mapStatus: 'discovered' },
-  { id: 8, title: '湖畔詩社', content: '永夜湖畔的文藝聚會點，聚集吟遊詩人與旅人，會發佈特殊情報或支線任務。也是個野餐的好地點。', category: '地點', isActive: true, mapX: -70, mapY: 10, cartFare: 15, mapStatus: 'discovered' },
-  { id: 9, title: '鐘塔荒野', content: '睡美人副本：這個睡美人是歷年來擔任最久的一屆，一堆人吻她都沒反應，但可能會爬起來敷衍冒險者。（隱藏彩蛋：進入睡美人夢境後，會發現她的夢境是通往愛麗絲的夢遊仙境，而她是裡面的紅心皇后，樂不思蜀，不想醒來。）', category: '地點', isActive: true, mapX: 0, mapY: -100, cartFare: 30, mapStatus: 'discovered' },
-  { id: 10, title: '月湖驛站', content: '鐘塔荒野附近，得到穿越時空的素材，可以搭車回到素材當下的時間（也能「重置」道具狀態）', category: '地點', isActive: true, mapX: 0, mapY: -60, cartFare: 20, mapStatus: 'discovered' },
-  { id: 11, title: '幻夢市集', content: '只在夜晚出現的流動市集，有神祕商人與奇珍異寶。', category: '地點', isActive: true, mapX: 50, mapY: -30, cartFare: 0, mapStatus: 'discovered' },
-  { id: 12, title: '霧光花園', content: '夢幻花園，盛開著螢光花，據說能讓人變得誠實，有人會約在這裡告白、求婚、逼問對方是否出軌，也有人會在這裡辦民間調解。', category: '地點', isActive: true, mapX: -70, mapY: 50, cartFare: 15, mapStatus: 'discovered' },
-  { id: 13, title: '失落拼圖山丘', content: '許多冒險者(不限於異鄉人)會在這裡丟棄失敗的任務線索，據說是能擺脫霉氣。有些人會到這裡尋寶，也許可以從某些道具解鎖其他訊息。', category: '地點', isActive: true, mapX: -70, mapY: 120, cartFare: 40, mapStatus: 'discovered' },
-  { id: 14, title: '黑森林古道', content: '連接月湖鎮與迷霧森林的隱蔽小徑，據說偶爾會出現會誘人的「糖果屋」。', category: '地點', isActive: true, mapX: 80, mapY: 30, cartFare: 10, mapStatus: 'discovered' },
-  { id: 15, title: '異鄉人公寓', content: '位於月湖鎮城南住宅區的三層木造建築，外觀略顯陳舊，但結構依然堅固。由異鄉人公會管理，為居住者提供了一份低調的安寧。每週租金35銅。\n一樓：公共空間。公寓的公共生活圍繞著「互助」與「資訊共用」的核心展開，主要體現在一樓的布告欄上。\n二樓與三樓：寢室區。', category: '地點', isActive: true, mapX: 5, mapY: -10, cartFare: 0, mapStatus: 'known' },
+  { id: 1, title: '月湖鎮', content: '世界中心，醉醺醺酒館、任務板(日常任務)、情報來源、各類店家、住宅與商店街混合，在這裡可以見到各種奇幻種族。外圍有各種公會的據點，例如異鄉人公會、獵人公會、冒險者公會等等。西邊外圍有成人紅燈區。', category: '地點', isActive: true, mapX: 0, mapY: 0, cartFare: 0, mapStatus: 'known', locationType: 'town' },
+  { id: 2, title: '迷霧森林', content: '小紅帽副本：公會奶奶負責保管紅色斗篷，獵人公會訓練出來的學徒，每年都會派一位代表披上「紅斗篷」，跟狼族學徒決鬥一次(切磋性質)', category: '地點', isActive: true, mapX: 100, mapY: 50, cartFare: 30, mapStatus: 'discovered', locationType: 'wilderness' },
+  { id: 3, title: '狼族領地', content: '黑牙氏族領地，非請勿擾', category: '地點', isActive: true, mapX: 110, mapY: 70, cartFare: 0, mapStatus: 'discovered', locationType: 'wilderness' },
+  { id: 4, title: '大斷崖', content: '靠近地圖北端的懸崖，懸崖山洞裡有寶藏跟龍，附近是矮人堡壘', category: '地點', isActive: true, mapX: 0, mapY: 140, cartFare: 0, mapStatus: 'discovered', locationType: 'wilderness' },
+  { id: 5, title: '失序谷', content: '「失序谷」是一個地理名稱，因其內部地形崎嶇、生態系統混亂且不合邏輯而得名。廣義上屬於魔王的勢力範圍，因此也被稱為「魔族區域」。\n「魔王城」坐落在山峰之中。谷中有群聚鬧區也有散落居住的居民。\n氣氛歡樂鬆散，會欺騙、惡作劇。\n有各式各樣的種族，包括媚魔、吸血鬼、骷髏怪等等。\n偶爾會有人被惡作劇，變成其他種族或性別。適合投機份子的去處。', category: '地點', isActive: true, mapX: -100, mapY: 100, cartFare: 80, mapStatus: 'discovered', locationType: 'wilderness' },
+  { id: 6, title: '白樺樹之森', content: '白雪公主副本：皇后送了白雪公主一顆「Apple 」，這個「Apple」可以傳遞聲音、拍照，還可以看世界各地的迷因影片，白雪公主每天玩蘋果玩到三更半夜，非常不自律。', category: '地點', isActive: true, mapX: 0, mapY: 100, cartFare: 40, mapStatus: 'discovered', locationType: 'wilderness' },
+  { id: 7, title: '永夜沙灘', content: '人魚氏族：有魔法藥劑可以讓人魚上岸，偶爾會偽裝成人類去貿易，但新上岸的人魚對陸地生活較陌生，容易發生尷尬的事，需要老手帶領。人魚除了外表好看之外，多少帶點魚類的特性，例如：海豚可以用高頻率傳遞訊息，鯊魚喜歡吃生魚片。嚴禁有「接吻魚」習性的人魚上岸。大魚吃小魚，人魚也吃魚。', category: '地點', isActive: true, mapX: -100, mapY: 0, cartFare: 50, mapStatus: 'discovered', locationType: 'wilderness' },
+  { id: 8, title: '湖畔詩社', content: '永夜湖畔的文藝聚會點，聚集吟遊詩人與旅人，會發佈特殊情報或支線任務。也是個野餐的好地點。', category: '地點', isActive: true, mapX: -70, mapY: 10, cartFare: 15, mapStatus: 'discovered', locationType: 'building' },
+  { id: 9, title: '鐘塔荒野', content: '睡美人副本：這個睡美人是歷年來擔任最久的一屆，一堆人吻她都沒反應，但可能會爬起來敷衍冒險者。（隱藏彩蛋：進入睡美人夢境後，會發現她的夢境是通往愛麗絲的夢遊仙境，而她是裡面的紅心皇后，樂不思蜀，不想醒來。）', category: '地點', isActive: true, mapX: 0, mapY: -100, cartFare: 30, mapStatus: 'discovered', locationType: 'wilderness' },
+  { id: 10, title: '月湖驛站', content: '鐘塔荒野附近，得到穿越時空的素材，可以搭車回到素材當下的時間（也能「重置」道具狀態）', category: '地點', isActive: true, mapX: 0, mapY: -60, cartFare: 20, mapStatus: 'discovered', locationType: 'building' },
+  { id: 11, title: '幻夢市集', content: '只在夜晚出現的流動市集，有神祕商人與奇珍異寶。', category: '地點', isActive: true, mapX: 50, mapY: -30, cartFare: 0, mapStatus: 'discovered', locationType: 'building' },
+  { id: 12, title: '霧光花園', content: '夢幻花園，盛開著螢光花，據說能讓人變得誠實，有人會約在這裡告白、求婚、逼問對方是否出軌，也有人會在這裡辦民間調解。', category: '地點', isActive: true, mapX: -70, mapY: 50, cartFare: 15, mapStatus: 'discovered', locationType: 'wilderness' },
+  { id: 13, title: '失落拼圖山丘', content: '許多冒險者(不限於異鄉人)會在這裡丟棄失敗的任務線索，據說是能擺脫霉氣。有些人會到這裡尋寶，也許可以從某些道具解鎖其他訊息。', category: '地點', isActive: true, mapX: -70, mapY: 120, cartFare: 40, mapStatus: 'discovered', locationType: 'wilderness' },
+  { id: 14, title: '黑森林古道', content: '連接月湖鎮與迷霧森林的隱蔽小徑，據說偶爾會出現會誘人的「糖果屋」。', category: '地點', isActive: true, mapX: 80, mapY: 30, cartFare: 10, mapStatus: 'discovered', locationType: 'wilderness' },
+  { id: 15, title: '異鄉人公寓', content: '位於月湖鎮城南住宅區的三層木造建築，外觀略顯陳舊，但結構依然堅固。由異鄉人公會管理，為居住者提供了一份低調的安寧。每週租金35銅。\n一樓：公共空間。公寓的公共生活圍繞著「互助」與「資訊共用」的核心展開，主要體現在一樓的布告欄上。\n二樓與三樓：寢室區。', category: '地點', isActive: true, mapX: 5, mapY: -10, cartFare: 0, mapStatus: 'known', locationType: 'building' },
 ];
+
 
 export const INITIAL_WORLD_MAP: WorldMap = {
   fixed: [
@@ -46,7 +47,7 @@ export const INITIAL_WORLD_MAP: WorldMap = {
     { id: 'wolf_clan', name: '狼族領地', type: 'danger', x: 110, y: 70, desc: '黑牙氏族領地，非請勿擾。' },
     { id: 'great_cliff', name: '大斷崖', type: 'danger', x: 0, y: 140, desc: '懸崖山洞裡有寶藏跟龍，附近是矮人堡壘。' },
     { id: 'disorder_valley', name: '失序谷', type: 'city', x: -100, y: 100, desc: '魔王城所在。地形崎嶇、生態混亂。氣氛歡樂鬆散，有各種魔族，適合投機份子。' },
-    { id: 'birch_forest', name: '白樺樹之森', type: 'danger', x: 0, y: 100, desc: '白雪公主副本：皇后送了「Apple」手機，白雪公主每天玩到三更半夜。' },
+    { id: 'birch_forest', name: '白樺樹之森', type: 'danger', x: 0, y: 100, desc: '白雪公主副本：皇后送了一顆魔法「Apple」，近似於現代手機，白雪公主每天玩到三更半夜。' },
     { id: 'evernight_beach', name: '永夜沙灘', type: 'town', x: -100, y: 0, desc: '人魚氏族：有魔法藥劑可上岸貿易。嚴禁接吻魚上岸。' },
     { id: 'lakeside_poetry', name: '湖畔詩社', type: 'poi', x: -70, y: 10, desc: '永夜湖畔的文藝聚會點，發佈特殊情報或支線任務。' },
     { id: 'clock_tower', name: '鐘塔荒野', type: 'danger', x: 0, y: -100, desc: '睡美人副本：睡美人夢境通往愛麗絲夢遊仙境，她是紅心皇后，不想醒來。' },

@@ -32,7 +32,7 @@ export interface Quest {
   };
   deadline?: number | null;
   status: 'active' | 'completed' | 'failed';
-  isGoalMet: boolean;           // 目標是否已達成（等待玩家回報）
+  isGoalMet: boolean;
   createdAt: string;
   createdAtTotalDays: number;
   completedAt?: string;
@@ -79,6 +79,7 @@ export interface LorebookEntry {
   cartFare?: number;
   mapStatus?: 'discovered' | 'known';
   adjacentTo?: string[];
+  locationType?: 'town' | 'wilderness' | 'building'; // 控制候選 NPC 上限：town=8，其他=3
 }
 
 export interface SystemPrompt {

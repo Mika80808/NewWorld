@@ -512,6 +512,14 @@ export function useCommandParser(deps: CommandParserDeps) {
       const locDiscoverMatch = cmd.match(/^LOCATION_DISCOVER:(.+)$/i);
       if (locDiscoverMatch) {
         const locName = locDiscoverMatch[1].trim();
+
+        // 依地點名稱關鍵字推斷類型（建築優先，避免「月湖鎮酒館」誤判為 town）
+        const inferLocationType = (name: string): 'town' | 'wilderness' | 'building' => {
+          if (/館|店|坊|院|殿|堂|所|塔|屋|宅|公寓|廢墟|遺址|驛站|市集|詩社|花園/.test(name)) return 'building';
+          if (/鎮|城|村|市|港|聚落|街/.test(name)) return 'town';
+          return 'wilderness';
+        };
+
         const existing = lorebookEntries.find(e =>
           e.category === '地點' && (e.title.includes(locName) || locName.includes(e.title))
         );
@@ -529,6 +537,7 @@ export function useCommandParser(deps: CommandParserDeps) {
             category: '地點',
             isActive: true,
             mapStatus: 'discovered' as const,
+            locationType: inferLocationType(locName),
             keywords: [locName],
             selective: false,
             secondaryKeys: [],
@@ -538,6 +547,7 @@ export function useCommandParser(deps: CommandParserDeps) {
         toastQueue.push(`🗺️ 發現新地點：${locName}`);
         continue;
       }
+
     } // end for
 
     if (timeDeltaMinutes > 0) {

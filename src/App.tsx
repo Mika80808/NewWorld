@@ -710,6 +710,12 @@ ${recentChat}
     };
 
     // Phase 1：依地點篩選候選 NPC（輕量名單）
+    // 城鎮類（locationType === 'town'）上限 8，野外 / 建築 / 未設定 上限 3
+    const currentLocEntry = lorebookEntries.find(
+      e => e.category === '地點' && e.title === currentLocation
+    );
+    const candidateLimit = currentLocEntry?.locationType === 'town' ? 8 : 3;
+
     const npcCandidates = lorebookEntries
       .filter(e => e.category === 'NPC' && e.isActive && (
         e.homeLocation === currentLocation ||
@@ -723,25 +729,25 @@ ${recentChat}
         };
         return score(a) - score(b);
       })
-      .slice(0, 5);
+      .slice(0, candidateLimit);
 
     const relevantLorebook = lorebookEntries
       .filter(e => {
         if (!e.isActive) return false;
         if (e.category === 'NPC') {
-          // Phase 2：出場 NPC 或釘選 NPC 注入完整資料
-          const inScene = appearingNpcs.some(n => e.title.includes(n) || n.includes(e.title)) ||
-                          npcs.some(n => n.isPinned && n.name === e.title);
+          // Phase 2：出場 NPC、釘選 NPC、或「候選名單內」好感度 ≥ 60 的核心 NPC → 完整注入
+          // 注意：高好感條件限定在 npcCandidates（當前場景）內，避免全體 NPC 掃描造成 prompt 膨脹
+          const isInCandidates = npcCandidates.some(c => c.title === e.title);
+          const npcData = isInCandidates ? npcs.find(n => n.name === e.title) : undefined;
+          const isHighAffectionCandidate = isInCandidates && (npcData?.affection ?? 0) >= 60;
+
+          const inScene =
+            appearingNpcs.some(n => e.title.includes(n) || n.includes(e.title)) ||
+            npcs.some(n => n.isPinned && n.name === e.title) ||
+            isHighAffectionCandidate;
           if (!inScene) return false;
           return lorebookHitsKeywords(e);
-        }
-        if (e.category === '地點') {
-          const locationMatch = currentLocation.includes(e.title) || e.title.includes(currentLocation);
-          if (!locationMatch) return false;
-          return lorebookHitsKeywords(e);
-        }
-        return lorebookHitsKeywords(e);
-      })
+        })
       .sort((a, b) => (a.insertionOrder ?? 100) - (b.insertionOrder ?? 100));
 
     const triggeredMemories = memories.filter(m => isMemoryTriggered(m, userInput, currentLocation));
@@ -764,7 +770,14 @@ ${recentChat}
       );
     });
 
-    const pinnedNpcs = npcs.filter(n => n.isPinned);
+        // 已在 relevantLorebook 完整注入的 NPC 不重複出現於 [Pinned NPCs] 區塊
+    const relevantLorebookNpcTitles = new Set(
+      relevantLorebook.filter(e => e.category === 'NPC').map(e => e.title)
+    );
+    const pinnedNpcs = npcs.filter(
+      n => n.isPinned && !relevantLorebookNpcTitles.has(n.name)
+    );
+
     const recentMessages = currentMessages.slice(-SLIDING_WINDOW);
 
     return `[System Context]
@@ -991,14 +1004,18 @@ Please respond as the DM.`;
 
       const rawNarrative = parseAndExecuteCommands(fullText);
 
-      // 解析 [出場:] 標記，更新 appearingNpcs + lastSeen，然後從顯示文字中移除
-      const appearMatch = rawNarrative.match(/\[出場:([^\]]*)\]/);
-      if (appearMatch) {
-        const names = appearMatch[1].split(',').map((n: string) => n.trim()).filter(Boolean);
-        if (names.length > 0) {
-          setAppearingNpcs(names);
+      // 解析所有 [出場:] 標記（matchAll），合併去重後更新 appearingNpcs
+      // 防呆：AI 若重複輸出同一角色的 [出場:] 標記，前端只計一次
+      const allAppearMatches = [...rawNarrative.matchAll(/\[出場:([^\]]*)\]/g)];
+      if (allAppearMatches.length > 0) {
+        const allNames = allAppearMatches
+          .flatMap(m => m[1].split(',').map((n: string) => n.trim()))
+          .filter(Boolean);
+        const uniqueNames = [...new Set(allNames)];
+        if (uniqueNames.length > 0) {
+          setAppearingNpcs(uniqueNames);
           setNpcs(prev => prev.map(npc =>
-            names.some((n: string) => npc.name.includes(n) || n.includes(npc.name))
+            uniqueNames.some((n: string) => npc.name.includes(n) || n.includes(npc.name))
               ? { ...npc, location: currentLocation, lastSeenLocation: currentLocation, lastSeenDate: `${timeState.month}/${timeState.day}` }
               : npc
           ));
