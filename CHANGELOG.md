@@ -5,7 +5,21 @@
 
 ---
 
-## [2026-03-17] v15（當前版本）
+### NPC 出場流程優化 2026-03-18 [Claude Sonnet 4.6]
+
+補強兩階段 NPC 注入架構的時序缺口，新增地點類型欄位控制候選名單上限，並修正 Pinned NPC 重複注入問題。
+
+- `src/types.ts`：`LorebookEntry` 新增 `locationType?: 'town' | 'wilderness' | 'building'`。
+- `src/constants.ts`：15 個初始地點條目補上 `locationType`（月湖鎮 → `town`；驛站、公寓、詩社、市集 → `building`；其餘 → `wilderness`）。
+- `src/hooks/useCommandParser.ts`（`LOCATION_DISCOVER`）：新增 `inferLocationType(name)` 純函式，AI 新增地點時自動推斷 `locationType`（建築關鍵字優先，避免「月湖鎮酒館」誤判為 town）。玩家可在 LorebookModal 手動覆蓋。
+- `src/App.tsx`（`buildPrompt`）：
+  - Phase 1 候選名單上限動態化：`town` → 8，其他 → 3（原本硬寫 5）。
+  - Phase 2 完整注入加入「候選名單內好感度 ≥ 60」條件（`isHighAffectionCandidate`），限定在 `npcCandidates` 範圍，不全體掃描。
+  - `pinnedNpcs` 去重：已在 `[Scene Lorebook]` 注入的 NPC 不再重複出現於 `[Pinned NPCs]`。右欄「✦ 關注」UI 不受影響。
+- `src/App.tsx`（`handleSendMessage`）：`[出場:]` 改用 `matchAll` 收集，去重後再 `setAppearingNpcs`，防止重複標記造成重複注入。
+- `src/components/LorebookModal.tsx`：地點編輯表單新增 `locationType` 下拉選單（自動推斷 / 城鎮 / 野外 / 建築）。
+
+## [2026-03-17] v15
 
 ### 清單虛擬化與訊息快取 2026-03-17 [Codex]
 
@@ -20,11 +34,11 @@
 
 ### Bug 修正與優化 2026-03-17 [Gemini]
 
-- **左側 UI 瘦身**：將 [個人資訊]、[設定集]、[Prompt]、[設定] 四個功能按鈕，從原本佔據多行的大按鈕簡化為兩行並列的 2x2 網格，節省左側欄位空間。
-- **存檔匯出優化**：導入 `File System Access API` (`window.showSaveFilePicker`)。現在點擊「匯出存檔」時，支援的瀏覽器會彈出視窗讓玩家自訂存檔路徑與檔名；若瀏覽器不支援，則自動退回原本的直接下載模式。
-- **道具與消耗品欄位改版**：將原本會撐爆版面的手風琴折疊清單，改為點擊後向右展開的絕對定位懸浮面板 (Popover)，並加入關閉按鈕與毛玻璃特效，大幅優化左側空間利用率。
-- **移除 GitHub 備份功能**：因應需求，移除了設定面板中的 GitHub PAT (Gist) 備份功能及相關 UI。
-- **修復訊息刪除與編輯失效**：修正了玩家對話框的 [刪除] 與 [編輯] 功能，現在變更會立即寫入 localStorage，避免重新整理後恢復原狀。同時發送新訊息時也會立即存檔。
+- 左側 UI 瘦身：將 [個人資訊]、[設定集]、[Prompt]、[設定] 四個功能按鈕，從原本佔據多行的大按鈕簡化為兩行並列的 2x2 網格，節省左側欄位空間。
+- 存檔匯出優化：導入 `File System Access API` (`window.showSaveFilePicker`)。現在點擊「匯出存檔」時，支援的瀏覽器會彈出視窗讓玩家自訂存檔路徑與檔名；若瀏覽器不支援，則自動退回原本的直接下載模式。
+- 道具與消耗品欄位改版：將原本會撐爆版面的手風琴折疊清單，改為點擊後向右展開的絕對定位懸浮面板 (Popover)，並加入關閉按鈕與毛玻璃特效，大幅優化左側空間利用率。
+- 移除 GitHub 備份功能：因應需求，移除了設定面板中的 GitHub PAT (Gist) 備份功能及相關 UI。
+- 修復訊息刪除與編輯失效：修正了玩家對話框的 [刪除] 與 [編輯] 功能，現在變更會立即寫入 localStorage，避免重新整理後恢復原狀。同時發送新訊息時也會立即存檔。
 
 ### Bug 修正與地圖調整
 
@@ -42,8 +56,8 @@
 
 完整的視覺主題升級，將現有 stone 深色系全面替換為深海藍 × 金色手稿風。
 
-- **`src/index.css`**：新增 CSS Variables 定義深藍金色票（`--bg0` ~ `--danger`）
-- **`src/App.tsx`**：
+- `src/index.css`：新增 CSS Variables 定義深藍金色票（`--bg0` ~ `--danger`）
+- `src/App.tsx`：
   - 替換所有 Tailwind stone-* 類為新色票（#0a1628 ~ #c9a84c）
   - 字體改為 Georgia, serif
   - 「✦ 關注」标题（移除 Heart icon）
@@ -51,7 +65,7 @@
   - Markdown 引用區塊邊線改為金色
   - 金幣金額文字改為金色
   - 所有邊框、按鈕、輸入框顏色更新
-- **組件文件**（DiaryModal / LorebookModal / NpcModal / QuestModal）：
+- 組件文件（DiaryModal / LorebookModal / NpcModal / QuestModal）：
   - 批量替換 stone-* / indigo-* / amber-* 顏色
   - 確保所有 Modal UI 與主介面視覺統一
 
@@ -59,11 +73,11 @@
 
 優化 `SystemPromptModal` 與 `LorebookModal` 介面，提升視覺一致性與操作體驗。
 
-- **`src/components/SystemPromptModal.tsx`**：
+- `src/components/SystemPromptModal.tsx`：
   - 移除「世界觀前提」、「扮演規則」、「文筆風格」標題前的圖示。
   - 實作 textarea 自動高度調整，確保內容完整顯示且無內部捲軸。
   - 將功能說明文字合併至標題行，減少垂直空間佔用。
-- **`src/components/LorebookModal.tsx`**：
+- `src/components/LorebookModal.tsx`：
   - 統一「新增設定」按鈕與搜尋框圓角為 `rounded-[8px]`。
   - 優化分類過濾按鈕樣式，增加特定分類的視覺強調。
   - 為前三項設定卡片增加 `rounded-[8px]` 與 `border-2` 強調，區分重要性。
@@ -77,7 +91,7 @@
 
 針對使用體驗問題進行修正，包含視覺、互動與資訊架構。
 
-- **`src/components/MapModal.tsx`**：
+- `src/components/MapModal.tsx`：
   - 刪除右欄底部圖例（你在這裡 / 已知地點 / 未踏足）
   - 選取目標節點改為圓型發光（移除外框線，改用 Gaussian blur 半透明填充圓）
   - 移除節點 hover tooltip（懸停不再彈出資訊框）
@@ -96,7 +110,7 @@
 
 完整翻新 MapModal.tsx 視覺設計，石板灰圓形節點 → 深海藍底 × 金色手稿風格。
 
-- **`src/components/MapModal.tsx`（完整視覺重寫）**：
+- `src/components/MapModal.tsx`（完整視覺重寫）：
   - 整體底色 `#0a1628`（深海藍），容器背景 `#0d1f3c`，金色頂邊線 `#c9a84c`
   - 節點形狀：`known`/`current`/`selected` → 八角星芒 `<polygon>`（`starPoints()` helper）；`discovered` → 虛線圓形 + `?`
   - 節點色：currentLocation 金色 `#c9a84c` 三層暈光；selected 深紅 `#cc4422` 三層暈光；known 藍色 `#4a7ac9`
@@ -107,7 +121,7 @@
   - 右欄重設計：`✦ 【地點名稱】` 標題、菱形分隔線、金色左邊線區域記憶、兩段式旅行選擇（選模式 → 啟程金底按鈕）
   - 無選取狀態：顯示已知/未踏足地點列表（可點擊跳至該節點）
   - 圖例移至右欄底部小字
-- **`src/App.tsx`**：MapModal JSX 新增 `showToast={showToast}` prop
+- `src/App.tsx`：MapModal JSX 新增 `showToast={showToast}` prop
 
 ---
 
@@ -117,19 +131,19 @@
 
 將地圖架構從獨立 WorldMap state 遷移至 lorebookEntries，並實作坐馬車/徒步旅行邏輯。
 
-- **`src/types.ts`**：`LorebookEntry` 新增 5 個可選欄位：`mapX`, `mapY`, `cartFare`, `mapStatus?: 'discovered' | 'known'`, `adjacentTo`。
-- **`src/constants.ts`**：`INITIAL_LOREBOOK_ENTRIES` 所有 15 個 `category='地點'` 條目補上座標（沿用 INITIAL_WORLD_MAP 數值）、cartFare（依地點危險度設定 0–80 銅）、mapStatus（月湖鎮/異鄉人公寓 `'known'`，其餘 `'discovered'`）。
-- **`src/hooks/useCommandParser.ts`**：
+- `src/types.ts`：`LorebookEntry` 新增 5 個可選欄位：`mapX`, `mapY`, `cartFare`, `mapStatus?: 'discovered' | 'known'`, `adjacentTo`。
+- `src/constants.ts`：`INITIAL_LOREBOOK_ENTRIES` 所有 15 個 `category='地點'` 條目補上座標（沿用 INITIAL_WORLD_MAP 數值）、cartFare（依地點危險度設定 0–80 銅）、mapStatus（月湖鎮/異鄉人公寓 `'known'`，其餘 `'discovered'`）。
+- `src/hooks/useCommandParser.ts`：
   - `CommandParserDeps` 新增 `lorebookEntries: LorebookEntry[]`
   - `LOCATION_DISCOVER` 完整重寫：已在 lorebook 的地點 → 改 `mapStatus='known'`；未知地點 → 新增 lorebook entry（`mapStatus='discovered'`，無座標）。移除對 `setWorldMap` 的依賴。
-- **`src/components/MapModal.tsx`（完整重寫）**：
+- `src/components/MapModal.tsx`（完整重寫）：
   - 資料來源從 `WorldMap` 改為 `lorebookEntries`（category='地點' AND mapX 已設）
   - 節點統一使用圓形，依狀態視覺區分：玩家所在（綠色微發光）/ 已知（石板灰）/ 未踏足（半透明+問號）
   - 點選節點 → 右欄顯示地點名稱、content 說明、區域記憶、旅行按鈕
   - 旅行按鈕：🐴 坐馬車（cartFare > 0 才顯示，金不夠顯示「阮囊羞澀」）/ 🚶 徒步前往
   - 選擇不同節點時顯示 cubic bezier 曲線連接玩家所在地與目標
   - 無座標地點（LOCATION_DISCOVER 新增）顯示於「旅途發現」列表
-- **`src/App.tsx`**：
+- `src/App.tsx`：
   - 新增 `handleTravel(destName, byCarriage)`：扣除馬車費、更新 currentLocation、將目的地標記 `mapStatus='known'`、關閉地圖、送訊息給 AI
   - `useCommandParser` 增加 `lorebookEntries` 傳入
   - 移除 `mapOrigin`、`mapDestination` state 及 `calculateTravelTime` 函數
@@ -143,13 +157,13 @@
 
 實作「目標達成 → 回報領賞」的兩階段任務流程，讓任務完成更沉浸、更符合 RPG 邏輯。
 
-- **`src/types.ts`**：Quest 介面新增 `isGoalMet: boolean` 欄位，表示目標是否已達成但尚未回報；`buildPrompt` 型別安全修正（`currentMessages` 改為 `Message[]`，補 `Message` import）。
-- **`src/hooks/useCommandParser.ts`**：
+- `src/types.ts`：Quest 介面新增 `isGoalMet: boolean` 欄位，表示目標是否已達成但尚未回報；`buildPrompt` 型別安全修正（`currentMessages` 改為 `Message[]`，補 `Message` import）。
+- `src/hooks/useCommandParser.ts`：
   - `QUEST_ADD` 建立任務時預設 `isGoalMet: false`
   - 新增 `QUEST_GOAL_MET:任務名` 指令解析：將任務標記為目標已達成，Toast「🎯 任務目標達成：XX（請向委託人回報）」
-- **`src/hooks/useGameStore.ts`**：存檔載入時自動 migrate 舊任務（補 `isGoalMet: false` 預設值）。
-- **`src/App.tsx`**（`buildPrompt`）：進行中任務注入依 `isGoalMet` 狀態輸出不同格式（目標已達成顯示「目標已達成，待玩家回報」）；COMMAND FORMAT 新增 `QUEST_GOAL_MET` 範例與說明。
-- **`src/components/QuestModal.tsx`**：
+- `src/hooks/useGameStore.ts`：存檔載入時自動 migrate 舊任務（補 `isGoalMet: false` 預設值）。
+- `src/App.tsx`（`buildPrompt`）：進行中任務注入依 `isGoalMet` 狀態輸出不同格式（目標已達成顯示「目標已達成，待玩家回報」）；COMMAND FORMAT 新增 `QUEST_GOAL_MET` 範例與說明。
+- `src/components/QuestModal.tsx`：
   - 頂部狀態計數擴充為四種（進行中 / 待回報 / 已完成 / 失敗）
   - 每張任務卡前方加勾選框（☐ 進行中 / ☑ 待回報與已完成）
   - 待回報任務：琥珀色邊框，右上角「待回報」標籤，勾選框顯示 ☑
@@ -162,11 +176,11 @@
 ### App.tsx 狀態管理重構 + 型別安全全面修正
 將 App.tsx 從「大雜燴」重構為純 UI 容器，邏輯完全由自訂 Hooks 驅動。
 
-- **`src/hooks/useGameStore.ts`（新增）**：集中管理所有遊戲狀態（timeState, profile, systemPrompt, npcs, memories, quests, diaryEntries, lorebookEntries, inventory, consumables, messages, quickOptions, worldMap 等）。提供 `saveToStorage()` 統一存檔入口（key 固定為 `rpworld_save`），以及 `loadFromData()` 匯入舊存檔並自動 migrate 舊格式（worldMemory / factionMemory / locationMemory）。
-- **`src/hooks/useCommandParser.ts`（新增）**：封裝 `parseAndExecuteCommands`、`applyItemEffect`、`scanKeywords`、`isMemoryTriggered`、`tickMemoryCounters`，接受 store 切面作為依賴，透過 `onNewQuest` callback 解耦 UI 狀態。
-- **`src/App.tsx`**：移除 509 行遊戲邏輯，僅保留 UI state（Modal 開關、輸入、loading）、`buildPrompt`、`handleSendMessage` 及 JSX。存檔/匯入/重置改呼叫 hook 提供的函數，避免重複邏輯。
-- **`src/types.ts`**：修正 `DiaryEntry`（對應實際 `text/isActive/keywords` 欄位）；新增 `MemoryEntry`、`InventoryItem`、`ConsumableItem` 完整型別定義，消除 `any`。
-- **`src/main.tsx` + `src/index.css`（重建）**：補回被 GitHub 版本刪除的兩個入口檔案。
+- `src/hooks/useGameStore.ts`（新增）：集中管理所有遊戲狀態（timeState, profile, systemPrompt, npcs, memories, quests, diaryEntries, lorebookEntries, inventory, consumables, messages, quickOptions, worldMap 等）。提供 `saveToStorage()` 統一存檔入口（key 固定為 `rpworld_save`），以及 `loadFromData()` 匯入舊存檔並自動 migrate 舊格式（worldMemory / factionMemory / locationMemory）。
+- `src/hooks/useCommandParser.ts`（新增）：封裝 `parseAndExecuteCommands`、`applyItemEffect`、`scanKeywords`、`isMemoryTriggered`、`tickMemoryCounters`，接受 store 切面作為依賴，透過 `onNewQuest` callback 解耦 UI 狀態。
+- `src/App.tsx`：移除 509 行遊戲邏輯，僅保留 UI state（Modal 開關、輸入、loading）、`buildPrompt`、`handleSendMessage` 及 JSX。存檔/匯入/重置改呼叫 hook 提供的函數，避免重複邏輯。
+- `src/types.ts`：修正 `DiaryEntry`（對應實際 `text/isActive/keywords` 欄位）；新增 `MemoryEntry`、`InventoryItem`、`ConsumableItem` 完整型別定義，消除 `any`。
+- `src/main.tsx` + `src/index.css`（重建）：補回被 GitHub 版本刪除的兩個入口檔案。
 - TypeScript 編譯零錯誤，`npx tsc --noEmit` 通過。
 
 ---
@@ -175,10 +189,10 @@
 
 ### 型別與常數提取重構
 為了提升程式碼的可維護性與一致性，進行了大規模的型別與常數提取重構。
-- **統一型別定義**：建立 `src/types.ts`，將散落在各組件中的 `Profile`, `Npc`, `Quest`, `LorebookEntry`, `SystemPrompt`, `TimeState`, `WorldMap`, `Message`, `DiaryEntry` 等核心型別統一管理。
-- **靜態資料提取**：建立 `src/constants.ts`，將 `MONTHS_DATA`, `INITIAL_SYSTEM_PROMPT`, `INITIAL_LOREBOOK_ENTRIES`, `INITIAL_WORLD_MAP`, `TOKEN_OPTIONS` 等靜態資料從 `App.tsx` 移出。
-- **組件重構**：更新 `App.tsx` 及所有 Modal 組件（`ProfileModal`, `NpcModal`, `QuestModal`, `LorebookModal`, `SystemPromptModal`, `MapModal`, `DiaryModal`, `SettingsModal`），移除本地重複的型別與常數定義，改為引用統一的檔案。
-- **狀態初始化優化**：更新 `App.tsx` 中的狀態初始值，確保使用正確的型別與預設常數。
+- 統一型別定義：建立 `src/types.ts`，將散落在各組件中的 `Profile`, `Npc`, `Quest`, `LorebookEntry`, `SystemPrompt`, `TimeState`, `WorldMap`, `Message`, `DiaryEntry` 等核心型別統一管理。
+- 靜態資料提取：建立 `src/constants.ts`，將 `MONTHS_DATA`, `INITIAL_SYSTEM_PROMPT`, `INITIAL_LOREBOOK_ENTRIES`, `INITIAL_WORLD_MAP`, `TOKEN_OPTIONS` 等靜態資料從 `App.tsx` 移出。
+- 組件重構：更新 `App.tsx` 及所有 Modal 組件（`ProfileModal`, `NpcModal`, `QuestModal`, `LorebookModal`, `SystemPromptModal`, `MapModal`, `DiaryModal`, `SettingsModal`），移除本地重複的型別與常數定義，改為引用統一的檔案。
+- 狀態初始化優化：更新 `App.tsx` 中的狀態初始值，確保使用正確的型別與預設常數。
 
 ### 存檔 Icon 修正
 - 修正「匯出存檔」與「匯入存檔」圖示相反的問題：匯出改為 `Upload` (向上)，匯入改為 `Download` (向下)。
@@ -189,26 +203,26 @@
 
 ### NPC 出沒系統 + 兩階段注入
 讓 NPC 根據劇情自然累積出沒地點，前端依地點篩選候選名單，AI 決定誰真正出場，避免 NPC 無限膨脹也保留生活感。
-- **資料結構**：LorebookEntry 新增 `homeLocation`（主場地點）與 `roamLocations`（滑動窗口，保留最近 3 個非主場地點）。
-- **指令**：新增 `NPC_NEW`（建立新 NPC lorebookEntry）、`NPC_HOME`（首次登場寫入主場，唯寫一次）、`NPC_LOCATION`（記錄巡遊地點）。
-- **第一階段注入**：進入地點時，篩選 homeLocation 或 roamLocations 符合的 NPC（最多 5 個），以輕量格式（名字＋職業）注入 Prompt 候選名單。
-- **第二階段注入**：AI 在對話內文輸出 `[出場:姓名]` 標記後，前端偵測並注入完整 NPC 資料（外貌、個性、thoughts），同時觸發上次見面地點與日期自動更新，並從顯示文字移除標記。
-- **UI**：LorebookModal 新增 homeLocation / roamLocations 欄位顯示與編輯。
+- 資料結構：LorebookEntry 新增 `homeLocation`（主場地點）與 `roamLocations`（滑動窗口，保留最近 3 個非主場地點）。
+- 指令：新增 `NPC_NEW`（建立新 NPC lorebookEntry）、`NPC_HOME`（首次登場寫入主場，唯寫一次）、`NPC_LOCATION`（記錄巡遊地點）。
+- 第一階段注入：進入地點時，篩選 homeLocation 或 roamLocations 符合的 NPC（最多 5 個），以輕量格式（名字＋職業）注入 Prompt 候選名單。
+- 第二階段注入：AI 在對話內文輸出 `[出場:姓名]` 標記後，前端偵測並注入完整 NPC 資料（外貌、個性、thoughts），同時觸發上次見面地點與日期自動更新，並從顯示文字移除標記。
+- UI：LorebookModal 新增 homeLocation / roamLocations 欄位顯示與編輯。
 
 ### 道具 effect 前端處理
 消耗品新增 `effect` 欄位（hp / mp / gold / status），由 AI 透過 `ITEM_ADD` 建立時一併寫入，前端直接套用，不需 AI 介入計算。
-- **函數**：新增 `applyItemEffect(itemName)` 共用函數，處理兩種觸發方式（按鈕 / AI 指令）。
-- **指令**：新增 `ITEM_USE:道具名`，AI 判斷玩家在對話中使用消耗品時輸出，`parseAndExecuteCommands` 呼叫 `applyItemEffect`。
-- **UI**：道具欄「使用」按鈕直接呼叫 `applyItemEffect`，同時送出訊息讓 AI 接續描述場景。
-- **Toast**：依實際 effect 內容動態產生，例如「🧪 草藥：HP +30」。
+- 函數：新增 `applyItemEffect(itemName)` 共用函數，處理兩種觸發方式（按鈕 / AI 指令）。
+- 指令：新增 `ITEM_USE:道具名`，AI 判斷玩家在對話中使用消耗品時輸出，`parseAndExecuteCommands` 呼叫 `applyItemEffect`。
+- UI：道具欄「使用」按鈕直接呼叫 `applyItemEffect`，同時送出訊息讓 AI 接續描述場景。
+- Toast：依實際 effect 內容動態產生，例如「🧪 草藥：HP +30」。
 
 ### 新增 NPC「角色想法」功能
 實作 NPC 內心想法系統，讓 AI 在後續對話中能維持該 NPC 的態度與立場。
-- **資料結構**：新增 `relationship`、`lastSeenLocation`、`lastSeenDate` 與 `thoughts` 欄位。
-- **指令解析**：新增 `NPC_THOUGHT` 指令，AI 可動態寫入 NPC 的內心想法（最多保留 5 則）。
-- **自動更新**：對話結束後，自動更新有被提及的 NPC 的「上次見面地點與日期」。
-- **Prompt 注入**：在 `buildPrompt` 中將 NPC 的近期想法注入給 AI 參考。
-- **UI 改版**：更新 `NpcModal` 介面，新增關係、上次見面資訊，以及底部漸層透明度的「💭 角色想法」卡片區塊。
+- 資料結構：新增 `relationship`、`lastSeenLocation`、`lastSeenDate` 與 `thoughts` 欄位。
+- 指令解析：新增 `NPC_THOUGHT` 指令，AI 可動態寫入 NPC 的內心想法（最多保留 5 則）。
+- 自動更新：對話結束後，自動更新有被提及的 NPC 的「上次見面地點與日期」。
+- Prompt 注入：在 `buildPrompt` 中將 NPC 的近期想法注入給 AI 參考。
+- UI 改版：更新 `NpcModal` 介面，新增關係、上次見面資訊，以及底部漸層透明度的「💭 角色想法」卡片區塊。
 
 ### 任務系統動態化
 新增 `QUEST_ADD` 與 `QUEST_COMPLETE` 指令，讓 AI 能動態發布與完成任務。任務狀態（進行中、已完成）將同步顯示於任務面板中。
@@ -240,7 +254,7 @@
 
 ### Markdown Parser（renderMarkdown）
 新增 `renderMarkdown(text)` 與 `renderInline(text, keyPrefix)` 兩個函數，放在 component 外部。
-處理順序：按 `\n` 切行 → 判斷行類型（`>` 引用、`---` 分隔線、一般段落）→ 行內語法替換（`` `code` ``、`**bold**`、`*italic*`）。
+處理順序：按 `\n` 切行 → 判斷行類型（`>` 引用、`---` 分隔線、一般段落）→ 行內語法替換（`` `code` ``、`bold`、`*italic*`）。
 連續 `>` 行自動合併成同一引用區塊，正確呈現信件格式。
 只有 `msg.role !== 'user'` 時才呼叫 renderMarkdown，玩家訊息維持 `whitespace-pre-wrap`。
 
@@ -323,10 +337,10 @@ HP / MP 無上限（支援升級成長感）。資料儲存用 localStorage。�
 
 ### 日記系統升級（水晶球日記 + 融合日記）
 
-**UI 重構：** 日記 Modal 頂部由單一「新增日記條目」按鈕，改為三個並排 icon 按鈕：📝 新增日記 / 🔮 水晶球日記 / 💫 融合日記，各附小字說明。
+UI 重構： 日記 Modal 頂部由單一「新增日記條目」按鈕，改為三個並排 icon 按鈕：📝 新增日記 / 🔮 水晶球日記 / 💫 融合日記，各附小字說明。
 
-**DiaryEntry 新增欄位：** `source`（`'manual' | 'ai_generated' | 'merged'`）、`mergedFrom?: number[]`（融合來源 id 陣列）、`isMerged?: boolean`（已被融合，退休標記）。
+DiaryEntry 新增欄位： `source`（`'manual' | 'ai_generated' | 'merged'`）、`mergedFrom?: number[]`（融合來源 id 陣列）、`isMerged?: boolean`（已被融合，退休標記）。
 
-**🔮 水晶球日記：** 點擊後送獨立 API 請求（`gemini-2.0-flash`），掃最近 20 則對話，使用第二種 prompt 格式（含關鍵事件節點、詳細內容、故事路線等章節）生成日記。生成中顯示 loading，完成後 Toast 通知「🔮 水晶球日記已生成」，isActive 預設 false，玩家可自行勾選是否給 AI 讀。
+🔮 水晶球日記： 點擊後送獨立 API 請求（`gemini-2.0-flash`），掃最近 20 則對話，使用第二種 prompt 格式（含關鍵事件節點、詳細內容、故事路線等章節）生成日記。生成中顯示 loading，完成後 Toast 通知「🔮 水晶球日記已生成」，isActive 預設 false，玩家可自行勾選是否給 AI 讀。
 
-**💫 融合日記：** 點擊進入融合模式，日記列表每條出現第二個勾選框（左下方，與 isActive 勾選框上下分離）。勾選 2 條以上後確認按鈕亮起。確認後送 API 將多條合併壓縮，新日記標題自動加 💫，isActive 預設 false。原始條目標記 `isMerged=true`，列表中淡化顯示並標記「已融合」。融合日記可點擊展開顯示來源條目（灰字）。底部有「取消」按鈕退出融合模式。
+💫 融合日記： 點擊進入融合模式，日記列表每條出現第二個勾選框（左下方，與 isActive 勾選框上下分離）。勾選 2 條以上後確認按鈕亮起。確認後送 API 將多條合併壓縮，新日記標題自動加 💫，isActive 預設 false。原始條目標記 `isMerged=true`，列表中淡化顯示並標記「已融合」。融合日記可點擊展開顯示來源條目（灰字）。底部有「取消」按鈕退出融合模式。

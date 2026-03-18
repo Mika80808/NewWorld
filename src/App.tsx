@@ -4,13 +4,13 @@ import { motion, AnimatePresence } from 'motion/react';
 import { GoogleGenAI } from "@google/genai";
 import { DiaryModal } from './components/DiaryModal';
 import { LorebookModal } from './components/LorebookModal';
+import { Npc, LorebookEntry, Message, NpcMemory } from './types';
 import { NpcModal } from './components/NpcModal';
 import { QuestModal } from './components/QuestModal';
 import { ProfileModal } from './components/ProfileModal';
 import { SystemPromptModal } from './components/SystemPromptModal';
 import { SettingsModal } from './components/SettingsModal';
 import { MapModal } from './components/MapModal';
-import { Npc, LorebookEntry, Message } from './types';
 import { MONTHS_DATA, TOKEN_OPTIONS } from './constants';
 import { useGameStore, SAVE_KEY } from './hooks/useGameStore';
 import { useCommandParser } from './hooks/useCommandParser';
@@ -309,6 +309,8 @@ export default function App() {
       notifyCommandResult,
       showToast,
       onNewQuest: () => setIsQuestModalOpen(true),
+      geminiApiKey,
+      maxTokens,
     });
 
   // ─── 地圖旅行 ────────────────────────────────────────────────────────────────
@@ -615,31 +617,43 @@ ${recentChat}
     }
   };
 
-  const handleAddNpcMemory = (npcId: number, text: string) => {
+  const handleAddNpcMemory = (npcId: number, text: string, importance: 'core' | 'normal' = 'normal') => {
     if (!text.trim()) return;
-    const updatedNpcs = npcs.map(n => {
-      if (n.id === npcId) {
-        const newMems = [...(n.memories || []), text];
-        const updatedNpc = { ...n, memories: newMems };
-        if (selectedNpc?.id === npcId) setSelectedNpc(updatedNpc);
-        return updatedNpc;
-      }
-      return n;
-    });
-    setNpcs(updatedNpcs);
+    const newMem: NpcMemory = {
+      id: `nmem_${Date.now()}_${Math.floor(Math.random() * 9999)}`,
+      text: text.trim(),
+      createdAt: `${timeState.month}/${timeState.day}`,
+      source: 'manual',
+      importance,
+      isMerged: false,
+    };
+    setNpcs(prev => prev.map(n => {
+      if (n.id !== npcId) return n;
+      const updatedNpc = { ...n, memories: [...(n.memories || []), newMem] };
+      if (selectedNpc?.id === npcId) setSelectedNpc(updatedNpc);
+      return updatedNpc;
+    }));
   };
 
-  const handleRemoveNpcMemory = (npcId: number, memIndex: number) => {
-    const updatedNpcs = npcs.map(n => {
-      if (n.id === npcId) {
-        const newMems = n.memories.filter((_, idx) => idx !== memIndex);
-        const updatedNpc = { ...n, memories: newMems };
-        if (selectedNpc?.id === npcId) setSelectedNpc(updatedNpc);
-        return updatedNpc;
-      }
-      return n;
-    });
-    setNpcs(updatedNpcs);
+  const handleRemoveNpcMemory = (npcId: number, memId: string) => {
+    setNpcs(prev => prev.map(n => {
+      if (n.id !== npcId) return n;
+      const updatedNpc = { ...n, memories: n.memories.filter(m => m.id !== memId) };
+      if (selectedNpc?.id === npcId) setSelectedNpc(updatedNpc);
+      return updatedNpc;
+    }));
+  };
+
+  const handleUpdateNpcMemory = (npcId: number, memId: string, updates: Partial<NpcMemory>) => {
+    setNpcs(prev => prev.map(n => {
+      if (n.id !== npcId) return n;
+      const updatedNpc = {
+        ...n,
+        memories: n.memories.map(m => m.id === memId ? { ...m, ...updates } : m),
+      };
+      if (selectedNpc?.id === npcId) setSelectedNpc(updatedNpc);
+      return updatedNpc;
+    }));
   };
 
   const handleTogglePinNpc = (npcId: number) => {
@@ -747,7 +761,14 @@ ${recentChat}
             isHighAffectionCandidate;
           if (!inScene) return false;
           return lorebookHitsKeywords(e);
-        })
+        }
+        if (e.category === '地點') {
+          const locationMatch = currentLocation.includes(e.title) || e.title.includes(currentLocation);
+          if (!locationMatch) return false;
+          return lorebookHitsKeywords(e);
+        }
+        return lorebookHitsKeywords(e);
+      })
       .sort((a, b) => (a.insertionOrder ?? 100) - (b.insertionOrder ?? 100));
 
     const triggeredMemories = memories.filter(m => isMemoryTriggered(m, userInput, currentLocation));
@@ -836,8 +857,8 @@ ${npcMems.length > 0 ? npcMems.map(m => `- ${m.content}${m.tags?.npcs?.length ? 
 ---
 [當前場景可能出現的角色]
 ${npcCandidates.length > 0
-  ? npcCandidates.map(e => `${e.title}（${e.job || ''}）`).join('、') + '\n以上為可能在場的角色，非必須出場。若場景需要新角色請自由創造。'
-  : '無已知角色在附近。若場景需要新角色請自由創造。'}
+  ? npcCandidates.map(e => `${e.title}（${e.job || ''}）`).join('、') + '\n以上為可能在場的角色，非必須出場。若故事需要新角色請自由創造。'
+  : '無已知角色在附近。若故事需要新角色請自由創造。'}
 
 ---
 [Scene Lorebook]
@@ -847,7 +868,19 @@ ${relevantLorebook.map(e => {
     const thoughtsText = npcData?.thoughts && npcData.thoughts.length > 0
       ? `｜[近期想法] ${npcData.thoughts.map((t, i) => `${i + 1}.${t.text}`).join(' / ')}`
       : '';
-    return `[NPC] ${e.title}｜職業：${e.job || ''}｜外貌：${e.appearance || ''}｜個性：${e.personality || ''}｜備註：${e.other || ''}${thoughtsText}`;
+    let memoriesText = '';
+    if (npcData && npcData.affection >= 60 && npcData.memories && npcData.memories.length > 0) {
+      const activeMemories = npcData.memories.filter(m => !m.isMerged);
+      const toInject = [
+        ...activeMemories.filter(m => m.importance === 'core'),
+        ...activeMemories.filter(m => m.importance === 'normal' && m.source !== 'merged').slice(-5),
+        ...activeMemories.filter(m => m.source === 'merged').slice(-2),
+      ];
+      if (toInject.length > 0) {
+        memoriesText = `｜[記憶庫] ${toInject.map(m => `(${m.createdAt})${m.text}`).join(' / ')}`;
+      }
+    }
+    return `[NPC] ${e.title}｜職業：${e.job || ''}｜外貌：${e.appearance || ''}｜個性：${e.personality || ''}｜備註：${e.other || ''}${thoughtsText}${memoriesText}`;
   }
   return `[${e.category}] ${e.title}：${e.content}`;
 }).join('\n') || '（無）'}
@@ -857,7 +890,42 @@ ${pinnedNpcs.length > 0 ? pinnedNpcs.map(n => {
   const thoughtsText = n.thoughts && n.thoughts.length > 0
     ? `｜[近期想法] ${n.thoughts.map((t, i) => `${i + 1}.${t.text}`).join(' / ')}`
     : '';
-  return `- ${n.name}（${n.job}）好感度:${n.affection}｜${n.memories?.length > 0 ? '記憶: ' + n.memories.join(' / ') : ''}${thoughtsText}`;
+  return (() => {
+    const lines: string[] = [`- ${n.name}（${n.job}）好感度:${n.affection}${thoughtsText}`];
+    // 好感度 ≥ 60 且有記憶才注入
+    if (n.affection >= 60 && n.memories && n.memories.length > 0) {
+      const MAX_NORMAL = 5;
+      const MAX_MERGED = 2;
+      const MAX_CHARS = 300;
+
+      const activeMemories = n.memories.filter(m => !m.isMerged);
+      const coreMemories = activeMemories.filter(m => m.importance === 'core');
+      let normalMemories = activeMemories
+        .filter(m => m.importance === 'normal' && m.source !== 'merged')
+        .slice(-MAX_NORMAL);
+      const mergedMemories = activeMemories
+        .filter(m => m.source === 'merged')
+        .slice(-MAX_MERGED);
+
+      // 超出 300 字時縮減 normal 到 3 則
+      const baseText = [...coreMemories, ...normalMemories, ...mergedMemories]
+        .map(m => m.text).join('');
+      if (baseText.length > MAX_CHARS) {
+        normalMemories = normalMemories.slice(-3);
+      }
+
+      const allToInject = [...coreMemories, ...normalMemories, ...mergedMemories];
+      if (allToInject.length > 0) {
+        lines.push('  [記憶庫]');
+        allToInject.forEach(m => {
+          const tag = m.importance === 'core' ? ' [★]' : m.source === 'merged' ? ' [摘要]' : '';
+          lines.push(`  - (${m.createdAt}) ${m.text}${tag}`);
+        });
+      }
+    }
+    return lines.join('\n');
+  })();
+
 }).join('\n') : '（無）'}
 
 ---
@@ -1835,6 +1903,7 @@ Please respond as the DM.`;
         onTogglePinNpc={handleTogglePinNpc}
         onAddNpcMemory={handleAddNpcMemory}
         onRemoveNpcMemory={handleRemoveNpcMemory}
+        onUpdateNpcMemory={handleUpdateNpcMemory}
       />
 
       {/* System Prompt Modal Overlay */}

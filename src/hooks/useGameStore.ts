@@ -62,7 +62,7 @@ export function useGameStore() {
     () => {
       const p = (_s?.profile as Partial<Profile>) || {};
       return {
-        name: p.name || '異鄉人',
+        name: p.name || '',
         job: p.job || '異鄉人',
         appearance: p.appearance || '',
         personality: p.personality || '',
@@ -81,11 +81,30 @@ export function useGameStore() {
 
   // ── NPC ─────────────────────────────────────────────────────────────────────
   const [npcs, setNpcs] = useState<Npc[]>(
-    () => (_s?.npcs as Npc[]) || []
+    () => {
+      const raw = (_s?.npcs as Npc[]) || [];
+      return raw.map(npc => ({
+        ...npc,
+        // migrate：舊存檔 memories 可能是 string[]，自動升級為 NpcMemory[]
+        memories: Array.isArray(npc.memories)
+          ? npc.memories.map((m: string | NpcMemory, i: number): NpcMemory =>
+              typeof m === 'string'
+                ? {
+                    id: `nmem_legacy_${npc.id}_${i}`,
+                    text: m,
+                    createdAt: '—',
+                    source: 'manual' as const,
+                    importance: 'normal' as const,
+                  }
+                : m
+            )
+          : [],
+      }));
+    }
   );
-  const [appearingNpcs, setAppearingNpcs] = useState<string[]>(
-    () => (_s?.appearingNpcs as string[]) || []
-  );
+
+// 注意：NpcMemory 需要從 types 引入，請在 useGameStore.ts 的 import 裡補上：
+// import { ..., NpcMemory } from '../types';
 
   // ── 地點 ────────────────────────────────────────────────────────────────────
   const [currentLocation, setCurrentLocation] = useState<string>(
@@ -164,7 +183,7 @@ export function useGameStore() {
     if (saveData.profile) {
       const p = saveData.profile as Partial<Profile>;
       setProfile({
-        name: p.name || '異鄉人',
+        name: p.name || '',
         job: p.job || '異鄉人',
         appearance: p.appearance || '',
         personality: p.personality || '',

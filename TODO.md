@@ -81,23 +81,6 @@
 
 ---
 
-- [ ] NPC 出場流程
-
-  目前的兩階段注入架構方向正確，但有一個時序缺口需要補強。
-
-  - **Phase 1（候選名單）**
-  - 玩家進入某地點時，前端根據 homeLocation 和 roamLocations 篩選候選 NPC，以輕量格式（名字＋職業）注入 Prompt，讓主 GM 知道場景裡可能有誰。候選名單上限依地點類型調整：城鎮類最多 8 個，野外或建築內最多 3 個。
-  - 【防呆】若候選名單為空，提供明確提示「可自由創造新角色」，避免主 GM 卡住。
-
-  **Phase 2（完整資料注入）**
-  - 主 GM 在敘事開頭輸出 `[出場:姓名]` 標記，前端偵測後將對應 NPC 的完整資料（外貌、個性、近期想法）注入下一輪的 Prompt。
-
-  **時序缺口的處理**
-  - 由於完整資料在下一輪才注入，對於好感度高、記憶庫豐富的 NPC，第一輪互動品質可能受影響。建議的補強方式是：如果候選名單裡有 isPinned 的 NPC，或好感度達到 60 以上的 NPC，直接升級為完整注入，不等出場標記確認。這樣對玩家最在意的核心角色，AI 每一輪都能看到完整資料。
-
-  **NPC 資料去重**
-  - 目前 Pinned NPC 和出場 NPC 的資料可能重複注入，需要在 buildPrompt 裡加入去重邏輯，確保同一個 NPC 的資料只出現一次。
-  - 【防呆】若 AI 重複輸出 `[出場:]` 同一角色，前端忽略重複並避免重複注入。
 
 ---
 
@@ -175,7 +158,6 @@ GM 助理每次執行輸出固定 JSON 格式，包含三個欄位：
 ### 待開發優先順序
 
 **高優先（buildPrompt / 邏輯調整，風險低）**
-- NPC 資料去重（pinned 與 appearing 重疊問題）
 - 記憶地點比對改為精確相等
 - COMMAND FORMAT 壓縮
 - GM 助理觸發條件加入判斷邏輯
@@ -183,7 +165,6 @@ GM 助理每次執行輸出固定 JSON 格式，包含三個欄位：
 
 **中優先（需調整資料結構）**
 - NPC memories 升級為結構化物件
-- 高好感度 NPC 的預測性完整注入
 - GM 助理加入 diary_worthy 欄位
 - 模型選擇介面實作
 - LorebookEntry 地點資料加入 aliases 欄位
@@ -309,4 +290,8 @@ GM 助理每次執行輸出固定 JSON 格式，包含三個欄位：
 ---
 
 ## ✅ 已完成
+
+- [x] NPC 出場流程
+  2026-03-18 [Claude Sonnet 4.6]: buildPrompt npcCandidates 上限動態化、relevantLorebook 加入 affection≥60 條件（限候選名單內）、pinnedNpcs 去重、handleSendMessage [出場:] 改用 matchAll；types.ts 加 locationType；constants.ts 15 筆地點補值；useCommandParser LOCATION_DISCOVER 加 inferLocationType；LorebookModal 加地點類型下拉
+
 

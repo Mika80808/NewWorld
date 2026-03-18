@@ -38,6 +38,22 @@ export interface Quest {
   completedAt?: string;
 }
 
+// ─── NPC 記憶庫條目 ───────────────────────────────────────────────────────────
+export interface NpcMemory {
+  id: string;                                         // `nmem_${Date.now()}_${random}`
+  text: string;                                       // 記憶內容
+  createdAt: string;                                  // 遊戲內時間，例如 '4/15'
+  source: 'manual' | 'pre_merge' | 'merged';
+  // manual    = 玩家手動輸入
+  // pre_merge = thoughts 自動串接後寫入（尚未 AI 融合的原始記錄）
+  // merged    = Sub GM AI 融合後的摘要產物
+  importance: 'core' | 'normal';
+  // core   = 永遠注入 prompt，不受截斷規則影響
+  // normal = 依截斷規則（最近 5 則，超出 300 字縮減到 3 則）
+  isMerged?: boolean;                                 // 已被 AI 融合，保留但不注入 prompt
+  mergedFrom?: string[];                              // 融合來源的 id 陣列
+}
+
 export interface Npc {
   id: number;
   name: string;
@@ -55,7 +71,7 @@ export interface Npc {
   category: string;
   isActive: boolean;
   isPinned?: boolean;
-  memories: string[];
+  memories: NpcMemory[];                              // 升級：string[] → NpcMemory[]
 }
 
 export interface LorebookEntry {
@@ -79,7 +95,7 @@ export interface LorebookEntry {
   cartFare?: number;
   mapStatus?: 'discovered' | 'known';
   adjacentTo?: string[];
-  locationType?: 'town' | 'wilderness' | 'building'; // 控制候選 NPC 上限：town=8，其他=3
+  locationType?: 'town' | 'wilderness' | 'building';
 }
 
 export interface SystemPrompt {
