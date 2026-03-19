@@ -2,28 +2,96 @@
 
 > 這份文件供 Claude Code 自動讀取。
 > 詳細開發歷史請見 CHANGELOG.md，待做任務請見 TODO.md。
-> 以下為初始架構，僅供參考。
+
+---
+
+## 開始工作前的強制步驟
+
+```
+git pull origin main
+```
+
+**每次開始任何任務前都必須先執行。** Gemini 會推送檔案到 GitHub，不 pull 就動手會造成衝突。
+
 ---
 
 ## 專案簡介
 
 LLM 擔任 GM 的開放式世界文字冒險 RPG，玩家以自由文字輸入推進劇情。
-具有單機遊戲的道具、金錢、好感度、地圖等等數據化功能。
-後期需要跨裝置設定，讓玩家可登入google帳號同步遊戲存檔。
+具有單機遊戲的道具、金錢、好感度、地圖等數據化功能。
+後期規劃玩家可登入 Google 帳號跨裝置同步存檔。
 
 ---
 
-## 技術棧 (暫定)
+## 技術棧
 
 - **框架**：React 19 + TypeScript + Vite
 - **樣式**：Tailwind CSS v4
-- **AI**：Google Gemini 2.0 Flash（`@google/genai`）
-- **儲存**：localStorage（未來規劃 Firebase）
-- **主要檔案**：`src/App.tsx`（所有邏輯集中在單一檔案）
+- **AI**：Google Gemini（`@google/genai`），透過 `callAI` 封裝層呼叫，不直接散落在各處
+- **儲存**：localStorage（未來規劃 Firebase 或 SQLite等技術）
+- **主要邏輯檔案**：`src/App.tsx`（所有邏輯集中此處，不新增其他邏輯檔案）
+- **自訂 Hooks**：`src/hooks/useGameStore.ts`（state）、`src/hooks/useCommandParser.ts`（指令解析）
+- **組件**：`src/components/`（純 UI，只接收 props 和 callback）
 
 ---
 
-## 核心資料結構 (暫定)
+## 架構規則
+
+- `App.tsx` 只保留：state、handlers、`buildPrompt`、API 呼叫、主介面三欄 JSX
+- `src/components/` 純 UI 組件，不持有業務 state
+- **所有 AI 呼叫統一走 `callAI` 函數**，不直接 `new GoogleGenAI(...)` 散落在各地
+- State 更新一律用 functional update：`setState(prev => ...)`
+
+---
+
+## API 設定架構（B0 重構後）
+
+> ⚠️ 目前仍在重構中（TODO 群組 B0），以下為目標狀態。重構完成前請查看 App.tsx 現況。
+
+玩家 API 設定**不隨存檔匯出/匯入**，單獨存在 localStorage：
+
+```
+localStorage key: 'mainGM_config'   → 主 GM 設定
+localStorage key: 'subGM_config'    → 助理 GM 設定
+```
+
+資料結構：
+```typescript
+interface GMConfig {
+  provider: 'gemini'   // 目前只支援 gemini，框架預留擴充
+  apiKey: string
+  model: string        // 來自靜態清單，例如 'gemini-2.0-flash'
+  maxTokens: number
+  lastSaved: string    // ISO 時間字串
+}
+
+interface SubGMConfig extends GMConfig {
+  useSameKey: boolean  // true（預設）時使用主 GM 的 apiKey
+}
+```
+
+**callAI 簽名：**
+```typescript
+callAI(prompt: string, options?: { role?: 'main' | 'sub'; maxTokens?: number }): Promise<string>
+// role 預設 'sub'
+// handleSendMessage 傳 { role: 'main' }
+// updateAdventureState / NPC 記憶融合 傳 { role: 'sub' }（預設，可省略）
+```
+
+**Gemini 靜態模型清單：**
+```typescript
+const GEMINI_MODELS = [
+  { value: 'gemini-2.0-flash',       label: 'Gemini 2.0 Flash（快速／輕量）' },
+  { value: 'gemini-2.0-flash-lite',  label: 'Gemini 2.0 Flash Lite（最省費）' },
+  { value: 'gemini-2.5-pro-preview', label: 'Gemini 2.5 Pro（最強／較慢）' },
+  { value: 'gemini-1.5-pro',         label: 'Gemini 1.5 Pro（穩定版）' },
+  { value: 'gemini-1.5-flash',       label: 'Gemini 1.5 Flash（穩定輕量）' },
+]
+```
+
+---
+
+## 核心資料結構
 
 ### memories[]（統一記憶陣列）
 ```typescript
@@ -51,24 +119,69 @@ interface MemoryEntry {
 }
 ```
 
-### lorebookEntries[]（故事集）
+### lorebookEntries[]（設定集）
 ```typescript
 interface LorebookEntry {
   id: number
   title: string
   category: '地點' | 'NPC' | '怪物' | '物品' | '歷史' | string
   content: string                     // 非 NPC 類使用
-  // NPC 類專用欄位
+  isActive: boolean
+  // NPC 類專用
   job?: string
   appearance?: string
   personality?: string
   other?: string
-  // 觸發控制
-  isActive: boolean
+  homeLocation?: string               // NPC 主場地點（唯寫一次）
+  roamLocations?: string[]            // 巡遊地點（滑動窗口，最多 3 個）
+  // 地點類專用
+  mapX?: number
+  mapY?: number
+  mapStatus?: 'discovered' | 'known'
+  cartFare?: number
+  adjacentTo?: string[]
+  locationType?: 'town' | 'wilderness' | 'building'
+  // 觸發控制（共用）
   keywords: string[]                  // 主關鍵字（OR）
   selective: boolean                  // true = AND 邏輯
   secondaryKeys: string[]             // 次要關鍵字（selective=true 時使用）
   insertionOrder: number              // 數字越小越先注入，預設 100
+}
+```
+
+### Npc[]（NPC 執行狀態）
+```typescript
+interface Npc {
+  id: number
+  name: string
+  job: string
+  affection: number
+  affectionLabel: string
+  appearance: string
+  personality: string
+  other?: string
+  relationship?: string
+  location?: string
+  lastSeenLocation?: string
+  lastSeenDate?: string
+  thoughts?: { text: string; createdAt: string }[]  // 最多 5 則，滿了寫入 memories
+  isPinned?: boolean
+  memories: NpcMemory[]
+}
+
+interface NpcMemory {
+  id: string                                // `nmem_${Date.now()}_${random}`
+  text: string
+  createdAt: string                         // 遊戲內時間
+  source: 'manual' | 'pre_merge' | 'merged'
+  // manual    = 玩家手動輸入
+  // pre_merge = thoughts 自動串接（尚未 AI 融合）
+  // merged    = Sub GM AI 融合後的摘要
+  importance: 'core' | 'normal'
+  // core   = 永遠注入 prompt
+  // normal = 截斷規則：最近 5 則，超過 300 字縮到 3 則
+  isMerged?: boolean                        // 已被融合，保留但不注入 prompt
+  mergedFrom?: string[]
 }
 ```
 
@@ -79,14 +192,46 @@ interface DiaryEntry {
   text: string
   isActive: boolean
   keywords: string[]                  // 空陣列 = 永遠注入；有值 = 關鍵字觸發
+  source?: 'manual' | 'ai_generated' | 'merged'
+  mergedFrom?: number[]
+  isMerged?: boolean
+}
+```
+
+### 道具 / 裝備
+```typescript
+interface EquipmentItem {             // 穿戴型，舊名 InventoryItem
+  id: number; name: string; description: string; isEquipped: boolean
+}
+interface ItemEntry {                 // 使用型，舊名 ConsumableItem
+  id: number; name: string; quantity: number; description: string
+  effect?: { type: string; value: number }  // 前端直接套用的數值效果
 }
 ```
 
 ---
 
+## NPC 兩階段注入架構
+
+**Phase 1（buildPrompt 入口）**：依地點篩選候選名單
+- `homeLocation === currentLocation` 或 `roamLocations.includes(currentLocation)` 的 NPC 列入候選
+- 上限：`locationType === 'town'` → 8 人，其他 → 3 人
+- 只輸出輕量名單給 AI（`[當前場景可能出現的角色]`），AI 決定誰真正出場
+
+**Phase 2（handleSendMessage 後）**：AI 回應出現 `[出場:姓名]` 標記後完整注入
+- 更新 `appearingNpcs`，下一輪 `buildPrompt` 才注入完整 NPC 資料
+- 防呆：`matchAll` 收集所有標記並去重，避免重複注入
+
+**NPC 注入資格（Phase 2 後）**：
+1. `appearingNpcs` 裡的 NPC
+2. `isPinned === true` 的 NPC
+3. 候選名單內 `affection >= 60` 的 NPC
+
+---
+
 ## AI 回應格式約定
 
-AI（Gemini）的回應會包含一個指令區塊，**前端攔截解析，不顯示給玩家**：
+AI 回應包含指令區塊，**前端攔截解析，不顯示給玩家**：
 
 ```
 <<COMMANDS>>
@@ -96,11 +241,17 @@ GOLD:+100
 AFFINITY:芬里爾:+5
 LOCATION:月湖鎮
 TIME:+2h
-ITEM_ADD:草藥:1:回復 20 HP
+ITEM_ADD:草藥:1:回復 20 HP:heal:20
 ITEM_REMOVE:草藥:1
-MEMORY_ADD:region:normal:迷霧森林昨日大火:locations=迷霧森林:factions=黑牙氏族:keywords=大火:sticky=3
-MEMORY_ADD:scene:normal:酒館暫時關閉:locations=月湖鎮酒館:expires=明日
-MEMORY_ADD:npc:normal:芬里爾透露停火協議內幕:npcs=芬里爾:keywords=停火,協議
+ITEM_USE:草藥
+NPC_NEW:芬里爾:精靈:獵人:銀髮高挑:冷靜寡言
+NPC_HOME:芬里爾:迷霧森林
+NPC_LOCATION:芬里爾:月湖鎮
+NPC_THOUGHT:芬里爾:覺得玩家值得信任
+NPC_RELATIONSHIP:芬里爾:盟友
+QUEST_GOAL_MET:任務ID
+QUEST_COMPLETE:任務ID
+MEMORY_ADD:region:normal:迷霧森林昨日大火:locations=迷霧森林:keywords=大火:sticky=3
 MEMORY_ADD:world:critical:魔王宣戰:keywords=魔王,宣戰
 <</COMMANDS>>
 ```
@@ -112,25 +263,25 @@ MEMORY_ADD:type:importance:content:locations=x,y:npcs=a:factions=b:keywords=c,d:
 - `scene` / `region` 若未指定 `locations`，自動使用當前地點
 - 簡化格式也支援：`MEMORY_ADD:scene:內容`
 
+**COMMANDS 區塊在串流結束後才解析**，不要在串流中途觸發。
+
 ---
 
-## 深藍金主題 CSS Variables（v8+）
-
-在 `src/index.css` 中定義的 CSS 色票：
+## 深藍金主題 CSS Variables
 
 ```css
 :root {
-  --bg0:     #0a1628;   /* 最外層背景（三欄底色）*/
-  --bg1:     #0d1f3c;   /* 左右側欄背景 */
-  --bg2:     #132540;   /* 卡片、輸入框、對話泡泡背景 */
+  --bg0:     #0a1628;   /* 最外層背景 */
+  --bg1:     #0d1f3c;   /* 左右側欄 */
+  --bg2:     #132540;   /* 卡片、輸入框、對話泡泡 */
   --bg3:     #1a2e50;   /* NPC chip、次要卡片 */
   --border:  #2a4a7f;   /* 所有邊框（0.5px solid）*/
   --text1:   #e2eaf8;   /* 主要文字 */
   --text2:   #8ab4e8;   /* 次要文字、標籤 */
   --text3:   #3a5a8a;   /* 提示文字、時間戳 */
-  --accent:  #e6bf55;   /* 金色強調（按鈕、標題、邊線）*/
-  --accent2: #fde68a;   /* 金色高亮（玩家節點中心、hover）*/
-  --danger:  #ff8866;   /* 危險/HP 警示、目標節點 */
+  --accent:  #e6bf55;   /* 金色強調 */
+  --accent2: #fde68a;   /* 金色高亮 */
+  --danger:  #ff8866;   /* HP 警示 */
 }
 ```
 
@@ -139,17 +290,20 @@ MEMORY_ADD:type:importance:content:locations=x,y:npcs=a:factions=b:keywords=c,d:
 
 ---
 
-## 重要設計決策  (暫定)
+## 重要設計決策
 
 | 決策 | 原因 |
 |---|---|
 | HP / MP 無上限 | 支援升級後成長感，不 clamp 到 maxHp/maxMp |
-| 所有邏輯在 App.tsx | 早期開發階段，維持簡單 |
+| 所有邏輯在 App.tsx | 維持簡單，避免跨檔依賴 |
 | localStorage 儲存 | 先做 UI，Firebase 之後再加 |
-| Gemini 2.0 Flash | 速度與成本平衡 |
+| API Key 不進存檔 | 安全性考量，單獨存 localStorage |
+| callAI 封裝層 | 未來換 API 服務只需改一處 |
 | 記憶四層架構 | world / region / scene / npc，依影響範圍分層注入 |
 | Lorebook 關鍵字觸發 | 仿 SillyTavern，支援 AND/OR 邏輯 |
-| 深藍金主題 v8 | 統一 UI 視覺語言，石英 → 深海藍 × 金色手稿風 |
+| 深藍金主題 | 深海藍 × 金色手稿風，統一 UI 視覺語言 |
+| NPC 兩階段注入 | 避免全體 NPC 塞滿 prompt，Phase 1 輕量候選，Phase 2 出場才完整注入 |
+| 日記關鍵字觸發 | 玩家主控注入，GM 助理不自動新增關鍵字 |
 
 ---
 
@@ -159,28 +313,41 @@ MEMORY_ADD:type:importance:content:locations=x,y:npcs=a:factions=b:keywords=c,d:
    ```typescript
    // ✅ 正確
    setProfile(prev => ({ ...prev, hp: prev.hp - 10 }))
-   // ❌ 錯誤（會有無限迴圈風險）
+   // ❌ 錯誤（stale closure 風險）
    setProfile({ ...profile, hp: profile.hp - 10 })
    ```
 
-2. **COMMANDS 解析在串流結束後才執行**，不要在串流中途觸發
+2. **不要直接 `new GoogleGenAI(...)` 散落在各處**，統一走 `callAI`
 
-3. **lorebookEntries 的 NPC 類**注入條件與其他類不同：需要釘選或在當前場景，才會進入 relevantLorebook
+3. **lorebookEntries 的 NPC 類**注入條件與其他類不同：需在 Phase 2 出場名單、釘選、或候選名單內好感 ≥ 60，才進入 `relevantLorebook`
 
 4. **memories 取代了舊的三個陣列**（`worldMemory` / `factionMemory` / `locationMemory`），不要重新加回去
 
-5. **`package.json` 的 dev script 綁定 `0.0.0.0:3000`**，不要改動這個設定
+5. **`package.json` 的 dev script 綁定 `0.0.0.0:3000`**，不要改動
+
+6. **NPC `thoughts[]` 滿 5 則時自動串接寫入 `memories[]`**（source: `pre_merge`）並清空，不要改變這個閾值
+
+7. **`[出場:]` 標記用 `matchAll` 收集並去重**，不要改回單次 `match`
+
+8. **`pinnedNpcs` 已在 `relevantLorebook` 去重**，不要讓同一 NPC 出現兩次於 prompt
 
 ---
 
 ## 關鍵函數索引
 
-| 函數 | 說明 |
+| 函數 / 位置 | 說明 |
 |---|---|
-| `buildPrompt(userInput)` | 組裝送給 LLM 的完整 prompt |
-| `parseAndExecuteCommands(text)` | 解析並執行 COMMANDS 區塊 |
-| `scanKeywords(keywords, depth, extra)` | 掃描最近 N 則對話是否包含關鍵字 |
-| `isMemoryTriggered(mem, userInput)` | 判斷記憶是否應該注入（含 sticky/cooldown）|
-| `tickMemoryCounters(triggeredIds)` | 每次 AI 回應後更新 sticky/cooldown 計數器 |
-| `lorebookHitsKeywords(entry)` | 判斷 Lorebook 條目是否觸發（含 AND 邏輯）|
-| `handleSendMessage()` | 主要的對話送出與 AI 串流邏輯 |
+| `App.tsx` `buildPrompt(userInput, messages)` | 組裝送給主 GM 的完整 prompt |
+| `App.tsx` `handleSendMessage()` | 主要對話送出與 AI 串流邏輯 |
+| `App.tsx` `callAI(prompt, options)` | 統一 AI 呼叫入口（主/助理 GM 分流） |
+| `App.tsx` `updateAdventureState(history, newItems)` | 觸發助理 GM 整理摘要與目標 |
+| `App.tsx` `handleGenerateDiary()` | 水晶球日記：AI 自動生成日記 |
+| `App.tsx` `handleMergeDiary(ids)` | 融合多條日記 |
+| `useCommandParser` `parseAndExecuteCommands(text)` | 解析並執行 COMMANDS 區塊 |
+| `useCommandParser` `applyItemEffect(item, qty)` | 道具數值效果套用 |
+| `useCommandParser` `scanKeywords(keywords, depth)` | 掃描最近 N 則對話是否含關鍵字 |
+| `useCommandParser` `isMemoryTriggered(mem, input, loc)` | 判斷記憶是否應該注入 |
+| `useCommandParser` `tickMemoryCounters(triggeredIds)` | 每回合更新 sticky/cooldown |
+| `useCommandParser` `triggerNpcMemoryMerge(npc)` | 呼叫助理 GM 融合 NPC 舊記憶 |
+| `useGameStore` `saveToStorage(snapshot?)` | 統一存檔入口（key: `rpworld_save`）|
+| `useGameStore` `loadFromData(data)` | 匯入存檔並自動 migrate 舊格式 |
