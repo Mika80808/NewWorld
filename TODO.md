@@ -56,17 +56,155 @@
 
   - 【防呆】記憶過多無法篩選時，降級策略：只注入 `importance=critical`。
 
-- [ ] 模型選擇設計
-  - 玩家可分別設定主 GM 和 GM 助理的模型與 token 上限。
-  - API Key：GM 助理預設共用主 GM 的 Key，UI 提供「使用同一組 API Key」勾選框（預設勾選），取消後開放獨立輸入。
-  - 設定存 `localStorage`，與遊戲存檔分開，不隨存檔匯出匯入。
-  - 模型使用下拉選單，避免打錯名稱導致靜默失敗。
-  - 【防呆】UI 顯示「最後更新時間」與「當前生效值」，避免玩家誤以為切換後已生效但未保存。
+---
+
+## 群組 B0｜API 設定重構（助理 GM 前置作業）
+> 群組 B（GM 助理系統）的前置任務，需先完成再實裝 Sub GM。
+
+- [ ] B0-1｜State 升級：geminiApiKey → mainGMConfig / subGMConfig
+
+  **目前狀況**：`useGameStore` 裡有 `geminiApiKey` state，存在遊戲存檔的 `localStorage` 裡。
+
+  **目標**：拆成兩組獨立設定，改存到與遊戲存檔完全分離的 `localStorage` key。
+
+  新的資料結構：
+  ```ts
+  // localStorage key: 'mainGM_config'
+  mainGMConfig: {
+    provider: 'gemini',           // 目前只支援 gemini，框架保留擴充空間
+    apiKey: string,
+    model: string,                // 例如 'gemini-2.0-flash'
+    maxTokens: number,
+    lastSaved: string,            // ISO 時間字串，UI 顯示用
+  }
+
+  // localStorage key: 'subGM_config'
+  subGMConfig: {
+    useSameKey: boolean,          // 預設 true，true 時 apiKey 欄位忽略
+    provider: 'gemini',
+    apiKey: string,
+    model: string,                // 例如 'gemini-2.0-flash'
+    maxTokens: number,
+    lastSaved: string,
+  }
+  ```
+
+  **migrate 舊 Key**：App 啟動時執行一次性搬移：
+  ```ts
+  const oldKey = localStorage.getItem('gemini_api_key');
+  if (oldKey && !localStorage.getItem('mainGM_config')) {
+    localStorage.setItem('mainGM_config', JSON.stringify({
+      provider: 'gemini',
+      apiKey: oldKey,
+      model: 'gemini-2.0-flash',
+      maxTokens: 2048,
+      lastSaved: new Date().toISOString(),
+    }));
+    localStorage.removeItem('gemini_api_key');
+  }
+  ```
+
+  **注意**：`geminiApiKey` 從 `useGameStore` 移除，不再隨存檔匯出/匯入。
+
+- [ ] B0-2｜callAI 重構：支援 mainGM / subGM 分流
+
+  **目前狀況**：`callAI` 直接讀 `geminiApiKey`，固定用 `gemini-2.0-flash`。
+
+  **目標**：callAI 接收 `role` 參數，依 role 選用對應的 config：
+
+  ```ts
+  const callAI = useCallback(async (
+    prompt: string,
+    options: { role?: 'main' | 'sub'; maxTokens?: number } = {}
+  ): Promise<string> => {
+    const { role = 'sub' } = options;
+    const cfg = role === 'main' ? mainGMConfig : subGMConfig;
+    const key = (cfg.useSameKey ?? true) ? mainGMConfig.apiKey : cfg.apiKey;
+    const model = cfg.model || 'gemini-2.0-flash';
+    const tokens = options.maxTokens ?? cfg.maxTokens ?? 500;
+
+    if (!key) return '';
+    // 目前只有 gemini，switch 框架保留擴充
+    const ai = new GoogleGenAI({ apiKey: key });
+    const response = await ai.models.generateContent({
+      model,
+      contents: prompt,
+      config: { maxOutputTokens: tokens },
+    });
+    return response.text?.trim() || '';
+  }, [mainGMConfig, subGMConfig]);
+  ```
+
+  `handleSendMessage` 改傳 `{ role: 'main', maxTokens: mainGMConfig.maxTokens }`。
+  `updateAdventureState` 改傳 `{ role: 'sub' }`（預設，不需改動）。
+
+- [ ] B0-3｜移除 Gemini 硬綁定
+
+  需清除的項目：
+
+  | 檔案 | 動作 |
+  |---|---|
+  | `src/App.tsx` | `handleGenerateDiary` / `handleMergeDiary` 直接 `new GoogleGenAI(...)` → 改走 `callAI({ role: 'main' })` |
+  | `src/App.tsx` | `handleSendMessage` 直接 `new GoogleGenAI(...)` → 改走 provider-agnostic 的 generateStream 函式 |
+  | `.env.example` | 移除 `GEMINI_API_KEY` 說明，改為通用 API Key 說明 |
+  | `vite.config.ts` | 移除 `define: { 'process.env.GEMINI_API_KEY': ... }` |
+  | `src/App.tsx` | 移除所有 `process.env.GEMINI_API_KEY` fallback |
+
+  > 注意：`import { GoogleGenAI }` 暫時保留，只是不再硬綁定 Key 來源和模型名稱。
+
+- [ ] B0-4｜SettingsModal 改版（雙 GM 設定 UI）
+
+  **Gemini 靜態模型清單**（供下拉選單使用）：
+  ```ts
+  const GEMINI_MODELS = [
+    { value: 'gemini-2.0-flash',       label: 'Gemini 2.0 Flash（快速／輕量）' },
+    { value: 'gemini-2.0-flash-lite',  label: 'Gemini 2.0 Flash Lite（最省費）' },
+    { value: 'gemini-2.5-pro-preview', label: 'Gemini 2.5 Pro（最強／較慢）' },
+    { value: 'gemini-1.5-pro',         label: 'Gemini 1.5 Pro（穩定版）' },
+    { value: 'gemini-1.5-flash',       label: 'Gemini 1.5 Flash（穩定輕量）' },
+  ];
+  ```
+
+  **provider 判斷邏輯**（API Key prefix）：
+  ```ts
+  // 目前只支援 Gemini，框架預留
+  // 'AIza...' → gemini
+  // 未來：'sk-...' → openai，'sk-ant-...' → anthropic
+  ```
+
+  **UI 版面**：
+  ```
+  ┌──────────────────────────────────────┐
+  │  ⚙️ 系統設定                          │
+  ├──────────────────────────────────────┤
+  │  ── 主 GM ──────────────────────    │
+  │  API Key  [●●●●●●●●] [👁] [貼上]    │
+  │  模型     [Gemini 2.0 Flash ▼]      │
+  │  Token 上限 [2048 ▼]                │
+  │                                      │
+  │  ── 助理 GM ─────────────────────   │
+  │  ☑ 使用與主 GM 相同的 API Key        │
+  │  （API Key 欄位灰掉不可輸入）        │
+  │  模型     [Gemini 2.0 Flash ▼]      │
+  │  Token 上限 [512 ▼]                 │
+  │                                      │
+  │  最後儲存：2026-03-19 14:23          │
+  │  當前生效：gemini-2.0-flash          │
+  │  [儲存設定]                          │
+  ├──────────────────────────────────────┤
+  │  ── 資料管理 ───────────────────    │
+  │  [匯出存檔]  [匯入存檔]  [重置]      │
+  └──────────────────────────────────────┘
+  ```
+
+  - 「儲存設定」才真正寫入 localStorage，避免玩家誤以為即時生效。
+  - 顯示「最後儲存時間」與「當前生效模型」，防止混淆。
+  - `useSameKey` 勾選時，助理 GM 的 API Key 輸入欄 disabled + 顯示「同主 GM」字樣。
 
 ---
 
 ## 群組 B｜GM 助理（Sub GM）系統
-> 依賴 Prompt 品質穩定後再實作，各子任務有執行順序。
+> 依賴 B0 完成後再實作，各子任務有執行順序。
 
 - [ ] 整體架構分工（Sub GM 基礎）
 
@@ -124,7 +262,7 @@
 > 各項目互相獨立，可並行或逐一完成。
 
 - [x] 道具 effect 前端處理
-  2026-03-18 [Claude Sonnet 4.6]: types.ts ConsumableItem 已有 effect 欄位；useCommandParser applyItemEffect 修正 race condition（parts 移出 setter callback）與負值防呆（Math.max(0,...)）；ITEM_ADD 解析已支援 effect 寫入；ITEM_USE 指令已解析並呼叫 applyItemEffect；App.tsx 道具欄「使用」按鈕已呼叫 applyItemEffect 並送訊息給 AI。
+  2026-03-18 [Claude Sonnet 4.6]: types.ts ConsumableItem 已有 effect 欄位；useCommandParser applyItemEffect 修正 race condition 與負值防呆；ITEM_ADD / ITEM_USE 指令完整支援；App.tsx 道具欄「使用」按鈕整合完成。
 
 - [ ] 道具資訊分層注入（buildPrompt 優化）
   - 帶有 effect 的消耗品和數量 > 1 的道具完整傳送，其餘只傳名字和數量。
