@@ -131,19 +131,16 @@ ${lastMessages}`;
           .filter(([, v]) => v === 'equipment')
           .map(([k]) => k);
         if (toEquip.length > 0) {
-          setItems(prev => {
-            const moving = prev.filter(i => toEquip.includes(i.name));
-            setEquipment(eq => {
-              const next = [...eq];
-              moving.forEach(item => {
-                if (!next.some(e => e.name === item.name)) {
-                  next.push({ id: item.id, name: item.name, description: item.description, isEquipped: false });
-                }
-              });
-              return next;
-            });
-            return prev.filter(i => !toEquip.includes(i.name));
+          const moving = items.filter(i => toEquip.includes(i.name));
+          const newItems = items.filter(i => !toEquip.includes(i.name));
+          const newEquipment = [...equipment];
+          moving.forEach(item => {
+            if (!newEquipment.some(e => e.name === item.name)) {
+              newEquipment.push({ id: item.id, name: item.name, description: item.description, isEquipped: false });
+            }
           });
+          setItems(newItems);
+          setEquipment(newEquipment);
         }
       }
     } catch (error) {
@@ -577,7 +574,7 @@ ${recentChat}
   const handleExportSave = async () => {
     const saveData = {
       profile, systemPrompt, diaryEntries, lorebookEntries, npcs, appearingNpcs,
-      inventory, consumables, currentLocation, messages, memories, quickOptions,
+      equipment, items, currentLocation, messages, memories, quickOptions,
       timeState, quests, worldMap, adventureLog, currentGoals,
     };
     const blob = new Blob([JSON.stringify(saveData, null, 2)], { type: 'application/json' });
@@ -816,7 +813,6 @@ ${recentChat}
     const worldMems    = filterByImportance(triggeredMemories.filter(m => m.type === 'world'), 8, 3);
     const regionMems   = filterByImportance(triggeredMemories.filter(m => m.type === 'region'), 5, 2);
     const sceneMems    = filterByImportance(triggeredMemories.filter(m => m.type === 'scene'), 5, 2);
-    const sceneMems    = filterByImportance(triggeredMemories.filter(m => m.type === 'scene'), 5, 2);
     const relevantLorebookNpcTitles = new Set(
       relevantLorebook.filter(e => e.category === 'NPC').map(e => e.title)
     );
@@ -852,11 +848,8 @@ Time: ${timeState.year}年${timeState.month}月${timeState.day}日 ${String(time
 HP: ${profile.hp} | MP: ${profile.mp} | Gold: ${profile.gold}
 
 [Inventory]
-${inventory.length > 0 ? inventory.map(i => `- ${i.name} x${i.quantity}: ${i.description}`).join('\n') : '（空）'}
-${consumables.length > 0 ? consumables.map(i => {
-  const eff = i.effect ? Object.entries(i.effect).map(([k, v]) => `${k}${Number(v) > 0 ? '+' : ''}${v}`).join('/') : '';
-  return `- [消耗品] ${i.name} x${i.quantity}: ${i.description}${eff ? ` (效果: ${eff})` : ''}`;
-}).join('\n') : ''}
+${equipment.length > 0 ? equipment.map(e => `- [裝備] ${e.name}${e.isEquipped ? '（裝備中）' : ''}: ${e.description}`).join('\n') : '（無裝備）'}
+${items.length > 0 ? items.map(i => `- ${i.name} x${i.quantity}: ${i.description}`).join('\n') : ''}
 
 [進行中任務]
 ${(() => {
@@ -1329,7 +1322,7 @@ Please respond as the DM.`;
                                   e.stopPropagation(); 
                                   setItems(prev => prev.filter(i => i.id !== item.id));
                                   showToast(`丟棄了 ${item.name}`);
-                                  setSelectedItemEntry(null);
+                                  setSelectedInventoryItem(null);
                                 }}
                               >
                                 丟棄
@@ -1359,7 +1352,7 @@ Please respond as the DM.`;
                 className={`w-full p-3 flex items-center justify-between hover:bg-[#1a2e50] transition rounded-[5px] ${isConsumablesOpen ? 'bg-[#1a2e50]' : ''}`}
               >
                 <h3 className="flex items-center text-[#e2eaf8] font-bold">
-                  <Beaker className="w-4 h-4 mr-2" /> 消耗品 ({consumables.reduce((acc, item) => acc + item.quantity, 0)})
+                  <Beaker className="w-4 h-4 mr-2" /> 消耗品 ({items.reduce((acc, item) => acc + item.quantity, 0)})
                 </h3>
                 <ChevronRight className={`w-4 h-4 text-[#3a5a8a] transition-transform ${isConsumablesOpen ? 'rotate-90 text-[#e6bf55]' : ''}`} />
               </button>
@@ -1407,7 +1400,7 @@ Please respond as the DM.`;
                                 onClick={(e) => {
                                   e.stopPropagation();
                                   useItem(item.name);
-                                  setSelectedItemEntry(null);
+                                  setSelectedConsumableItem(null);
                                   handleSendMessage(`（我使用了 ${item.name}（${item.description}））`);
                                 }}
                               >
@@ -1419,7 +1412,7 @@ Please respond as the DM.`;
                                   e.stopPropagation(); 
                                   setItems(prev => prev.filter(i => i.id !== item.id));
                                   showToast(`丟棄了 ${item.name}`);
-                                  setSelectedItemEntry(null);
+                                  setSelectedConsumableItem(null);
                                 }}
                               >
                                 丟棄
