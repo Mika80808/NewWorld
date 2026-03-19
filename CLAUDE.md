@@ -2,6 +2,7 @@
 
 > 這份文件供 Claude Code 自動讀取。
 > 詳細開發歷史請見 CHANGELOG.md，待做任務請見 TODO.md。
+> 完成任務後，更新CHANGELOG.md 和 TODO.md。
 
 ---
 

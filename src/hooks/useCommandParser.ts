@@ -111,19 +111,17 @@ export function useCommandParser(deps: CommandParserDeps) {
             if (cd > 0) {
               setCooldownCounters(c => ({ ...c, [id]: cd }));
             }
-            delete next[id];
           }
         }
       });
-      return next;
+      return Object.fromEntries(Object.entries(next).filter(([, v]) => v > 0));
     });
     setCooldownCounters(prev => {
       const next = { ...prev };
       Object.keys(next).forEach(id => {
         if (next[id] > 0) next[id] -= 1;
-        if (next[id] === 0) delete next[id];
       });
-      return next;
+      return Object.fromEntries(Object.entries(next).filter(([, v]) => v > 0));
     });
   };
 

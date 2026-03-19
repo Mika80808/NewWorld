@@ -61,7 +61,8 @@
 ## 群組 B0｜API 設定重構（助理 GM 前置作業）
 > 群組 B（GM 助理系統）的前置任務，需先完成再實裝 Sub GM。
 
-- [ ] B0-1｜State 升級：geminiApiKey → mainGMConfig / subGMConfig
+- [x] B0-1｜State 升級：geminiApiKey → mainGMConfig / subGMConfig
+  2026-03-20 [Claude Sonnet 4.6]: types.ts 新增 GMConfig/SubGMConfig；App.tsx 以 mainGMConfig/subGMConfig state 取代 geminiApiKey/maxTokens，useState 初始化時執行 migrate
 
   **目前狀況**：`useGameStore` 裡有 `geminiApiKey` state，存在遊戲存檔的 `localStorage` 裡。
 
@@ -106,7 +107,8 @@
 
   **注意**：`geminiApiKey` 從 `useGameStore` 移除，不再隨存檔匯出/匯入。
 
-- [ ] B0-2｜callAI 重構：支援 mainGM / subGM 分流
+- [x] B0-2｜callAI 重構：支援 mainGM / subGM 分流
+  2026-03-20 [Claude Sonnet 4.6]: callAI 加入 role/maxTokens/onChunk 參數，onChunk 存在走 streaming，否則走 generateContent
 
   **目前狀況**：`callAI` 直接讀 `geminiApiKey`，固定用 `gemini-2.0-flash`。
 
@@ -138,7 +140,8 @@
   `handleSendMessage` 改傳 `{ role: 'main', maxTokens: mainGMConfig.maxTokens }`。
   `updateAdventureState` 改傳 `{ role: 'sub' }`（預設，不需改動）。
 
-- [ ] B0-3｜移除 Gemini 硬綁定
+- [x] B0-3｜移除 Gemini 硬綁定
+  2026-03-20 [Claude Sonnet 4.6]: handleGenerateDiary/handleMergeDiary 改走 callAI({role:'main'})；handleSendMessage 改走 callAI({role:'main',onChunk:()=>{}})；vite.config.ts 移除 define；.env.example 更新
 
   需清除的項目：
 
@@ -152,7 +155,8 @@
 
   > 注意：`import { GoogleGenAI }` 暫時保留，只是不再硬綁定 Key 來源和模型名稱。
 
-- [ ] B0-4｜SettingsModal 改版（雙 GM 設定 UI）
+- [x] B0-4｜SettingsModal 改版（雙 GM 設定 UI）
+  2026-03-20 [Claude Sonnet 4.6]: SettingsModal.tsx 全面改版：雙 GM 設定區塊、GEMINI_MODELS 下拉、token 數字輸入、useSameKey toggle、👁 顯示/隱藏鍵、「儲存設定」按鈕（點擊才寫 localStorage）
 
   **Gemini 靜態模型清單**（供下拉選單使用）：
   ```ts
@@ -226,26 +230,6 @@
   三個任務合併成一次 API 呼叫。只有 `diary_worthy: true` 時才再發起水晶球日記呼叫。
   - 【防呆】`diary_worthy` 加冷卻：5 回合內最多 `true` 一次，避免連續觸發成本暴增。
 
-- [ ] 串流顯示策略（延遲顯示）
-
-  主 GM 採用**延遲顯示**而非即時串流，避免 `<<COMMANDS>>` 原始指令短暫顯示在對話框造成出戲感。
-
-  **執行順序**
-  ```
-  玩家送出訊息
-    → buildPrompt 組裝主 GM Prompt
-    → 主 GM 串流回覆（背景接收，不顯示）
-    → 串流結束，parseAndExecuteCommands 執行
-    → 解析 [出場:] 標記，更新 appearingNpcs
-    → setMessages 顯示最終 narrative（一次性呈現）
-    → 判斷是否觸發 GM 助理
-        → 若觸發：Sub GM 輸出 JSON，更新摘要與目標
-        → 若 diary_worthy 為 true：觸發水晶球日記，UI 亮點提示
-    → 自動存檔
-  ```
-
-- [ ] 等待串流期間的視覺呈現
-  串流進行中顯示金色動畫省略號 `✦ 異世界正在回應···`，讓玩家知道 AI 正在思考，避免誤以為當機。
 
 - [ ] GM 助理自動生成日記
   - GM 助理在符合條件時主動觸發，生成後不彈出提示。
@@ -261,8 +245,6 @@
 ## 群組 C｜前端數值與 UI
 > 各項目互相獨立，可並行或逐一完成。
 
-- [x] 道具 effect 前端處理
-  2026-03-18 [Claude Sonnet 4.6]: types.ts ConsumableItem 已有 effect 欄位；useCommandParser applyItemEffect 修正 race condition 與負值防呆；ITEM_ADD / ITEM_USE 指令完整支援；App.tsx 道具欄「使用」按鈕整合完成。
 
 - [ ] 道具資訊分層注入（buildPrompt 優化）
   - 帶有 effect 的消耗品和數量 > 1 的道具完整傳送，其餘只傳名字和數量。
@@ -366,8 +348,28 @@
 - [x] 指令執行結果顯示一致化（toastQueue → notifyCommandResult）
   2026-03-18 [Claude Sonnet 4.6]: App.tsx 新增 notifyCommandResult（自適應間隔：≤3 條 700ms、4–6 條 500ms、7+ 條 350ms）、toastTimerRef 統一管理 timer；useCommandParser 局部變數改名 cmdResults，移除硬編碼 setTimeout 排隊，改呼叫 notifyCommandResult。
 
-- [x] Bug 修復：月份/年份進位溢出
-  2026-03-18 [Claude Sonnet 4.6]: useCommandParser.ts TIME 計算加入日/月/年進位邏輯（每月 30 天、每年 12 月），setTimeState 同步更新 month/year，newTotalDays 改用進位後數值。
+- [x] 等待串流期間的視覺呈現
+  2026-03-19 [Claude Sonnet 4.6]: index.css 新增 `@keyframes blink-dot`；App.tsx 訊息渲染區判斷「最後一則 assistant 訊息 text 為空且 isLoading 為 true」時，顯示金色 `✦ 異世界正在回應` + 3 顆依序彈跳的金色小圓點（stagger 0 / 200 / 400ms），串流第一個字元到來後自動切回正常文字渲染。
 
-- [x] Bug 修復：applyItemEffect race condition
-  2026-03-18 [Claude Sonnet 4.6]: parts 陣列移出 setProfile setter callback，改在 callback 外預先計算，確保 showToast 呼叫時 effectDesc 已填入。
+- [x] 道具 effect 前端處理
+  2026-03-18 [Claude Sonnet 4.6]: types.ts ConsumableItem 已有 effect 欄位；useCommandParser applyItemEffect 修正 race condition 與負值防呆；ITEM_ADD / ITEM_USE 指令完整支援；App.tsx 道具欄「使用」按鈕整合完成。
+
+- [x] 串流顯示策略（延遲顯示）
+
+  主 GM 採用**延遲顯示**而非即時串流，避免 `<<COMMANDS>>` 原始指令短暫顯示在對話框造成出戲感。
+
+  **執行順序**
+  ```
+  玩家送出訊息
+    → buildPrompt 組裝主 GM Prompt
+    → 主 GM 串流回覆（背景接收，不顯示）
+    → 串流結束，parseAndExecuteCommands 執行
+    → 解析 [出場:] 標記，更新 appearingNpcs
+    → setMessages 顯示最終 narrative（一次性呈現）
+    → 判斷是否觸發 GM 助理
+        → 若觸發：Sub GM 輸出 JSON，更新摘要與目標
+        → 若 diary_worthy 為 true：觸發水晶球日記，UI 亮點提示
+    → 自動存檔
+  ```
+
+

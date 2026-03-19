@@ -190,3 +190,16 @@ export interface WorldMap {
   fixed: MapLocation[];
   dynamic: DynamicLocation[];
 }
+
+// ─── GM 設定（不隨存檔匯出，單獨存於 localStorage）────────────────────────────
+export interface GMConfig {
+  provider: 'gemini';
+  apiKey: string;
+  model: string;
+  maxTokens: number;
+  lastSaved: string;   // ISO 時間字串，UI 顯示用
+}
+
+export interface SubGMConfig extends GMConfig {
+  useSameKey: boolean; // true（預設）時使用主 GM 的 apiKey
+}

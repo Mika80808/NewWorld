@@ -4,14 +4,14 @@ import { motion, AnimatePresence } from 'motion/react';
 import { GoogleGenAI } from "@google/genai";
 import { DiaryModal } from './components/DiaryModal';
 import { LorebookModal } from './components/LorebookModal';
-import { Npc, LorebookEntry, Message, NpcMemory, EquipmentItem, ItemEntry } from './types';
+import { Npc, LorebookEntry, Message, NpcMemory, EquipmentItem, ItemEntry, GMConfig, SubGMConfig } from './types';
 import { NpcModal } from './components/NpcModal';
 import { QuestModal } from './components/QuestModal';
 import { ProfileModal } from './components/ProfileModal';
 import { SystemPromptModal } from './components/SystemPromptModal';
 import { SettingsModal } from './components/SettingsModal';
 import { MapModal } from './components/MapModal';
-import { MONTHS_DATA, TOKEN_OPTIONS } from './constants';
+import { MONTHS_DATA } from './constants';
 import { useGameStore, SAVE_KEY } from './hooks/useGameStore';
 import { useCommandParser } from './hooks/useCommandParser';
 
@@ -169,12 +169,33 @@ ${lastMessages}`;
   const [isLoading, setIsLoading] = useState(false);
 
   // ─── API 設定（不屬於遊戲存檔，獨立存於 localStorage）───────────────────────
-  const [geminiApiKey, setGeminiApiKey] = useState<string>(
-    () => localStorage.getItem('gemini_api_key') || ''
-  );
-  const [maxTokens, setMaxTokens] = useState<number>(
-    () => parseInt(localStorage.getItem('gemini_max_tokens') || '32768')
-  );
+  const [mainGMConfig, setMainGMConfig] = useState<GMConfig>(() => {
+    // 一次性 migrate：舊 gemini_api_key → mainGM_config
+    const oldKey = localStorage.getItem('gemini_api_key');
+    if (oldKey && !localStorage.getItem('mainGM_config')) {
+      const cfg: GMConfig = {
+        provider: 'gemini', apiKey: oldKey, model: 'gemini-2.0-flash',
+        maxTokens: 2048, lastSaved: new Date().toISOString(),
+      };
+      localStorage.setItem('mainGM_config', JSON.stringify(cfg));
+      localStorage.removeItem('gemini_api_key');
+      localStorage.removeItem('gemini_max_tokens');
+      return cfg;
+    }
+    try {
+      const raw = localStorage.getItem('mainGM_config');
+      if (raw) return { provider: 'gemini', model: 'gemini-2.0-flash', maxTokens: 2048, apiKey: '', lastSaved: '', ...JSON.parse(raw) };
+    } catch { /* ignore */ }
+    return { provider: 'gemini', apiKey: '', model: 'gemini-2.0-flash', maxTokens: 2048, lastSaved: '' };
+  });
+
+  const [subGMConfig, setSubGMConfig] = useState<SubGMConfig>(() => {
+    try {
+      const raw = localStorage.getItem('subGM_config');
+      if (raw) return { provider: 'gemini', model: 'gemini-2.0-flash', maxTokens: 512, apiKey: '', useSameKey: true, lastSaved: '', ...JSON.parse(raw) };
+    } catch { /* ignore */ }
+    return { provider: 'gemini', apiKey: '', model: 'gemini-2.0-flash', maxTokens: 512, useSameKey: true, lastSaved: '' };
+  });
 
   // ─── 遊戲狀態（useGameStore）────────────────────────────────────────────────
   const store = useGameStore();
@@ -312,21 +333,38 @@ ${lastMessages}`;
   }, [showToast, drainToastQueue]);
 
   // ─── AI 呼叫封裝（API 無關層）────────────────────────────────────────────────
-  // 所有內部 AI 呼叫（updateAdventureState、NPC 記憶融合等）統一走這個函數
-  // 未來換 API 服務只需修改此處，其他邏輯不動
-  const callAI = useCallback(async (prompt: string): Promise<string> => {
-    const key = geminiApiKey.trim() || process.env.GEMINI_API_KEY || '';
-    if (!key) return '';
+  // 所有 AI 呼叫統一走此函數，未來換 provider 只需改這裡
+  // role='main' → 使用主 GM 設定；role='sub'（預設）→ 使用助理 GM 設定
+  // onChunk → 走 streaming，無 onChunk → 走一次性 generateContent
+  const callAI = useCallback(async (
+    prompt: string,
+    options?: { role?: 'main' | 'sub'; maxTokens?: number; onChunk?: (chunk: string) => void }
+  ): Promise<string> => {
+    const { role = 'sub' } = options || {};
+    const cfg = role === 'main' ? mainGMConfig : subGMConfig;
+    const key = (role === 'sub' && subGMConfig.useSameKey) ? mainGMConfig.apiKey : cfg.apiKey;
+    if (!key.trim()) return '';
+    const model = cfg.model || 'gemini-2.0-flash';
+    const tokens = options?.maxTokens ?? cfg.maxTokens;
     try {
-      const ai = new GoogleGenAI({ apiKey: key });
-      const response = await ai.models.generateContent({
-        model: 'gemini-2.0-flash',
-        contents: prompt,
-        config: { maxOutputTokens: 500 },
-      });
-      return response.text?.trim() || '';
+      const ai = new GoogleGenAI({ apiKey: key.trim() });
+      if (options?.onChunk) {
+        const response = await ai.models.generateContentStream({
+          model, contents: prompt, config: { maxOutputTokens: tokens },
+        });
+        let fullText = '';
+        for await (const chunk of response) {
+          if (chunk.text) { fullText += chunk.text; options.onChunk(chunk.text); }
+        }
+        return fullText;
+      } else {
+        const response = await ai.models.generateContent({
+          model, contents: prompt, config: { maxOutputTokens: tokens },
+        });
+        return response.text?.trim() || '';
+      }
     } catch { return ''; }
-  }, [geminiApiKey]);
+  }, [mainGMConfig, subGMConfig]);
 
   // ─── 指令解析器（useCommandParser）─────────────────────────────────────────
   const { parseAndExecuteCommands, useItem, scanKeywords, isMemoryTriggered, tickMemoryCounters } =
@@ -418,42 +456,36 @@ ${lastMessages}`;
 
   // ─── 🔮 水晶球日記：AI 自動生成 ────────────────────────────────────────────
   const handleGenerateDiary = async () => {
-    const key = geminiApiKey.trim() || process.env.GEMINI_API_KEY || '';
-    if (!key) { showToast('❌ 請先設定 Gemini API Key'); return; }
+    if (!mainGMConfig.apiKey.trim()) { showToast('❌ 請先設定 API Key'); return; }
     try {
-      const ai = new GoogleGenAI({ apiKey: key });
       const recentChat = messages.slice(-20).map(m =>
         `${m.role === 'user' ? 'Player' : 'DM'}: ${m.text}`
       ).join('\n');
 
-      const prompt = `你是一個 遊戲的日記助手。根據以下最近的對話紀錄，生成一則第三人稱的日記條目，格式如下：
+      const prompt = `你是一個故事日記助手。根據以下最近的20則對話紀錄，生成一則第三人稱的日記條目，格式如下：
 
-## [日記標題]
-- 摘要範圍：最近 20 則對話
-關鍵事件節點：
-- 事件名稱：簡潔描述事件結果
-（1-4個關鍵節點）
-詳細內容：
-按時間順序詳述事件發展，包含重要對話、行動、心理活動。
-可進行故事路線：
-- 故事主線
-- 故事支線
 
-## 必須記錄的要點
-### 角色層面
-- 主角變化、角色關係進展、重要新角色登場
-### 情節層面
-- 推動主線的重大事件、重要伏筆和線索
-### 世界觀層面
-- 新設定、關鍵道具、地點
-### 情感層面
-- 情感轉折點、重要互動細節
+## 必須寫進日記的要點
+* 角色層面 - 主角變化、角色關係進展、重要新角色登場
+* 情節層面 - 推動主線的重大事件、重要伏筆和線索
+* 世界觀層面 - 新設定、關鍵道具、地點
+* 情感層面 - 情感轉折點、重要互動細節
 
 ## 寫作要求
 - 簡潔明瞭，重點突出
 - 使用「引號」標記重要對話和專有名詞
 - 禁止使用**粗體**
-- 使用繁體中文，第三人稱
+- 使用繁體中文
+- 500字以內
+
+格式如下：
+
+[日記標題]
+
+日記內容：
+    - 按時間順序詳述事件發展，包含重要對話、行動、心理活動。
+    - 兩句話描述可能會發生的事：1. (故事主線相關)。2. (故事支線相關)
+
 
 ---
 最近對話：
@@ -461,13 +493,8 @@ ${recentChat}
 
 請直接輸出日記內容，不要加任何前綴說明。`;
 
-      const response = await ai.models.generateContent({
-        model: 'gemini-2.0-flash',
-        contents: prompt,
-        config: { maxOutputTokens: maxTokens },
-      });
-
-      const text = response.text || '';
+      const text = await callAI(prompt, { role: 'main' });
+      if (!text) { showToast('❌ 生成失敗，請稍後再試'); return; }
       const newId = Date.now();
       setDiaryEntries(prev => [{
         id: newId,
@@ -485,19 +512,13 @@ ${recentChat}
   // ─── 💫 融合日記：合併多條日記 ─────────────────────────────────────────────
   const handleMergeDiary = async (selectedIds: number[]) => {
     if (selectedIds.length < 2) { showToast('請勾選至少 2 條日記'); return; }
-    const key = geminiApiKey.trim() || process.env.GEMINI_API_KEY || '';
-    if (!key) { showToast('❌ 請先設定 Gemini API Key'); return; }
+    if (!mainGMConfig.apiKey.trim()) { showToast('❌ 請先設定 API Key'); return; }
     const selected = diaryEntries.filter(e => selectedIds.includes(e.id));
     const combined = selected.map((e, i) => `[日記 ${i + 1}]\n${e.text}`).join('\n\n---\n\n');
     try {
-      const ai = new GoogleGenAI({ apiKey: key });
       const prompt = `請將以下多則日記合併成一則，保留所有關鍵資訊，讓日記脈絡合理，去除重複內容，使用繁體中文，第三人稱，標題前加上 💫。格式與原始日記相同。\n\n${combined}`;
-      const response = await ai.models.generateContent({
-        model: 'gemini-2.0-flash',
-        contents: prompt,
-        config: { maxOutputTokens: maxTokens },
-      });
-      const text = response.text || '';
+      const text = await callAI(prompt, { role: 'main' });
+      if (!text) { showToast('❌ 融合失敗，請稍後再試'); return; }
       const newId = Date.now();
       const sourceIds = selectedIds.slice();
       setDiaryEntries(prev => [
@@ -1066,34 +1087,20 @@ Please respond as the DM.`;
     if (typeof textToUse !== 'string') setInputText('');
     setIsLoading(true);
 
+    let aiMessageId: number | null = null;
     try {
-      const key = geminiApiKey.trim() || process.env.GEMINI_API_KEY || '';
-      if (!key) {
-        showToast('❌ 請先在系統設定輸入 Gemini API Key');
+      if (!mainGMConfig.apiKey.trim()) {
+        showToast('❌ 請先在系統設定輸入 API Key');
         setIsLoading(false);
         return;
       }
-      const ai = new GoogleGenAI({ apiKey: key });
       const prompt = buildPrompt(text, historyToUse || messages);
 
-      const response = await ai.models.generateContentStream({
-        model: 'gemini-2.0-flash',
-        contents: prompt,
-        config: { maxOutputTokens: maxTokens },
-      });
+      aiMessageId = Date.now() + 1;
+      setMessages(prev => [...prev, { id: aiMessageId!, role: 'assistant', text: '' }]);
 
-      const aiMessageId = Date.now() + 1;
-      setMessages(prev => [...prev, { id: aiMessageId, role: 'assistant', text: '' }]);
-
-      let fullText = '';
-      for await (const chunk of response) {
-        if (chunk.text) {
-          fullText += chunk.text;
-          setMessages(prev => prev.map(m =>
-            m.id === aiMessageId ? { ...m, text: fullText } : m
-          ));
-        }
-      }
+      // 使用 streaming（避免長回應 timeout），背景累積不即時顯示，避免 <<COMMANDS>> 閃現
+      const fullText = await callAI(prompt, { role: 'main', onChunk: () => {} });
 
       const { narrative: parsedNarrative, newItems } = parseAndExecuteCommands(fullText);
       const rawNarrative = parsedNarrative;
@@ -1137,7 +1144,7 @@ Please respond as the DM.`;
       }));
 
       const triggeredIds = memories
-        .filter(m => isMemoryTriggered(m, inputText, currentLocation))
+        .filter(m => isMemoryTriggered(m, text, currentLocation))
         .map(m => m.id);
       tickMemoryCounters(triggeredIds);
 
@@ -1149,6 +1156,9 @@ Please respond as the DM.`;
     } catch (error) {
       console.error('Error calling Gemini API:', error);
       showToast('API 呼叫失敗，請檢查設定或網路連線');
+      if (aiMessageId !== null) {
+        setMessages(prev => prev.filter(m => m.id !== aiMessageId));
+      }
     } finally {
       setIsLoading(false);
     }
@@ -1316,11 +1326,11 @@ Please respond as the DM.`;
                               >
                                 卸下
                               </button>
-                              <button 
+                              <button
                                 className="flex-1 bg-rose-900/20 hover:bg-rose-900/40 text-rose-400 border border-rose-900/30 text-xs py-1.5 rounded-lg transition font-medium"
-                                onClick={(e) => { 
-                                  e.stopPropagation(); 
-                                  setItems(prev => prev.filter(i => i.id !== item.id));
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setEquipment(prev => prev.filter(i => i.id !== item.id));
                                   showToast(`丟棄了 ${item.name}`);
                                   setSelectedInventoryItem(null);
                                 }}
@@ -1642,6 +1652,19 @@ Please respond as the DM.`;
                     </div>
                   ) : msg.role === 'user' ? (
                     <p className="leading-relaxed whitespace-pre-wrap">{msg.text}</p>
+                  ) : msg.text === '' && isLoading && msg.id === messages[messages.length - 1]?.id ? (
+                    <div className="flex items-center space-x-2 py-0.5 select-none">
+                      <span className="text-[#e6bf55] text-sm">✦ 異世界正在回應</span>
+                      <span className="flex items-end space-x-0.5 pb-0.5">
+                        {[0, 200, 400].map(delay => (
+                          <span
+                            key={delay}
+                            className="inline-block w-1 h-1 rounded-full bg-[#e6bf55]"
+                            style={{ animation: `blink-dot 1.4s ease-in-out infinite`, animationDelay: `${delay}ms` }}
+                          />
+                        ))}
+                      </span>
+                    </div>
                   ) : (
                     <div className="leading-relaxed">{renderMarkdown(msg.text)}</div>
                   )}
@@ -1951,10 +1974,10 @@ Please respond as the DM.`;
       <SettingsModal
         isOpen={isSettingsModalOpen}
         onClose={() => setIsSettingsModalOpen(false)}
-        geminiApiKey={geminiApiKey}
-        setGeminiApiKey={setGeminiApiKey}
-        maxTokens={maxTokens}
-        setMaxTokens={setMaxTokens}
+        mainGMConfig={mainGMConfig}
+        setMainGMConfig={setMainGMConfig}
+        subGMConfig={subGMConfig}
+        setSubGMConfig={setSubGMConfig}
         handleExportSave={handleExportSave}
         handleImportSave={handleImportSave}
         handleResetGame={handleResetGame}

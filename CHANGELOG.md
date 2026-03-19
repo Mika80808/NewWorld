@@ -5,6 +5,46 @@
 
 ---
 
+### B0 API 設定重構 2026-03-20 [Claude Sonnet 4.6]
+
+**B0-1**：移除 `geminiApiKey`/`maxTokens` state，新增 `mainGMConfig`/`subGMConfig`（`src/App.tsx` line ~172）。App 啟動時一次性 migrate 舊 `gemini_api_key` → `mainGM_config`，不再隨存檔匯出。`types.ts` 新增 `GMConfig`/`SubGMConfig` 介面。
+
+**B0-2**：`callAI` 加入 `role`/`maxTokens`/`onChunk` 參數，依 role 讀對應 config，`onChunk` 存在時走 streaming，否則走一次性 generateContent（`src/App.tsx` line ~330）。
+
+**B0-3**：`handleGenerateDiary`/`handleMergeDiary` 改走 `callAI({ role: 'main' })`；`handleSendMessage` 不再直接建 `GoogleGenAI`，改走 `callAI({ role: 'main', onChunk: () => {} })`。移除 `vite.config.ts` 的 `GEMINI_API_KEY` define 與 `.env.example` 對應說明。
+
+**B0-4**：`SettingsModal.tsx` 全面改版，新增雙 GM 設定區塊（主 GM / 助理 GM）、模型下拉選單（5 個 Gemini 模型）、Token 數字輸入框、`useSameKey` toggle、「儲存設定」按鈕（點擊才寫 localStorage）、API Key 顯示/隱藏切換。
+
+---
+
+### 串流顯示策略（延遲顯示）2026-03-20 [Claude code]
+
+  主 GM 採用**延遲顯示**而非即時串流，避免 `<<COMMANDS>>` 原始指令短暫顯示在對話框造成出戲感。
+
+  **執行順序**
+  ```
+  玩家送出訊息
+    → buildPrompt 組裝主 GM Prompt
+    → 主 GM 串流回覆（背景接收，不顯示）
+    → 串流結束，parseAndExecuteCommands 執行
+    → 解析 [出場:] 標記，更新 appearingNpcs
+    → setMessages 顯示最終 narrative（一次性呈現）
+    → 判斷是否觸發 GM 助理
+        → 若觸發：Sub GM 輸出 JSON，更新摘要與目標
+        → 若 diary_worthy 為 true：觸發水晶球日記，UI 亮點提示
+    → 自動存檔
+  ```
+---
+
+### 串流等待動畫：✦ 異世界正在回應 2026-03-19 [Claude Sonnet 4.6]
+
+玩家送出訊息後、AI 第一個字元抵達前，對話泡泡顯示金色動畫省略號，避免白屏誤以為當機。
+
+- `src/index.css`：新增 `@keyframes blink-dot`（0%/80%/100% opacity 0.2 translateY 0 → 40% opacity 1 translateY -4px）。
+- `src/App.tsx`（訊息渲染區）：新增判斷分支：當 `msg.role === 'assistant'`、`msg.text === ''`、`isLoading === true`、且為最後一則訊息時，渲染「`✦ 異世界正在回應`」文字 + 3 顆金色小圓點（`w-1 h-1 rounded-full bg-[#e6bf55]`），各自套用 `blink-dot` 動畫並以 0 / 200 / 400ms stagger 錯開；串流首字元到達後 text 非空，自動切回 `renderMarkdown` 正常渲染。
+
+---
+
 ### NPC 出場流程優化 2026-03-18 [Claude Sonnet 4.6]
 
 補強兩階段 NPC 注入架構的時序缺口，新增地點類型欄位控制候選名單上限，並修正 Pinned NPC 重複注入問題。

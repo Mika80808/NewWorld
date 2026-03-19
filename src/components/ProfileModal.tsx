@@ -37,7 +37,7 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
             <input 
               type="text" 
               value={profile.name}
-              onChange={(e) => setProfile({...profile, name: e.target.value})}
+              onChange={(e) => setProfile(prev => ({...prev, name: e.target.value}))}
               placeholder="未知"
               className="w-full bg-[#0d1f3c]/50 backdrop-blur-sm border-2 border-white/10 rounded-[8px] p-3 text-sm text-[#e2eaf8] focus:border-[#e6bf55]/50 focus:shadow-[0_0_15px_rgba(99,102,241,0.2)] outline-none transition"
             />
@@ -47,7 +47,7 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
             <input 
               type="text" 
               value={profile.job}
-              onChange={(e) => setProfile({...profile, job: e.target.value})}
+              onChange={(e) => setProfile(prev => ({...prev, job: e.target.value}))}
               placeholder="例如：異鄉人、劍士、魔法師"
               className="w-full bg-[#0d1f3c]/50 backdrop-blur-sm border border-white/10 rounded-[8px] p-3 text-sm text-[#e2eaf8] focus:border-[#e6bf55]/50 focus:shadow-[0_0_15px_rgba(99,102,241,0.2)] outline-none transition"
             />
@@ -56,7 +56,7 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
             <label className="block text-xs text-[#8ab4e8] mb-1 uppercase tracking-wider ml-3">外貌</label>
             <textarea 
               value={profile.appearance}
-              onChange={(e) => setProfile({...profile, appearance: e.target.value})}
+              onChange={(e) => setProfile(prev => ({...prev, appearance: e.target.value}))}
               placeholder="例如：性別、年齡、穿著。"
               className="w-full bg-[#0d1f3c]/50 backdrop-blur-sm border border-white/10 rounded-[8px] p-3 text-sm text-[#e2eaf8] focus:border-[#e6bf55]/50 focus:shadow-[0_0_15px_rgba(99,102,241,0.2)] outline-none transition resize-none h-20"
             />
@@ -65,7 +65,7 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
             <label className="block text-xs text-[#8ab4e8] mb-1 uppercase tracking-wider ml-3">個性</label>
             <textarea 
               value={profile.personality}
-              onChange={(e) => setProfile({...profile, personality: e.target.value})}
+              onChange={(e) => setProfile(prev => ({...prev, personality: e.target.value}))}
               placeholder="例如：務實、謹慎、對陌生人抱有戒心。"
               className="w-full bg-[#0d1f3c]/50 backdrop-blur-sm border border-white/10 rounded-[8px] p-3 text-sm text-[#e2eaf8] focus:border-[#e6bf55]/50 focus:shadow-[0_0_15px_rgba(99,102,241,0.2)] outline-none transition resize-none h-20"
             />
@@ -74,7 +74,7 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
             <label className="block text-xs text-[#8ab4e8] mb-1 uppercase tracking-wider ml-3">其他</label>
             <textarea 
               value={profile.other}
-              onChange={(e) => setProfile({...profile, other: e.target.value})}
+              onChange={(e) => setProfile(prev => ({...prev, other: e.target.value}))}
               placeholder="例如：喜惡、習慣。"
               className="w-full bg-[#0d1f3c]/50 backdrop-blur-sm border border-white/10 rounded-[8px] p-3 text-sm text-[#e2eaf8] focus:border-[#e6bf55]/50 focus:shadow-[0_0_15px_rgba(99,102,241,0.2)] outline-none transition resize-none h-20"
             />
