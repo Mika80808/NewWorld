@@ -2,7 +2,6 @@
 
 > 這份文件供 Claude Code 自動讀取。
 > 詳細開發歷史請見 CHANGELOG.md，待做任務請見 TODO.md。
-> 完成任務後，更新CHANGELOG.md 和 TODO.md。
 
 ---
 
@@ -129,6 +128,7 @@ interface LorebookEntry {
   content: string                     // 非 NPC 類使用
   isActive: boolean
   // NPC 類專用
+  gender?: string                 // 自由文字，例：男、女、無性別、不明
   job?: string
   appearance?: string
   personality?: string

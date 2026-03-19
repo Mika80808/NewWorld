@@ -245,6 +245,153 @@
 ## 群組 C｜前端數值與 UI
 > 各項目互相獨立，可並行或逐一完成。
 
+- [ ] **BUG 修復：設定集 NPC 編輯後，右欄當前場景人物不同步**
+
+  **BUG 症狀**
+  在「設定集」裡編輯 NPC 的外貌、職業、性格等欄位並儲存後，右欄「當前場景人物」顯示的卡片內容沒有更新，仍顯示舊資料。
+
+  **問題根源**
+  專案有兩份獨立的 NPC 資料，靠 `name` 對應，但彼此沒有自動同步：
+
+  | 資料 | 存什麼 | 誰寫入 |
+  |---|---|---|
+  | `lorebookEntries[]` | 靜態定義：外貌、職業、性格、地點 | 玩家在設定集手動編輯 |
+  | `npcs[]` | 執行狀態：好感度、thoughts、memories | AI 指令（`NPC_NEW`、`AFFINITY`⋯） |
+
+  目前右欄卡片的靜態欄位（`job`、`appearance`、`personality`）是從 `npcs[]` 讀取的。
+  但玩家在設定集修改的是 `lorebookEntries[]`，儲存後 `npcs[]` 不會自動更新，導致右欄顯示的仍是舊資料。
+
+  **解決方式：右欄直接從 `lorebookEntries` 讀靜態資料，`npcs[]` 只負責動態數值**
+
+  找到右欄遍歷 `appearingNpcs` 渲染卡片的程式碼，將靜態欄位的來源改為 `lorebookEntries`：
+
+  ```tsx
+  // 修改前（靜態資料從 npcs[] 讀）
+  appearingNpcs.map(npcName => {
+    const npc = npcs.find(n => n.name === npcName)
+    // npc.job, npc.appearance, npc.personality...
+  })
+
+  // 修改後（靜態資料從 lorebookEntries 讀，動態資料仍從 npcs[] 讀）
+  appearingNpcs.map(npcName => {
+    const npc  = npcs.find(n => n.name === npcName)
+    const lore = lorebookEntries.find(
+      e => e.category === 'NPC' && e.title === npcName
+    )
+    const displayData = {
+      name:           npcName,
+      // 靜態資料：優先 lorebookEntries，fallback npcs[]
+      gender:         lore?.gender       ?? '',           // ← 新增
+      job:            lore?.job          ?? npc?.job          ?? '',
+      appearance:     lore?.appearance   ?? npc?.appearance   ?? '',
+      personality:    lore?.personality  ?? npc?.personality  ?? '',
+      other:          lore?.other        ?? npc?.other        ?? '',
+      // 動態資料：只從 npcs[] 讀
+      affection:      npc?.affection     ?? 0,
+      affectionLabel: npc?.affectionLabel ?? '',
+      thoughts:       npc?.thoughts      ?? [],
+      memories:       npc?.memories      ?? [],
+      isPinned:       npc?.isPinned      ?? false,
+    }
+    // 用 displayData 渲染卡片（gender 顯示在卡片上，與 job 並列）
+  })
+  ```
+
+  **注意事項**
+  - `NPC_NEW` 寫入 `npcs[]` 的 job/appearance 等欄位**不需要移除**，保留作為 fallback（向下相容舊存檔）
+  - `lorebookEntries` 的 NPC 判斷條件是 `category === 'NPC'`，`title` 對應 NPC 名字
+  - 設定集本身的卡片直接顯示 `lorebookEntries`，確認沒有經過 `npcs[]` 即可，不需要改
+  - 只改右欄的**讀取邏輯**，不改任何資料結構
+  - **`gender` 需同步補在以下四個地方：**
+    1. `types.ts` — `LorebookEntry` 介面加 `gender?: string`
+    2. 設定集 NPC 編輯表單 — 加自由文字輸入欄（placeholder 例：男、女、無性別、不明）
+    3. 右欄 NPC 卡片 UI — 顯示 gender，建議放在名字下方與 job 並列
+    4. `buildPrompt` — NPC 資料注入 AI 時把 `gender` 帶入（讓 AI 知道性別使用正確代詞）
+
+- [ ] **NPC 卡片 UI 重製（依設計圖）**
+
+  > 依賴上方「BUG 修復」項目完成後執行（資料來源要先對）。
+  > 設計圖配色與遊戲深藍金主題**分開**，NPC 卡片有自己的配色系統。
+
+  **配色規格（從設計圖提取）**
+  ```
+  卡片底色：#E8E6DF（淺暖灰）
+  卡片邊框：圓角 12px，無明顯邊框線
+  背景區塊（外貌/性格）：#D4D1CA（稍深暖灰）
+  主要文字：#1A1A2E（深藍近黑）
+  次要文字/標籤：#555577
+  好感度愛心：#FF6B8A（粉紅）
+  好感度數字：#FF6B8A
+  關係標籤（陌生人等）：次要文字色，靠右對齊
+  引用線（內心想法）：#AAAAAA，左側 2px 實線
+  儲存按鈕：#3355FF（藍）白字
+  刪除/取消按鈕：#888888（灰）白字
+  ```
+
+  **縮略卡（設定集列表，Image 2）**
+
+  版面：2 欄 grid，每欄等寬
+
+  每張縮略卡的結構：
+  ```
+  ┌─────────────────────────────────────┐
+  │ 芬里爾  狼族 男        ♥ 5    [☑] │  ← 名字（粗大）＋種族＋性別（小標籤）＋愛心好感度＋勾選框
+  │ 黑牙氏族首領              陌生人   │  ← 職業（左）＋關係標籤（右）
+  └─────────────────────────────────────┘
+  ```
+  - 名字：font-size large、font-weight bold
+  - 種族＋性別：名字右側，font-size small，灰色標籤，中間空一格
+  - 愛心圖示＋數字：粉紅色，靠右
+  - 勾選框：最右側，控制「是否注入 AI prompt」
+  - 點擊卡片任意處（勾選框除外）→ 彈出詳細 Modal
+
+  **詳細 Modal（點擊縮略卡後彈出，Image 1）**
+
+  結構由上到下：
+  ```
+  ┌─────────────────────────────────────────┐
+  │ 芬里爾  狼族 男                   ♥ 5  │  ← Header：名字大＋種族性別小標籤，右側愛心好感度
+  │─────────────────────────────────────────│  ← 分隔線
+  │ 黑牙氏族首領                    陌生人  │  ← 職業（左）＋關係標籤（右）
+  │                                         │
+  │ ┌─────────────────────────────────────┐ │
+  │ │ 銀藍色短髮，金色眼眸，身形魁梧高大， │ │  ← 外貌區塊（灰底卡片）
+  │ │ 王者氣勢。                           │ │
+  │ └─────────────────────────────────────┘ │
+  │                                         │
+  │ ┌─────────────────────────────────────┐ │
+  │ │ Alpha。果決、聰明、改革家⋯           │ │  ← 性格區塊（灰底卡片）
+  │ └─────────────────────────────────────┘ │
+  │                                         │
+  │ ☐ 奇怪的異鄉人                     ⋯  │  ← 內心想法：勾選框＋標題＋三點選單
+  │ │ 那個人類法師又在搞些神祕兮兮的⋯      │  ← 引用線內文（左側灰色豎線）
+  │                                         │
+  │ [刪除]          [取消]       [儲存]     │  ← 底部按鈕列
+  └─────────────────────────────────────────┘
+  ```
+
+  **三點選單（`...`）展開後**
+  - 編輯
+  - 取消
+  - 刪除
+  - 彈出位置：緊貼 `...` 按鈕右側或下方，小型浮層
+
+  **內心想法區塊細節**
+  - 每則 thought 都是獨立一列：`[勾選框] 標題文字　...`
+  - 引用線內文：左側 2px 灰色豎線，內文縮排，字體略小
+  - 勾選框控制該則 thought 是否注入 prompt（對應 `thought.isActive`，若欄位不存在需新增）
+  - 三點選單操作對象是**該則 thought**
+
+  **底部按鈕**
+  - 刪除：灰底白字，點擊刪除整個 NPC（需二次確認）
+  - 取消：灰底白字，關閉 Modal 不儲存
+  - 儲存：藍底白字，儲存後關閉 Modal
+
+  **注意事項**
+  - Modal 的卡片底色用設計圖配色（`#E8E6DF`），不套用遊戲深藍金 CSS variables
+  - Modal 背景遮罩：半透明黑色 `rgba(0,0,0,0.6)`
+  - 縮略卡也用設計圖配色，與設定集列表其他類別（地點、怪物⋯）的卡片風格保持一致即可
+  - 勾選框（縮略卡右上角）只控制「是否注入 AI prompt」，對應 `lorebookEntry.isActive`，與 Modal 內 thought 的勾選框是不同功能，不要混用
 
 - [ ] 道具資訊分層注入（buildPrompt 優化）
   - 帶有 effect 的消耗品和數量 > 1 的道具完整傳送，其餘只傳名字和數量。
