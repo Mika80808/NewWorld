@@ -13,7 +13,7 @@ LLM 擔任 GM 的開放式世界文字冒險 RPG，玩家以自由文字輸入�
 
 ---
 
-## 技術棧
+## 技術棧 (暫定)
 
 - **框架**：React 19 + TypeScript + Vite
 - **樣式**：Tailwind CSS v4
@@ -23,7 +23,7 @@ LLM 擔任 GM 的開放式世界文字冒險 RPG，玩家以自由文字輸入�
 
 ---
 
-## 核心資料結構
+## 核心資料結構 (暫定)
 
 ### memories[]（統一記憶陣列）
 ```typescript
@@ -51,7 +51,7 @@ interface MemoryEntry {
 }
 ```
 
-### lorebookEntries[]（設定集）
+### lorebookEntries[]（故事集）
 ```typescript
 interface LorebookEntry {
   id: number
@@ -139,7 +139,7 @@ MEMORY_ADD:type:importance:content:locations=x,y:npcs=a:factions=b:keywords=c,d:
 
 ---
 
-## 重要設計決策
+## 重要設計決策  (暫定)
 
 | 決策 | 原因 |
 |---|---|
@@ -177,7 +177,7 @@ MEMORY_ADD:type:importance:content:locations=x,y:npcs=a:factions=b:keywords=c,d:
 
 | 函數 | 說明 |
 |---|---|
-| `buildPrompt(userInput)` | 組裝送給 Gemini 的完整 prompt |
+| `buildPrompt(userInput)` | 組裝送給 LLM 的完整 prompt |
 | `parseAndExecuteCommands(text)` | 解析並執行 COMMANDS 區塊 |
 | `scanKeywords(keywords, depth, extra)` | 掃描最近 N 則對話是否包含關鍵字 |
 | `isMemoryTriggered(mem, userInput)` | 判斷記憶是否應該注入（含 sticky/cooldown）|
