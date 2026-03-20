@@ -274,16 +274,28 @@ MEMORY_ADD:type:importance:content:locations=x,y:npcs=a:factions=b:keywords=c,d:
 :root {
   --bg0:     #171617;   /* 最外層背景 */
   --bg1:     #24282d;   /* 左右側欄 */
-  --bg2:     #132540;   /* 卡片底色、輸入框、對話泡泡 */
-  --bg3:     #f6f1e7;   /* 卡片資訊 */
+  --bg2:     #132540;   /* 卡片、輸入框、對話泡泡 */
   --border:  #2a4a7f;   /* 所有邊框（0.5px solid）*/
   --text1:   #fbf5e4;   /* 主要文字 */
   --text2:   #e8e8e9;   /* 次要文字、標籤 */
   --text3:   #b7b4ae;   /* 提示文字、時間戳（placeholder 統一用此色）*/
   --text4:   #e6d6bf;   /* 狀態數值專用（HP、MP、金幣等數字）*/
-  --text5:   #474342f;  /* 卡片資訊 */
   --accent:  #fde68a;   /* 金色強調 */
   --danger:  #ff8866;   /* HP 警示 */
+
+/* 好感度顏色（固定語意色，不隨主題變動） */
+--affection-max:     #fb7185;              /* ≥ 100，彩度 100% */
+--affection-high:    rgba(251,113,133,0.80); /* ≥ 80，彩度 80% */
+--affection-mid:     rgba(251,113,133,0.60); /* ≥ 50，彩度 60% */
+--affection-low:     #a0a0a0;              /* ≥ 0，淺灰 */
+--affection-hostile: #505050;              /* < 0，深灰 */
+```
+
+---
+
+在 `關鍵函數索引` 表格補一行：
+```
+| `NpcModal.tsx` `affectionColor(affection)` | 回傳好感度對應 CSS 變數色碼字串，供 style={{ color }} 使用 |
 }
 ```
 
