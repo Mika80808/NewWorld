@@ -284,11 +284,13 @@ MEMORY_ADD:type:importance:content:locations=x,y:npcs=a:factions=b:keywords=c,d:
   --bg0:     #171617;   /* 最外層背景 */
   --bg1:     #24282d;   /* 左右側欄 */
   --bg2:     #132540;   /* 卡片、輸入框、對話泡泡 */
+  --bg3:     #f6f1e7;   /* 設定集縮略卡底色 */
   --border:  #2a4a7f;   /* 所有邊框（0.5px solid）*/
   --text1:   #fbf5e4;   /* 主要文字 */
   --text2:   #e8e8e9;   /* 次要文字、標籤 */
   --text3:   #b7b4ae;   /* 提示文字、時間戳（placeholder 統一用此色）*/
   --text4:   #e6d6bf;   /* 狀態數值專用（HP、MP、金幣等數字）*/
+  --text5:   #332f2d;   /* 設定集內的資料文字*/
   --accent:  #fde68a;   /* 金色強調 */
   --danger:  #ff8866;   /* HP 警示 */
 
@@ -317,7 +319,7 @@ violet-400  → #a78bfa   （紫，用於魔法/特殊）
 ```
 
 - **字體**：`body { font-family: Georgia, serif; }`
-- **圓角規格**：大圓角 10px / 全圓角（膠囊）9999px / 其餘一律 8px
+- **圓角規格**：大圓角 10px / 全圓角（膠囊）9999px / 設定集縮略卡 - 左上右下 8px，左下右上 0px / 其餘一律 8px
 
 ---
 
@@ -358,7 +360,7 @@ violet-400  → #a78bfa   （紫，用於魔法/特殊）
 
 5. **`package.json` 的 dev script 綁定 `0.0.0.0:3000`**，不要改動
 
-6. **NPC `thoughts[]` 滿 5 則時自動串接寫入 `memories[]`**（source: `pre_merge`）並清空，不要改變這個閾值
+6. **NPC `thoughts[]` 滿 10 則時自動串接寫入 `memories[]`**（source: `pre_merge`）並清空，不要改變這個閾值
 
 7. **`[出場:]` 標記用 `matchAll` 收集並去重**，不要改回單次 `match`
 

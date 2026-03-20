@@ -95,111 +95,14 @@
 ## 群組 C｜前端數值與 UI
 > 各項目互相獨立，可並行或逐一完成。
 
-- [ ] **新增 NPC 欄位 gender、backstory**
 
- 
-  找到右欄遍歷 `appearingNpcs` 渲染卡片的程式碼，將靜態欄位的來源改為 `lorebookEntries`：
-
-  ```tsx
-  // 修改前（靜態資料從 npcs[] 讀）
-  appearingNpcs.map(npcName => {
-    const npc = npcs.find(n => n.name === npcName)
-    // npc.job, npc.appearance, npc.personality...
-  })
-
-  // 修改後（靜態資料從 lorebookEntries 讀，動態資料仍從 npcs[] 讀）
-  appearingNpcs.map(npcName => {
-    const npc  = npcs.find(n => n.name === npcName)
-    const lore = lorebookEntries.find(
-      e => e.category === 'NPC' && e.title === npcName
-    )
-    const displayData = {
-      name:           npcName,
-      // 靜態資料：優先 lorebookEntries，fallback npcs[]
-      gender:         lore?.gender       ?? '',
-      job:            lore?.job          ?? npc?.job          ?? '',
-      appearance:     lore?.appearance   ?? npc?.appearance   ?? '',
-      personality:    lore?.personality  ?? npc?.personality  ?? '',
-      backstory:      lore?.backstory    ?? '',
-      other:          lore?.other        ?? npc?.other        ?? '',
-      // 動態資料：只從 npcs[] 讀
-      affection:      npc?.affection     ?? 0,
-      affectionLabel: npc?.affectionLabel ?? '',
-      thoughts:       npc?.thoughts      ?? [],
-      memories:       npc?.memories      ?? [],
-      isPinned:       npc?.isPinned      ?? false,
-    }
-    // 用 displayData 渲染卡片（gender 顯示在卡片上，與 job 並列）
-  })
-  ```
-
-  **注意事項**
-  - `NPC_NEW` 寫入 `npcs[]` 的 job/appearance 等欄位**不需要移除**，保留作為 fallback（向下相容舊存檔）
-  - `lorebookEntries` 的 NPC 判斷條件是 `category === 'NPC'`，`title` 對應 NPC 名字
-  - 設定集本身的卡片直接顯示 `lorebookEntries`，確認沒有經過 `npcs[]` 即可，不需要改
-  - 只改右欄的**讀取邏輯**，不改任何資料結構
-  - **`gender` 與 `backstory` 需同步補在以下四個地方：**
-    1. `types.ts` — `LorebookEntry` 介面加 `gender?: string`、`backstory?: string`
-    2. 設定集 NPC 編輯表單 — 加 gender 自由文字輸入欄、backstory 文字輸入欄（50 字上限）
-    3. backstory 於好感度 ≥ 20 後永久解鎖顯示；角色記憶於好感度 ≥ 60 後永久解鎖顯示
-    4. `buildPrompt` — NPC 資料注入 AI 時把 `gender` 與 `backstory` 帶入
-
----
-- [ ] **新增 NPC 種族（race）欄位**
-
-  **改動範圍**
-
-  1. `types.ts` — `LorebookEntry` 與 `Npc` 介面加 `race?: string`
-
-  2. `displayData` 區塊 — 新增一行，並做舊存檔 migration fallback：
-     ```ts
-     race: lore?.race ?? lore?.other ?? npc?.other ?? '',
-     ```
-     fallback 順序：`lore.race` → `lore.other`（舊存檔 migration）→ `npc.other` → `''`
-
-  3. `useCommandParser.ts` — `NPC_NEW` 解析後 race 存入 `race` 欄位，不再存 `other`
-
-  4. `App.tsx` — `handleRecordNpc` 建立 lorebook 條目時帶入 `race: npc.race`
-
-  5. `buildPrompt` — NPC 注入格式加入種族，找到這行：
-     ```ts
-     return `[NPC] ${e.title}｜職業：...｜備註：${e.other || ''}...`
-     ```
-     改為在職業前插入 `種族：${e.race || e.other || ''}`
-
-  6. LorebookModal NPC 編輯表單 — 在職業欄上方新增種族輸入欄
-     - placeholder：`例：人類、精靈、狼族`
-
-  7. NPC 縮略卡與 Modal header — 名字右側顯示 `種族 性別`（小字，color: var(--text2)）
-
-  **注意事項**
-  - `NPC_NEW` 寫入 `npcs[]` 的舊欄位不需要移除，保留作為 fallback（向下相容）
-  - `other` 欄位保留不刪，migration 只是讀取時優先用 `race`
 
 ---
 
-- [ ] **NPC thoughts 閾值調整（5 → 10）**
- 
-  目前 `useCommandParser` 的 `NPC_THOUGHT` 邏輯在 thoughts 滿 5 則時觸發融合，改為 10 則。
- 
-  - 第 1–5 條：正常顯示於 NpcModal
-  - 第 6–10 條：資料保留，UI 隱藏（不渲染）
-  - 滿 10 條：觸發助理 GM 融合，生成新角色記憶，thoughts 清空
-  - 融合產生的記憶寫入時帶 `isNew: true`
-  - NpcModal 角色記憶區塊標題顯示粉紅點（`#FF6B8A`），玩家點開後自動清除（`isNew: false`）
- 
-  **需修改的地方：**
-  1. `useCommandParser.ts` — `NPC_THOUGHT` 的 `thoughts.length >= 5` 改為 `>= 10`；
-     `pre_merge` 寫入時機同步調整
-  2. `types.ts` — `NpcMemory` 介面加 `isNew?: boolean`
-  3. `NpcModal.tsx` — 渲染 thoughts 時只取前 5 條（`thoughts.slice(0, 5)`）；
-     角色記憶標題旁判斷 `memories.some(m => m.isNew)` 顯示粉紅點；
-     Modal 開啟後執行清除標記（`isNew: false`）
----
 
 - [ ] **NPC 卡片 UI 重製（依設計圖）**
+  2026-03-21 [Claude Sonnet 4.6]: LorebookModal.tsx NPC tab 改為 2欄暖米色卡片 grid（bg-[#e2d8c4]），卡片含名字/種族性別/好感度/勾選框/職業/關係；NpcModal.tsx 全面重製：header（checkbox/名字/種族性別/好感度/pin/三點選單/關閉）、職業+關係副標題、上次見面行、資料/記憶分頁（isNew 粉紅點）、backstory 好感≥20解鎖、編輯模式、刪除二次確認；App.tsx 加 handleDeleteNpc 與相關 props
 
-  > 依賴上方「BUG 修復」項目完成後執行（資料來源要先對）。
 
    **縮略卡（設定集列表）**
 
@@ -232,7 +135,7 @@
   分頁(左)結構由上到下：
   ```
   ┌─────────────────────────────────────────┐
-  │ [☑]  芬里爾  狼族 男          ♥ 5 [...] │  ← 勾選框＋名字＋種族性別＋好感度＋三點選單(編輯\刪除角色)
+  │ [☑]  芬里爾  狼族 男          ♥ 5 [...] │  ← 勾選框＋名字（粗大）＋種族性別＋好感度（粗大）＋三點選單(編輯\刪除角色)
   │─────────────────────────────────────────│  ← 分隔線
   │ 黑牙氏族首領                     陌生人  │  ← 職業（左）＋關係標籤（右）       │
   │ 
@@ -287,6 +190,7 @@
   - 粉紅點（`●`）：融合產生的記憶帶 `isNew: true`，點開 Modal 後自動清除（`isNew: false`）
   - Modal 背景遮罩：`rgba(0,0,0,0.6)`
   - 好感度顏色一律使用 `affectionColor()` 回傳的 CSS 變數，不硬編碼色碼
+  - 點擊右欄[當前場景人物] 時，也連結到同一個詳細 Modal。
 
 - [ ] **好感度顏色系統統一（affectionColor）**
 
@@ -489,3 +393,8 @@
   | 圓角統一 | 大圓角 10px / 其餘一律 8px，掃全專案 `rounded-[Npx]` | ⬜ |
 
   > 藍色按鈕標準（`#1044ab` / `#1a56db` / `#2563eb`）已完成（2026-03-20）。
+
+
+- [x] **NPC thoughts 閾值調整（5 → 10）**
+  2026-03-21 [Claude Sonnet 4.6]: useCommandParser.ts THOUGHTS_LIMIT 5→10；types.ts NpcMemory 加 isNew?；pre_merge/merged 記憶寫入帶 isNew:true；NpcModal.tsx thoughts.slice(0,5) 只顯示前5條、記憶標題粉紅點（hasNewMemory）、切到記憶頁後自動清除 isNew；App.tsx 加 handleClearNewMemories
+
