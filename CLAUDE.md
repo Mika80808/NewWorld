@@ -274,12 +274,14 @@ MEMORY_ADD:type:importance:content:locations=x,y:npcs=a:factions=b:keywords=c,d:
 :root {
   --bg0:     #171617;   /* 最外層背景 */
   --bg1:     #24282d;   /* 左右側欄 */
-  --bg2:     #132540;   /* 卡片、輸入框、對話泡泡 */
+  --bg2:     #132540;   /* 卡片底色、輸入框、對話泡泡 */
+  --bg3:     #f6f1e7;   /* 卡片資訊 */
   --border:  #2a4a7f;   /* 所有邊框（0.5px solid）*/
   --text1:   #fbf5e4;   /* 主要文字 */
   --text2:   #e8e8e9;   /* 次要文字、標籤 */
   --text3:   #b7b4ae;   /* 提示文字、時間戳（placeholder 統一用此色）*/
   --text4:   #e6d6bf;   /* 狀態數值專用（HP、MP、金幣等數字）*/
+  --text5:   #474342f;  /* 卡片資訊 */
   --accent:  #fde68a;   /* 金色強調 */
   --danger:  #ff8866;   /* HP 警示 */
 }
