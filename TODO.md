@@ -95,24 +95,9 @@
 ## 群組 C｜前端數值與 UI
 > 各項目互相獨立，可並行或逐一完成。
 
-- [ ] **BUG 修復：設定集 NPC 編輯後，右欄當前場景人物不同步**
+- [ ] **新增 NPC 欄位 gender、backstory**
 
-  **BUG 症狀**
-  在「設定集」裡編輯 NPC 的外貌、職業、性格等欄位並儲存後，右欄「當前場景人物」顯示的卡片內容沒有更新，仍顯示舊資料。
-
-  **問題根源**
-  專案有兩份獨立的 NPC 資料，靠 `name` 對應，但彼此沒有自動同步：
-
-  | 資料 | 存什麼 | 誰寫入 |
-  |---|---|---|
-  | `lorebookEntries[]` | 靜態定義：外貌、職業、性格、地點 | 玩家在設定集手動編輯 |
-  | `npcs[]` | 執行狀態：好感度、thoughts、memories | AI 指令（`NPC_NEW`、`AFFINITY`⋯） |
-
-  目前右欄卡片的靜態欄位（`job`、`appearance`、`personality`）是從 `npcs[]` 讀取的。
-  但玩家在設定集修改的是 `lorebookEntries[]`，儲存後 `npcs[]` 不會自動更新，導致右欄顯示的仍是舊資料。
-
-  **解決方式：右欄直接從 `lorebookEntries` 讀靜態資料，`npcs[]` 只負責動態數值**
-
+ 
   找到右欄遍歷 `appearingNpcs` 渲染卡片的程式碼，將靜態欄位的來源改為 `lorebookEntries`：
 
   ```tsx
@@ -158,6 +143,40 @@
     2. 設定集 NPC 編輯表單 — 加 gender 自由文字輸入欄、backstory 文字輸入欄（50 字上限）
     3. backstory 於好感度 ≥ 20 後永久解鎖顯示；角色記憶於好感度 ≥ 60 後永久解鎖顯示
     4. `buildPrompt` — NPC 資料注入 AI 時把 `gender` 與 `backstory` 帶入
+
+---
+- [ ] **新增 NPC 種族（race）欄位**
+
+  **改動範圍**
+
+  1. `types.ts` — `LorebookEntry` 與 `Npc` 介面加 `race?: string`
+
+  2. `displayData` 區塊 — 新增一行，並做舊存檔 migration fallback：
+     ```ts
+     race: lore?.race ?? lore?.other ?? npc?.other ?? '',
+     ```
+     fallback 順序：`lore.race` → `lore.other`（舊存檔 migration）→ `npc.other` → `''`
+
+  3. `useCommandParser.ts` — `NPC_NEW` 解析後 race 存入 `race` 欄位，不再存 `other`
+
+  4. `App.tsx` — `handleRecordNpc` 建立 lorebook 條目時帶入 `race: npc.race`
+
+  5. `buildPrompt` — NPC 注入格式加入種族，找到這行：
+     ```ts
+     return `[NPC] ${e.title}｜職業：...｜備註：${e.other || ''}...`
+     ```
+     改為在職業前插入 `種族：${e.race || e.other || ''}`
+
+  6. LorebookModal NPC 編輯表單 — 在職業欄上方新增種族輸入欄
+     - placeholder：`例：人類、精靈、狼族`
+
+  7. NPC 縮略卡與 Modal header — 名字右側顯示 `種族 性別`（小字，color: var(--text2)）
+
+  **注意事項**
+  - `NPC_NEW` 寫入 `npcs[]` 的舊欄位不需要移除，保留作為 fallback（向下相容）
+  - `other` 欄位保留不刪，migration 只是讀取時優先用 `race`
+
+---
 
 - [ ] **NPC 卡片 UI 重製（依設計圖）**
 
