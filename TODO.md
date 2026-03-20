@@ -92,7 +92,72 @@
 
 ---
 
+## 群組 C｜前端數值與 UI
+> 各項目互相獨立，可並行或逐一完成。
 
+- [ ] **BUG 修復：設定集 NPC 編輯後，右欄當前場景人物不同步**
+
+  **BUG 症狀**
+  在「設定集」裡編輯 NPC 的外貌、職業、性格等欄位並儲存後，右欄「當前場景人物」顯示的卡片內容沒有更新，仍顯示舊資料。
+
+  **問題根源**
+  專案有兩份獨立的 NPC 資料，靠 `name` 對應，但彼此沒有自動同步：
+
+  | 資料 | 存什麼 | 誰寫入 |
+  |---|---|---|
+  | `lorebookEntries[]` | 靜態定義：外貌、職業、性格、地點 | 玩家在設定集手動編輯 |
+  | `npcs[]` | 執行狀態：好感度、thoughts、memories | AI 指令（`NPC_NEW`、`AFFINITY`⋯） |
+
+  目前右欄卡片的靜態欄位（`job`、`appearance`、`personality`）是從 `npcs[]` 讀取的。
+  但玩家在設定集修改的是 `lorebookEntries[]`，儲存後 `npcs[]` 不會自動更新，導致右欄顯示的仍是舊資料。
+
+  **解決方式：右欄直接從 `lorebookEntries` 讀靜態資料，`npcs[]` 只負責動態數值**
+
+  找到右欄遍歷 `appearingNpcs` 渲染卡片的程式碼，將靜態欄位的來源改為 `lorebookEntries`：
+
+  ```tsx
+  // 修改前（靜態資料從 npcs[] 讀）
+  appearingNpcs.map(npcName => {
+    const npc = npcs.find(n => n.name === npcName)
+    // npc.job, npc.appearance, npc.personality...
+  })
+
+  // 修改後（靜態資料從 lorebookEntries 讀，動態資料仍從 npcs[] 讀）
+  appearingNpcs.map(npcName => {
+    const npc  = npcs.find(n => n.name === npcName)
+    const lore = lorebookEntries.find(
+      e => e.category === 'NPC' && e.title === npcName
+    )
+    const displayData = {
+      name:           npcName,
+      // 靜態資料：優先 lorebookEntries，fallback npcs[]
+      gender:         lore?.gender       ?? '',
+      job:            lore?.job          ?? npc?.job          ?? '',
+      appearance:     lore?.appearance   ?? npc?.appearance   ?? '',
+      personality:    lore?.personality  ?? npc?.personality  ?? '',
+      backstory:      lore?.backstory    ?? '',
+      other:          lore?.other        ?? npc?.other        ?? '',
+      // 動態資料：只從 npcs[] 讀
+      affection:      npc?.affection     ?? 0,
+      affectionLabel: npc?.affectionLabel ?? '',
+      thoughts:       npc?.thoughts      ?? [],
+      memories:       npc?.memories      ?? [],
+      isPinned:       npc?.isPinned      ?? false,
+    }
+    // 用 displayData 渲染卡片（gender 顯示在卡片上，與 job 並列）
+  })
+  ```
+
+  **注意事項**
+  - `NPC_NEW` 寫入 `npcs[]` 的 job/appearance 等欄位**不需要移除**，保留作為 fallback（向下相容舊存檔）
+  - `lorebookEntries` 的 NPC 判斷條件是 `category === 'NPC'`，`title` 對應 NPC 名字
+  - 設定集本身的卡片直接顯示 `lorebookEntries`，確認沒有經過 `npcs[]` 即可，不需要改
+  - 只改右欄的**讀取邏輯**，不改任何資料結構
+  - **`gender` 與 `backstory` 需同步補在以下四個地方：**
+    1. `types.ts` — `LorebookEntry` 介面加 `gender?: string`、`backstory?: string`
+    2. 設定集 NPC 編輯表單 — 加 gender 自由文字輸入欄、backstory 文字輸入欄（50 字上限）
+    3. 右欄 NPC 卡片 UI — 顯示 gender（與 job 並列）；backstory 於好感度 ≥ 20 後永久解鎖顯示
+    4. `buildPrompt` — NPC 資料注入 AI 時把 `gender` 與 `backstory` 帶入
 
 - [ ] **NPC 卡片 UI 重製（依設計圖）**
 
@@ -111,8 +176,8 @@
   ```
   - 名字：font-size large、font-weight bold
   - 卡片底色：#132540
-  - 種族＋性別：名字右側，font-size small，#474342f
-  - 愛心圖示＋數字：粉紅色，靠右
+  - 種族＋性別：名字右側，font-size small，color: var(--text2)
+  - 愛心圖示＋數字：顏色由 `affectionColor()` 決定，靠右
   - 勾選框：最右側，控制「是否注入 AI prompt」（對應 `lorebookEntry.isActive`）
   - 點擊卡片任意處（勾選框除外）→ 彈出詳細 Modal
 
@@ -138,6 +203,9 @@
   │ ┌──────────────────────────────────────┐ │
   │ │ Alpha。果決、聰明⋯                  │ │  ← 性格（灰底卡片）
   │ └──────────────────────────────────────┘ │
+  │ ┌──────────────────────────────────────┐ │
+  │ │ 深山出身的獨行獵人，曾在戰爭中⋯     │ │  ← 背景故事（灰底卡片，好感度 ≥ 20 解鎖，永久）
+  │ └──────────────────────────────────────┘ │
   │ 內心想法 ────────────────────────────── │
   │   「那個人類法師又在搞些神祕兮兮的⋯」   │  ← 第1條（最新，完整顯示）
   │   「比起魔法，我更相信手中的斧頭。」    │  ← 第2條
@@ -156,7 +224,33 @@
   - 角色記憶：最新排最上方，依生成時間自然排序
   - 粉紅點（`●`）：融合產生的記憶帶 `isNew: true`，點開 Modal 後自動清除（`isNew: false`）
   - Modal 背景遮罩：`rgba(0,0,0,0.6)`
- 
+  - 好感度顏色一律使用 `affectionColor()` 回傳的 CSS 變數，不硬編碼色碼
+
+- [ ] **好感度顏色系統統一（affectionColor）**
+
+  將全專案所有好感度顏色判斷統一為 `affectionColor()` function，移除所有散落的硬編碼色碼與 Tailwind class。
+
+  **affectionColor 規格：**
+  ```ts
+  function affectionColor(affection: number): string {
+    if (affection < 0)   return 'var(--affection-hostile)' // 深灰，敵對
+    if (affection < 50)  return 'var(--affection-low)'     // 淺灰，普通
+    if (affection < 80)  return 'var(--affection-mid)'     // 粉紅 60%，友好
+    if (affection < 100) return 'var(--affection-high)'    // 粉紅 80%，親密
+    return 'var(--affection-max)'                          // 粉紅 100%，最高
+  }
+  ```
+
+  **需要替換的位置：**
+  - `NpcModal.tsx` — `affectionColor` 三元運算子
+  - `App.tsx` 右欄當前場景人物卡片 — 好感度愛心顏色
+  - 其他任何出現 `text-emerald-400` / `text-rose-400` / `text-[#fde68a]` 用於好感度顯示的地方
+
+  **注意事項：**
+  - function 放在 `NpcModal.tsx` 頂部（UI helper，不是業務邏輯）
+  - 使用 `style={{ color: affectionColor(npc.affection) }}`，不用 className
+  - CSS 變數定義在 `index.css` `:root` 區塊，參照 CLAUDE.md 規格
+
 - [ ] 道具資訊分層注入（buildPrompt 優化）
   - 帶有 effect 的消耗品和數量 > 1 的道具完整傳送，其餘只傳名字和數量。
   - 【防呆】道具欄超過上限時，僅保留最近變動的道具完整資訊。
@@ -282,7 +376,6 @@
         → 若 diary_worthy 為 true：觸發水晶球日記，UI 亮點提示
     → 自動存檔
   ```
-```
 
 - [x] B0-2｜callAI 重構：支援 mainGM / subGM 分流
   2026-03-20 [Claude Sonnet 4.6]: callAI 加入 role/maxTokens/onChunk 參數，onChunk 存在走 streaming，否則走 generateContent
@@ -305,70 +398,3 @@
   | 圓角統一 | 大圓角 10px / 其餘一律 8px，掃全專案 `rounded-[Npx]` | ⬜ |
 
   > 藍色按鈕標準（`#1044ab` / `#1a56db` / `#2563eb`）已完成（2026-03-20）。
-
-## 群組 C｜前端數值與 UI
-> 各項目互相獨立，可並行或逐一完成。
-
-- [x] **BUG 修復：設定集 NPC 編輯後，右欄當前場景人物不同步**
-  2026-03-21 [Claude Sonnet 4.6]: types.ts LorebookEntry 加 gender 欄位；LorebookModal NPC 表單加 gender 輸入欄位（含顯示模式）；App.tsx 右欄卡片改從 lorebookEntries 讀 job/gender（fallback npcs[]）；buildPrompt [NPC] 格式字串和 Pinned NPCs 均加入 gender；NpcModal 加 lorebookEntries prop，appearance/personality/other/job/gender 改從 lore 讀取（fallback npcs[]），header 顯示 gender 小標籤
-
-  **BUG 症狀**
-  在「設定集」裡編輯 NPC 的外貌、職業、性格等欄位並儲存後，右欄「當前場景人物」顯示的卡片內容沒有更新，仍顯示舊資料。
-
-  **問題根源**
-  專案有兩份獨立的 NPC 資料，靠 `name` 對應，但彼此沒有自動同步：
-
-  | 資料 | 存什麼 | 誰寫入 |
-  |---|---|---|
-  | `lorebookEntries[]` | 靜態定義：外貌、職業、性格、地點 | 玩家在設定集手動編輯 |
-  | `npcs[]` | 執行狀態：好感度、thoughts、memories | AI 指令（`NPC_NEW`、`AFFINITY`⋯） |
-
-  目前右欄卡片的靜態欄位（`job`、`appearance`、`personality`）是從 `npcs[]` 讀取的。
-  但玩家在設定集修改的是 `lorebookEntries[]`，儲存後 `npcs[]` 不會自動更新，導致右欄顯示的仍是舊資料。
-
-  **解決方式：右欄直接從 `lorebookEntries` 讀靜態資料，`npcs[]` 只負責動態數值**
-
-  找到右欄遍歷 `appearingNpcs` 渲染卡片的程式碼，將靜態欄位的來源改為 `lorebookEntries`：
-
-  ```tsx
-  // 修改前（靜態資料從 npcs[] 讀）
-  appearingNpcs.map(npcName => {
-    const npc = npcs.find(n => n.name === npcName)
-    // npc.job, npc.appearance, npc.personality...
-  })
-
-  // 修改後（靜態資料從 lorebookEntries 讀，動態資料仍從 npcs[] 讀）
-  appearingNpcs.map(npcName => {
-    const npc  = npcs.find(n => n.name === npcName)
-    const lore = lorebookEntries.find(
-      e => e.category === 'NPC' && e.title === npcName
-    )
-    const displayData = {
-      name:           npcName,
-      // 靜態資料：優先 lorebookEntries，fallback npcs[]
-      gender:         lore?.gender       ?? '',           // ← 新增
-      job:            lore?.job          ?? npc?.job          ?? '',
-      appearance:     lore?.appearance   ?? npc?.appearance   ?? '',
-      personality:    lore?.personality  ?? npc?.personality  ?? '',
-      other:          lore?.other        ?? npc?.other        ?? '',
-      // 動態資料：只從 npcs[] 讀
-      affection:      npc?.affection     ?? 0,
-      affectionLabel: npc?.affectionLabel ?? '',
-      thoughts:       npc?.thoughts      ?? [],
-      memories:       npc?.memories      ?? [],
-      isPinned:       npc?.isPinned      ?? false,
-    }
-    // 用 displayData 渲染卡片（gender 顯示在卡片上，與 job 並列）
-  })
-  ```
-
-  **注意事項**
-  - `NPC_NEW` 寫入 `npcs[]` 的 job/appearance 等欄位**不需要移除**，保留作為 fallback（向下相容舊存檔）
-  - `lorebookEntries` 的 NPC 判斷條件是 `category === 'NPC'`，`title` 對應 NPC 名字
-  - 設定集本身的卡片直接顯示 `lorebookEntries`，確認沒有經過 `npcs[]` 即可，不需要改
-  - 只改右欄的**讀取邏輯**，不改任何資料結構
-  - **`gender` 需同步補在以下四個地方：**
-    1. `types.ts` — `LorebookEntry` 介面加 `gender?: string`
-    2. 設定集 NPC 編輯表單 — 加自由文字輸入欄（placeholder 例：男、女、無性別、不明）
-    3. 右欄 NPC 卡片 UI — 顯示 gender，建議放在名字下方與 job 並列
-    4. `buildPrompt` — NPC 資料注入 AI 時把 `gender` 帶入（讓 AI 知道性別使用正確代詞）
