@@ -178,6 +178,25 @@
 
 ---
 
+- [ ] **NPC thoughts 閾值調整（5 → 10）**
+ 
+  目前 `useCommandParser` 的 `NPC_THOUGHT` 邏輯在 thoughts 滿 5 則時觸發融合，改為 10 則。
+ 
+  - 第 1–5 條：正常顯示於 NpcModal
+  - 第 6–10 條：資料保留，UI 隱藏（不渲染）
+  - 滿 10 條：觸發助理 GM 融合，生成新角色記憶，thoughts 清空
+  - 融合產生的記憶寫入時帶 `isNew: true`
+  - NpcModal 角色記憶區塊標題顯示粉紅點（`#FF6B8A`），玩家點開後自動清除（`isNew: false`）
+ 
+  **需修改的地方：**
+  1. `useCommandParser.ts` — `NPC_THOUGHT` 的 `thoughts.length >= 5` 改為 `>= 10`；
+     `pre_merge` 寫入時機同步調整
+  2. `types.ts` — `NpcMemory` 介面加 `isNew?: boolean`
+  3. `NpcModal.tsx` — 渲染 thoughts 時只取前 5 條（`thoughts.slice(0, 5)`）；
+     角色記憶標題旁判斷 `memories.some(m => m.isNew)` 顯示粉紅點；
+     Modal 開啟後執行清除標記（`isNew: false`）
+---
+
 - [ ] **NPC 卡片 UI 重製（依設計圖）**
 
   > 依賴上方「BUG 修復」項目完成後執行（資料來源要先對）。
@@ -351,8 +370,37 @@
 > 不阻塞主線開發，可隨時插入。
 
 - [ ] P1｜行動端（Mobile Web）基本可用
-  - 手機瀏覽器可正常開啟、操作、存檔，不做 App/PWA。
-  - 優先確保 safe-area、輸入區、基本訊息載入策略可用。
+ 
+  目標：手機瀏覽器可正常開啟、操作、存檔，不做 App／PWA。
+  桌面與手機共用同一套組件，響應式切換布局。
+ 
+  **主畫面**
+  - 對話區全寬顯示
+  - 左上角 icon → 點擊開左側抽屜（角色狀態、道具、任務）
+  - 右上角 icon → 點擊開右側抽屜（記憶、關注 NPC）
+  - 抽屜寬度約 80% 螢幕寬，開啟時背景變暗（`rgba(0,0,0,0.5)` overlay，點擊遮罩關閉）
+  - 抽屜內容與桌面版相同，不重新分配
+ 
+  **地圖頁**
+  - 上半：地圖視覺
+  - 下半：地點資訊欄
+ 
+  **設定集（Lorebook）**
+  - 桌面＋手機統一改為 Grid 卡片式，不維護兩套 UI
+  - 人物：響應式 grid（桌面 2 欄，手機視寬度而定），縮略卡顯示姓名、種族性別、好感度、職業、關係
+  - 地點：顯示地名＋一句簡介
+  - 點擊卡片 → 開啟詳細 Modal
+  - 其他分類（怪物、物品、歷史）各自對應欄位，待後續細化
+ 
+  **字體**
+  - `:root { font-size: 16px }` 作為基準
+  - 正文、標題改用 `rem`；行高、字距用 `em`；邊框、圓角、icon 保留 `px`
+  - 手機版若需縮小全站字體，只需調整 `:root font-size`
+ 
+  **其他**
+  - 確保 safe-area（iPhone 底部 home bar）不遮擋輸入區（`env(safe-area-inset-bottom)`）
+  - 輸入框獲得焦點時不被鍵盤遮住（`visualViewport` 或 `env(keyboard-inset-height)`）
+ 
 
 - [ ] P1｜任務鏈與後果分歧
   - 任務加入部分完成、被他人捷足先登等中間態，增加世界演化感。
