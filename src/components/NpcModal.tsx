@@ -21,7 +21,7 @@ const SOURCE_LABEL: Record<NpcMemory['source'], string> = {
 
 const SOURCE_COLOR: Record<NpcMemory['source'], string> = {
   manual:    'text-[#e8e8e9] border-[#283b57]',
-  pre_merge: 'text-rose-300 border-rose-400/40',
+  pre_merge: 'text-rose-300 border-#fb7185/40',
   merged:    'text-amber-300 border-amber-400/40',
 };
 
@@ -186,7 +186,7 @@ export const NpcModal: React.FC<NpcModalProps> = ({
                       return (
                         <div
                           key={idx}
-                          className="bg-[#132540]/80 border-l-2 border-rose-400/60 px-3 py-2 rounded-r-[8px] relative"
+                          className="bg-[#132540]/80 border-l-2 border-#fb7185/60 px-3 py-2 rounded-r-[8px] relative"
                           style={{ opacity }}
                         >
                           <p className="text-xs text-[#e8e8e9] italic">「{thought.text}」</p>
@@ -376,7 +376,7 @@ const MemoryCard: React.FC<MemoryCardProps> = ({
               {/* 刪除 */}
               <button
                 onClick={() => onRemove(mem.id)}
-                className="opacity-0 group-hover:opacity-100 transition p-0.5 rounded-[8px] text-[var(--text3)] hover:text-rose-400"
+                className="opacity-0 group-hover:opacity-100 transition p-0.5 rounded-[8px] text-[var(--text3)] hover:text-#fb7185"
                 title="刪除記憶"
               >
                 <Trash2 className="w-3 h-3" />
@@ -394,7 +394,7 @@ const MemoryCard: React.FC<MemoryCardProps> = ({
               </button>
               <button
                 onClick={onCancelEdit}
-                className="p-0.5 rounded-[8px] text-[var(--text3)] hover:text-rose-400 transition"
+                className="p-0.5 rounded-[8px] text-[var(--text3)] hover:text-#fb7185 transition"
                 title="取消"
               >
                 <X className="w-3 h-3" />
