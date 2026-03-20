@@ -1,9 +1,35 @@
 @import "tailwindcss";
 
+:root {
+  --bg0:     #171617;
+  --bg1:     #24282d;
+  --bg2:     #132540;
+  --bg3:     #132540;
+  --border:  #283b57;
+  --text1:   #fbf5e4;
+  --text2:   #e8e8e9;
+  --text3:   #b7b4ae;
+  --accent:  #fde68a;
+  --accent2: #fde68a;
+  --text4:   #e6d6bf;
+  --danger:  #ff8866;
+}
+
 @theme {
   --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+
+  --color-rose-400:    #b0b0b0;
+  --color-emerald-400: #fb7185;
+  --color-amber-400:   #e8a88c;
+  --color-blue-400:    #5f93d3;
+  --color-violet-400:  #a78bfa;
 }
+
+/* ─── 遊戲字體 ─────────────────────────────────────────────────── */
+.font-game-sans  { font-family: 'Noto Sans TC', sans-serif; }
+.font-game-serif { font-family: 'Noto Serif TC', serif; line-height: 1.9; letter-spacing: 0.02em; }
+.font-game-spell { font-family: 'Yuji Syuku', serif; line-height: 2; letter-spacing: 0.05em; }
 
 @keyframes blink-dot {
   0%, 80%, 100% { opacity: 0.2; transform: translateY(0); }

@@ -278,14 +278,30 @@ MEMORY_ADD:type:importance:content:locations=x,y:npcs=a:factions=b:keywords=c,d:
   --border:  #2a4a7f;   /* 所有邊框（0.5px solid）*/
   --text1:   #fbf5e4;   /* 主要文字 */
   --text2:   #e8e8e9;   /* 次要文字、標籤 */
-  --text3:   #cec9c0;   /* 提示文字、時間戳 */
+  --text3:   #b7b4ae;   /* 提示文字、時間戳（placeholder 統一用此色）*/
+  --text4:   #e6d6bf;   /* 狀態數值專用（HP、MP、金幣等數字）*/
   --accent:  #fde68a;   /* 金色強調 */
   --danger:  #ff8866;   /* HP 警示 */
 }
 ```
 
+**藍色按鈕標準**（全專案統一）：
+```
+預設：#1044ab　　hover：#1a56db　　active：#2563eb
+shadow：0_4px_12px_rgba(16,68,171,0.2)
+```
+
+**Tailwind 語意色對應**（覆寫預設色票）：
+```
+rose-400    → #b0b0b0   （中性灰，用於刪除/危險動作）
+emerald-400 → #fb7185   （粉紅，用於好感度愛心等）
+amber-400   → #e8a88c   （暖橙，用於警告/稀有）
+blue-400    → #5f93d3   （中藍，用於連結/信息）
+violet-400  → #a78bfa   （紫，用於魔法/特殊）
+```
+
 - **字體**：`body { font-family: Georgia, serif; }`
-- **圓角規格**：最外框 8px / 卡片 5px / 膠囊 20px / 對話角 3px
+- **圓角規格**：大圓角 10px / 全圓角（膠囊）9999px / 其餘一律 8px
 
 ---
 

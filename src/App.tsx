@@ -31,7 +31,7 @@ function renderInline(text: string, keyPrefix: string): React.ReactNode[] {
     } else if (token.startsWith('**')) {
       parts.push(<strong key={`${keyPrefix}-b${keyIdx++}`}>{token.slice(2, -2)}</strong>);
     } else {
-      parts.push(<em key={`${keyPrefix}-i${keyIdx++}`} className="text-[#8ab4e8]">{token.slice(1, -1)}</em>);
+      parts.push(<em key={`${keyPrefix}-i${keyIdx++}`} className="text-[#e8e8e9]">{token.slice(1, -1)}</em>);
     }
     lastIndex = match.index + token.length;
   }
@@ -39,7 +39,13 @@ function renderInline(text: string, keyPrefix: string): React.ReactNode[] {
   return parts;
 }
 
-function renderMarkdown(text: string): React.ReactNode {
+const FONT_CLASS_MAP: Record<string, string> = {
+  sans:  'font-game-sans',
+  serif: 'font-game-serif',
+  spell: 'font-game-spell',
+};
+
+function renderLines(text: string): React.ReactNode {
   const lines = text.split('\n');
   const result: React.ReactNode[] = [];
   let i = 0;
@@ -54,9 +60,9 @@ function renderMarkdown(text: string): React.ReactNode {
         i++;
       }
       result.push(
-        <div key={`bq-${startI}`} className="border-l-2 border-[#e6bf55] pl-3 my-2 bg-[#132540]/30 rounded-r-lg py-2 space-y-1">
+        <div key={`bq-${startI}`} className="border-l-2 border-[#fde68a] pl-3 my-2 bg-[#132540]/30 rounded-r-[8px] py-2 space-y-1">
           {quoteLines.map((ql, qi) => (
-            <p key={qi} className="text-[#8ab4e8] leading-relaxed text-sm">{renderInline(ql, `bq-${startI}-${qi}`)}</p>
+            <p key={qi} className="text-[#e8e8e9] leading-relaxed text-sm">{renderInline(ql, `bq-${startI}-${qi}`)}</p>
           ))}
         </div>
       );
@@ -64,7 +70,7 @@ function renderMarkdown(text: string): React.ReactNode {
     }
     // 分隔線
     if (line.trim() === '---') {
-      result.push(<hr key={`hr-${i}`} className="border-[#2a4a7f]/60 my-3" />);
+      result.push(<hr key={`hr-${i}`} className="border-[#283b57]/60 my-3" />);
       i++; continue;
     }
     // 空行 → 間距
@@ -77,6 +83,33 @@ function renderMarkdown(text: string): React.ReactNode {
     i++;
   }
   return <>{result}</>;
+}
+
+function renderMarkdown(text: string): React.ReactNode {
+  // 切分 [FONT:xxx]...[/FONT] 區塊
+  const fontRegex = /\[FONT:(sans|serif|spell)\]([\s\S]*?)\[\/FONT\]/g;
+  const segments: { text: string; font?: string }[] = [];
+  let lastIndex = 0;
+  let match;
+  while ((match = fontRegex.exec(text)) !== null) {
+    if (match.index > lastIndex) segments.push({ text: text.slice(lastIndex, match.index) });
+    segments.push({ text: match[2], font: match[1] });
+    lastIndex = match.index + match[0].length;
+  }
+  if (lastIndex < text.length) segments.push({ text: text.slice(lastIndex) });
+  if (segments.length === 0) segments.push({ text });
+
+  return (
+    <>
+      {segments.map((seg, si) => {
+        const fontClass = seg.font ? (FONT_CLASS_MAP[seg.font] ?? '') : '';
+        const content = renderLines(seg.text);
+        return fontClass
+          ? <div key={si} className={fontClass}>{content}</div>
+          : <React.Fragment key={si}>{content}</React.Fragment>;
+      })}
+    </>
+  );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -270,10 +303,10 @@ ${lastMessages}`;
   const getWeatherIcon = () => {
     switch (timeState.weather) {
       case '晴朗': return <Sun className="w-3.5 h-3.5 mr-1.5 text-amber-400" />;
-      case '陰天': return <Cloud className="w-3.5 h-3.5 mr-1.5 text-[#3a5a8a]" />;
+      case '陰天': return <Cloud className="w-3.5 h-3.5 mr-1.5 text-[var(--text3)]" />;
       case '下雨': return <CloudRain className="w-3.5 h-3.5 mr-1.5 text-blue-400" />;
       case '下雪': return <Snowflake className="w-3.5 h-3.5 mr-1.5 text-sky-200" />;
-      case '起霧': return <Wind className="w-3.5 h-3.5 mr-1.5 text-[#8ab4e8]" />;
+      case '起霧': return <Wind className="w-3.5 h-3.5 mr-1.5 text-[#e8e8e9]" />;
       default: return <Sun className="w-3.5 h-3.5 mr-1.5 text-amber-400" />;
     }
   };
@@ -281,13 +314,13 @@ ${lastMessages}`;
     if (timeState.month === 4) {
       return (
         <div className="flex items-center mr-1.5 relative w-5 h-4">
-          <Moon className="w-3.5 h-3.5 text-[#8ab4e8] absolute left-0" />
+          <Moon className="w-3.5 h-3.5 text-[#e8e8e9] absolute left-0" />
           <Moon className="w-3.5 h-3.5 text-purple-300 absolute right-0 top-0.5 opacity-80" />
         </div>
       );
     }
     if (timeOfDay === '夜晚' || timeOfDay === '清晨') {
-      return <Moon className="w-3.5 h-3.5 mr-1.5 text-[#8ab4e8]" />;
+      return <Moon className="w-3.5 h-3.5 mr-1.5 text-[#e8e8e9]" />;
     }
     return <Sun className="w-3.5 h-3.5 mr-1.5 text-amber-500 opacity-50" />;
   };
@@ -1056,6 +1089,13 @@ MEMORY_ADD:world:critical:魔王宣布向月湖鎮宣戰:keywords=魔王,宣戰
 【AI 何時應輸出 LOCATION_DISCOVER】
 當玩家在旅途中路過、聽說或間接發現某個尚未正式踏足的地點（如路牌、旅人提及、地圖殘片等），輸出 LOCATION_DISCOVER:地點名稱，前端會自動將其標記為「待探索」地點加入世界地圖。
 
+【字體標記（可選）】
+敘事中若有特殊文體段落，可用以下標記包裹，前端會自動套用對應字體：
+- [FONT:serif]...[/FONT]：信件、公告、書信、正式文書（明朝體）
+- [FONT:spell]...[/FONT]：咒語、魔法陣文字、古文、神諭（書法體）
+- [FONT:sans]...[/FONT]：現代感、系統提示、數據（黑體，預設可省略）
+標記可與 markdown 混用，例如在 serif 區塊內使用 **粗體** 或 > 引用。
+
 【AI 何時應輸出 MEMORY_ADD】
 當發生以下五種情境時，請務必使用 MEMORY_ADD 記錄：
 1. 世界事件 (world)：影響整個世界的重大變故（如：魔王宣戰、天象異變）。
@@ -1186,61 +1226,61 @@ Please respond as the DM.`;
   };
 
   return (
-    <div className="flex flex-col h-screen bg-[#0a1628] text-[#e2eaf8] font-sans overflow-hidden" style={{backgroundImage: 'radial-gradient(ellipse at top right, #0d1f3c, #132540, #0a1628)'}}>
+    <div className="flex flex-col h-screen bg-[#171617] text-[#fbf5e4] font-sans overflow-hidden" style={{backgroundImage: 'radial-gradient(ellipse at top right, #24282d, #132540, #171617)'}}>
       {/* Main Content */}
       <div className="flex flex-1 overflow-hidden">
         
         {/* Left Panel */}
-        <div className="w-64 bg-[#0d1f3c] flex flex-col p-4 space-y-4 overflow-y-auto z-10" style={{borderRight: '0.5px solid #2a4a7f'}}>
+        <div className="w-64 bg-[#24282d] flex flex-col p-4 space-y-4 overflow-y-auto z-10" style={{borderRight: '0.5px solid #283b57'}}>
           {/* Adventure Log & Goals */}
-          <div className="bg-[#132540] p-3 rounded-[5px] border border-[#2a4a7f] shadow-inner">
-            <h3 className="flex items-center text-[#e6bf55] font-bold text-sm mb-2">
+          <div className="bg-[#132540] p-3 rounded-[8px] border border-[#283b57] shadow-inner">
+            <h3 className="flex items-center text-[#fde68a] font-bold text-sm mb-2">
               <ScrollText className="w-4 h-4 mr-2" /> 當前目標
               {isUpdatingLog && <RefreshCw className="w-3 h-3 ml-2 animate-spin opacity-50" />}
             </h3>
-            <ul className="text-xs space-y-1.5 text-[#8ab4e8]">
+            <ul className="text-xs space-y-1.5 text-[#e8e8e9]">
               {currentGoals.length > 0 ? (
                 currentGoals.map((goal, i) => (
                   <li key={i} className="flex items-start gap-2">
-                    <span className="mt-1 w-1 h-1 rounded-full bg-[#e6bf55] flex-shrink-0" />
+                    <span className="mt-1 w-1 h-1 rounded-full bg-[#fde68a] flex-shrink-0" />
                     <span>{goal}</span>
                   </li>
                 ))
               ) : (
-                <li className="italic opacity-50">暫無明確目標...</li>
+                <li className="italic text-[var(--text3)]">暫無明確目標...</li>
               )}
             </ul>
           </div>
 
-          <div className="bg-[#132540] p-3 rounded-[5px] border border-[#2a4a7f]">
-            <h3 className="flex items-center text-[#e2eaf8] font-bold text-sm mb-2">
-              <History className="w-4 h-4 mr-2 text-[#8ab4e8]" /> 冒險摘要
+          <div className="bg-[#132540] p-3 rounded-[8px] border border-[#283b57]">
+            <h3 className="flex items-center text-[#fbf5e4] font-bold text-sm mb-2">
+              <History className="w-4 h-4 mr-2 text-[#e8e8e9]" /> 冒險摘要
             </h3>
             <div className="max-h-32 overflow-y-auto space-y-2 pr-1 custom-scrollbar">
               {adventureLog.length > 0 ? (
                 adventureLog.map((log, i) => (
-                  <div key={i} className="text-xs leading-relaxed text-[#8ab4e8] border-l border-[#2a4a7f] pl-2 py-0.5 italic">
+                  <div key={i} className="text-xs leading-relaxed text-[#e8e8e9] border-l border-[#283b57] pl-2 py-0.5 italic">
                     {log}
                   </div>
                 ))
               ) : (
-                <div className="text-xs italic text-[#8ab4e8] opacity-30">等待冒險展開...</div>
+                <div className="text-xs italic text-[#e8e8e9] opacity-30">等待冒險展開...</div>
               )}
             </div>
           </div>
 
           <div
-            className="bg-[#132540] p-3 rounded-[5px] cursor-pointer hover:bg-[#1a2e50] transition relative group"
-            style={{border: '0.5px solid #2a4a7f'}}
-            onMouseEnter={e => (e.currentTarget.style.borderColor = '#e6bf55')}
-            onMouseLeave={e => (e.currentTarget.style.borderColor = '#2a4a7f')}
+            className="bg-[#132540] p-3 rounded-[8px] cursor-pointer hover:bg-[#132540] transition relative group"
+            style={{border: '0.5px solid #283b57'}}
+            onMouseEnter={e => (e.currentTarget.style.borderColor = '#fde68a')}
+            onMouseLeave={e => (e.currentTarget.style.borderColor = '#283b57')}
             onClick={() => setIsQuestModalOpen(true)}
           >
             <div className="flex items-center justify-between mb-2">
-              <h3 className="flex items-center text-[#e6bf55] font-bold"><Book className="w-4 h-4 mr-2" /> 任務日誌</h3>
-              <ChevronRight className="w-4 h-4 text-[#e6bf55]/50 group-hover:text-[#e6bf55] transition" />
+              <h3 className="flex items-center text-[#fde68a] font-bold"><Book className="w-4 h-4 mr-2" /> 任務日誌</h3>
+              <ChevronRight className="w-4 h-4 text-[#fde68a]/50 group-hover:text-[#fde68a] transition" />
             </div>
-            <ul className="text-sm space-y-1 text-[#8ab4e8]">
+            <ul className="text-sm space-y-1 text-[#e8e8e9]">
               {quests.filter(q => q.status === 'active').length > 0 ? (
                 <>
                   {quests.filter(q => q.status === 'active').slice(0, 3).map(q => (
@@ -1250,30 +1290,30 @@ Please respond as the DM.`;
                     </li>
                   ))}
                   {quests.filter(q => q.status === 'active').length > 3 && (
-                    <li className="text-[#3a5a8a] text-xs pl-3">…還有 {quests.filter(q => q.status === 'active').length - 3} 個</li>
+                    <li className="text-[var(--text3)] text-xs pl-3">…還有 {quests.filter(q => q.status === 'active').length - 3} 個</li>
                   )}
                 </>
               ) : (
-                <li className="text-[#3a5a8a] italic">目前沒有任務</li>
+                <li className="text-[var(--text3)] italic">目前沒有任務</li>
               )}
             </ul>
           </div>
           
           <div className="relative">
-            <div className="bg-[#132540] rounded-[5px] transition-colors" style={{border: '0.5px solid #2a4a7f'}}
-              onMouseEnter={e => (e.currentTarget.style.borderColor = '#e6bf55')}
-              onMouseLeave={e => (e.currentTarget.style.borderColor = '#2a4a7f')}>
+            <div className="bg-[#132540] rounded-[8px] transition-colors" style={{border: '0.5px solid #283b57'}}
+              onMouseEnter={e => (e.currentTarget.style.borderColor = '#fde68a')}
+              onMouseLeave={e => (e.currentTarget.style.borderColor = '#283b57')}>
               <button
                 onClick={() => {
                   setIsInventoryOpen(!isInventoryOpen);
                   if (isConsumablesOpen) setIsConsumablesOpen(false);
                 }}
-                className={`w-full p-3 flex items-center justify-between hover:bg-[#1a2e50] transition rounded-[5px] ${isInventoryOpen ? 'bg-[#1a2e50]' : ''}`}
+                className={`w-full p-3 flex items-center justify-between hover:bg-[#132540] transition rounded-[8px] ${isInventoryOpen ? 'bg-[#132540]' : ''}`}
               >
-                <h3 className="flex items-center text-[#e2eaf8] font-bold">
+                <h3 className="flex items-center text-[#fbf5e4] font-bold">
                   <Package className="w-4 h-4 mr-2" /> 裝備 ({equipment.length})
                 </h3>
-                <ChevronRight className={`w-4 h-4 text-[#3a5a8a] transition-transform ${isInventoryOpen ? 'rotate-90 text-[#e6bf55]' : ''}`} />
+                <ChevronRight className={`w-4 h-4 text-[var(--text3)] transition-transform ${isInventoryOpen ? 'rotate-90 text-[#fde68a]' : ''}`} />
               </button>
             </div>
             
@@ -1284,12 +1324,12 @@ Please respond as the DM.`;
                   animate={{ opacity: 1, x: 0, scale: 1 }}
                   exit={{ opacity: 0, x: -10, scale: 0.95 }}
                   transition={{ duration: 0.2, ease: "easeOut" }}
-                  className="absolute left-[calc(100%+8px)] top-0 w-72 bg-[#132540]/95 backdrop-blur-xl border border-[#2a4a7f] rounded-xl shadow-[0_8px_32px_rgba(0,0,0,0.5)] z-50 flex flex-col overflow-hidden"
+                  className="absolute left-[calc(100%+8px)] top-0 w-72 bg-[#132540]/95 backdrop-blur-xl border border-[#283b57] rounded-[8px] shadow-[0_8px_32px_rgba(0,0,0,0.5)] z-50 flex flex-col overflow-hidden"
                   style={{ maxHeight: '60vh' }}
                 >
-                  <div className="sticky top-0 bg-[#0d1f3c]/90 backdrop-blur-md p-3 border-b border-[#2a4a7f] flex justify-between items-center z-10">
-                    <h3 className="text-[#e6bf55] font-bold flex items-center text-sm"><Package className="w-4 h-4 mr-2" /> 裝備清單</h3>
-                    <button onClick={() => setIsInventoryOpen(false)} className="text-[#3a5a8a] hover:text-[#e2eaf8] transition-colors p-1 rounded-full hover:bg-white/5">
+                  <div className="sticky top-0 bg-[#24282d]/90 backdrop-blur-md p-3 border-b border-[#283b57] flex justify-between items-center z-10">
+                    <h3 className="text-[#fde68a] font-bold flex items-center text-sm"><Package className="w-4 h-4 mr-2" /> 裝備清單</h3>
+                    <button onClick={() => setIsInventoryOpen(false)} className="text-[var(--text3)] hover:text-[#fbf5e4] transition-colors p-1 rounded-full hover:bg-white/5">
                       <X className="w-4 h-4" />
                     </button>
                   </div>
@@ -1297,14 +1337,14 @@ Please respond as the DM.`;
                     {equipment.length > 0 ? equipment.map(item => (
                       <div 
                         key={item.id} 
-                        className={`bg-[#1a2e50]/50 p-2.5 rounded-lg border cursor-pointer transition-all ${selectedInventoryItem === item.id ? 'border-[#e6bf55]/50 shadow-[0_0_10px_rgba(230,191,85,0.1)]' : 'border-[#2a4a7f]/50 hover:border-[#2a4a7f] hover:bg-[#1a2e50]'}`}
+                        className={`bg-[#132540]/50 p-2.5 rounded-[8px] border cursor-pointer transition-all ${selectedInventoryItem === item.id ? 'border-[#fde68a]/50 shadow-[0_0_10px_rgba(230,191,85,0.1)]' : 'border-[#283b57]/50 hover:border-[#283b57] hover:bg-[#132540]'}`}
                         onClick={() => setSelectedInventoryItem(selectedInventoryItem === item.id ? null : item.id)}
                       >
                         <div className="flex justify-between items-center mb-1">
-                          <span className="text-sm font-medium text-[#e2eaf8]">{item.name}</span>
-                          <span className="text-xs font-mono bg-[#0d1f3c] px-1.5 py-0.5 rounded text-[#8ab4e8]">x{item.quantity}</span>
+                          <span className="text-sm font-medium text-[#fbf5e4]">{item.name}</span>
+                          <span className="text-xs font-mono bg-[#24282d] px-1.5 py-0.5 rounded-[8px] text-[#e8e8e9]">x{item.quantity}</span>
                         </div>
-                        <div className="text-xs text-[#8ab4e8]/80 leading-relaxed">{item.description}</div>
+                        <div className="text-xs text-[#e8e8e9]/80 leading-relaxed">{item.description}</div>
                         
                         <AnimatePresence>
                           {selectedInventoryItem === item.id && (
@@ -1312,22 +1352,22 @@ Please respond as the DM.`;
                               initial={{ height: 0, opacity: 0 }}
                               animate={{ height: 'auto', opacity: 1 }}
                               exit={{ height: 0, opacity: 0 }}
-                              className="flex space-x-2 mt-2.5 pt-2.5 border-t border-[#2a4a7f]/50 overflow-hidden"
+                              className="flex space-x-2 mt-2.5 pt-2.5 border-t border-[#283b57]/50 overflow-hidden"
                             >
                               <button 
-                                className="flex-1 bg-[#2a4a7f]/30 hover:bg-[#2a4a7f]/60 text-xs py-1.5 rounded-lg transition text-[#e2eaf8] font-medium"
+                                className="flex-1 bg-[#283b57]/30 hover:bg-[#283b57]/60 text-xs py-1.5 rounded-[8px] transition text-[#fbf5e4] font-medium"
                                 onClick={(e) => { e.stopPropagation(); showToast(`裝備了 ${item.name}`); setSelectedInventoryItem(null); }}
                               >
                                 裝備
                               </button>
                               <button 
-                                className="flex-1 bg-[#2a4a7f]/30 hover:bg-[#2a4a7f]/60 text-xs py-1.5 rounded-lg transition text-[#e2eaf8] font-medium"
+                                className="flex-1 bg-[#283b57]/30 hover:bg-[#283b57]/60 text-xs py-1.5 rounded-[8px] transition text-[#fbf5e4] font-medium"
                                 onClick={(e) => { e.stopPropagation(); showToast(`卸下了 ${item.name}`); setSelectedInventoryItem(null); }}
                               >
                                 卸下
                               </button>
                               <button
-                                className="flex-1 bg-rose-900/20 hover:bg-rose-900/40 text-rose-400 border border-rose-900/30 text-xs py-1.5 rounded-lg transition font-medium"
+                                className="flex-1 bg-rose-900/20 hover:bg-rose-900/40 text-rose-400 border border-rose-900/30 text-xs py-1.5 rounded-[8px] transition font-medium"
                                 onClick={(e) => {
                                   e.stopPropagation();
                                   setEquipment(prev => prev.filter(i => i.id !== item.id));
@@ -1342,7 +1382,7 @@ Please respond as the DM.`;
                         </AnimatePresence>
                       </div>
                     )) : (
-                      <div className="text-center text-[#3a5a8a] text-xs py-8 italic">背包空空如也...</div>
+                      <div className="text-center text-[var(--text3)] text-xs py-8 italic">背包空空如也...</div>
                     )}
                   </div>
                 </motion.div>
@@ -1351,20 +1391,20 @@ Please respond as the DM.`;
           </div>
 
           <div className="relative">
-            <div className="bg-[#132540] rounded-[5px] transition-colors" style={{border: '0.5px solid #2a4a7f'}}
-              onMouseEnter={e => (e.currentTarget.style.borderColor = '#e6bf55')}
-              onMouseLeave={e => (e.currentTarget.style.borderColor = '#2a4a7f')}>
+            <div className="bg-[#132540] rounded-[8px] transition-colors" style={{border: '0.5px solid #283b57'}}
+              onMouseEnter={e => (e.currentTarget.style.borderColor = '#fde68a')}
+              onMouseLeave={e => (e.currentTarget.style.borderColor = '#283b57')}>
               <button
                 onClick={() => {
                   setIsConsumablesOpen(!isConsumablesOpen);
                   if (isInventoryOpen) setIsInventoryOpen(false);
                 }}
-                className={`w-full p-3 flex items-center justify-between hover:bg-[#1a2e50] transition rounded-[5px] ${isConsumablesOpen ? 'bg-[#1a2e50]' : ''}`}
+                className={`w-full p-3 flex items-center justify-between hover:bg-[#132540] transition rounded-[8px] ${isConsumablesOpen ? 'bg-[#132540]' : ''}`}
               >
-                <h3 className="flex items-center text-[#e2eaf8] font-bold">
+                <h3 className="flex items-center text-[#fbf5e4] font-bold">
                   <Beaker className="w-4 h-4 mr-2" /> 消耗品 ({items.reduce((acc, item) => acc + item.quantity, 0)})
                 </h3>
-                <ChevronRight className={`w-4 h-4 text-[#3a5a8a] transition-transform ${isConsumablesOpen ? 'rotate-90 text-[#e6bf55]' : ''}`} />
+                <ChevronRight className={`w-4 h-4 text-[var(--text3)] transition-transform ${isConsumablesOpen ? 'rotate-90 text-[#fde68a]' : ''}`} />
               </button>
             </div>
             
@@ -1375,12 +1415,12 @@ Please respond as the DM.`;
                   animate={{ opacity: 1, x: 0, scale: 1 }}
                   exit={{ opacity: 0, x: -10, scale: 0.95 }}
                   transition={{ duration: 0.2, ease: "easeOut" }}
-                  className="absolute left-[calc(100%+8px)] top-0 w-72 bg-[#132540]/95 backdrop-blur-xl border border-[#2a4a7f] rounded-xl shadow-[0_8px_32px_rgba(0,0,0,0.5)] z-50 flex flex-col overflow-hidden"
+                  className="absolute left-[calc(100%+8px)] top-0 w-72 bg-[#132540]/95 backdrop-blur-xl border border-[#283b57] rounded-[8px] shadow-[0_8px_32px_rgba(0,0,0,0.5)] z-50 flex flex-col overflow-hidden"
                   style={{ maxHeight: '60vh' }}
                 >
-                  <div className="sticky top-0 bg-[#0d1f3c]/90 backdrop-blur-md p-3 border-b border-[#2a4a7f] flex justify-between items-center z-10">
-                    <h3 className="text-[#e6bf55] font-bold flex items-center text-sm"><Beaker className="w-4 h-4 mr-2" /> 消耗品清單</h3>
-                    <button onClick={() => setIsConsumablesOpen(false)} className="text-[#3a5a8a] hover:text-[#e2eaf8] transition-colors p-1 rounded-full hover:bg-white/5">
+                  <div className="sticky top-0 bg-[#24282d]/90 backdrop-blur-md p-3 border-b border-[#283b57] flex justify-between items-center z-10">
+                    <h3 className="text-[#fde68a] font-bold flex items-center text-sm"><Beaker className="w-4 h-4 mr-2" /> 消耗品清單</h3>
+                    <button onClick={() => setIsConsumablesOpen(false)} className="text-[var(--text3)] hover:text-[#fbf5e4] transition-colors p-1 rounded-full hover:bg-white/5">
                       <X className="w-4 h-4" />
                     </button>
                   </div>
@@ -1388,14 +1428,14 @@ Please respond as the DM.`;
                     {items.length > 0 ? items.map(item => (
                       <div 
                         key={item.id} 
-                        className={`bg-[#1a2e50]/50 p-2.5 rounded-lg border cursor-pointer transition-all ${selectedConsumableItem === item.id ? 'border-[#e6bf55]/50 shadow-[0_0_10px_rgba(230,191,85,0.1)]' : 'border-[#2a4a7f]/50 hover:border-[#2a4a7f] hover:bg-[#1a2e50]'}`}
+                        className={`bg-[#132540]/50 p-2.5 rounded-[8px] border cursor-pointer transition-all ${selectedConsumableItem === item.id ? 'border-[#fde68a]/50 shadow-[0_0_10px_rgba(230,191,85,0.1)]' : 'border-[#283b57]/50 hover:border-[#283b57] hover:bg-[#132540]'}`}
                         onClick={() => setSelectedConsumableItem(selectedConsumableItem === item.id ? null : item.id)}
                       >
                         <div className="flex justify-between items-center mb-1">
-                          <span className="text-sm font-medium text-[#e2eaf8]">{item.name}</span>
-                          <span className="text-xs font-mono bg-[#0d1f3c] px-1.5 py-0.5 rounded text-[#8ab4e8]">x{item.quantity}</span>
+                          <span className="text-sm font-medium text-[#fbf5e4]">{item.name}</span>
+                          <span className="text-xs font-mono bg-[#24282d] px-1.5 py-0.5 rounded-[8px] text-[#e8e8e9]">x{item.quantity}</span>
                         </div>
-                        <div className="text-xs text-[#8ab4e8]/80 leading-relaxed">{item.description}</div>
+                        <div className="text-xs text-[#e8e8e9]/80 leading-relaxed">{item.description}</div>
                         
                         <AnimatePresence>
                           {selectedConsumableItem === item.id && (
@@ -1403,10 +1443,10 @@ Please respond as the DM.`;
                               initial={{ height: 0, opacity: 0 }}
                               animate={{ height: 'auto', opacity: 1 }}
                               exit={{ height: 0, opacity: 0 }}
-                              className="flex space-x-2 mt-2.5 pt-2.5 border-t border-[#2a4a7f]/50 overflow-hidden"
+                              className="flex space-x-2 mt-2.5 pt-2.5 border-t border-[#283b57]/50 overflow-hidden"
                             >
                               <button
-                                className="flex-1 bg-emerald-900/20 hover:bg-emerald-900/40 text-emerald-400 border border-emerald-900/30 text-xs py-1.5 rounded-lg transition font-medium"
+                                className="flex-1 bg-emerald-900/20 hover:bg-emerald-900/40 text-emerald-400 border border-emerald-900/30 text-xs py-1.5 rounded-[8px] transition font-medium"
                                 onClick={(e) => {
                                   e.stopPropagation();
                                   useItem(item.name);
@@ -1417,7 +1457,7 @@ Please respond as the DM.`;
                                 使用
                               </button>
                               <button 
-                                className="flex-1 bg-rose-900/20 hover:bg-rose-900/40 text-rose-400 border border-rose-900/30 text-xs py-1.5 rounded-lg transition font-medium"
+                                className="flex-1 bg-rose-900/20 hover:bg-rose-900/40 text-rose-400 border border-rose-900/30 text-xs py-1.5 rounded-[8px] transition font-medium"
                                 onClick={(e) => { 
                                   e.stopPropagation(); 
                                   setItems(prev => prev.filter(i => i.id !== item.id));
@@ -1432,7 +1472,7 @@ Please respond as the DM.`;
                         </AnimatePresence>
                       </div>
                     )) : (
-                      <div className="text-center text-[#3a5a8a] text-xs py-8 italic">沒有任何消耗品...</div>
+                      <div className="text-center text-[var(--text3)] text-xs py-8 italic">沒有任何消耗品...</div>
                     )}
                   </div>
                 </motion.div>
@@ -1441,31 +1481,31 @@ Please respond as the DM.`;
           </div>
 
           <div
-            className="bg-[#132540] p-3 rounded-[5px] cursor-pointer hover:bg-[#1a2e50] transition"
-            style={{border: '0.5px solid #2a4a7f'}}
-            onMouseEnter={e => (e.currentTarget.style.borderColor = '#e6bf55')}
-            onMouseLeave={e => (e.currentTarget.style.borderColor = '#2a4a7f')}
+            className="bg-[#132540] p-3 rounded-[8px] cursor-pointer hover:bg-[#132540] transition"
+            style={{border: '0.5px solid #283b57'}}
+            onMouseEnter={e => (e.currentTarget.style.borderColor = '#fde68a')}
+            onMouseLeave={e => (e.currentTarget.style.borderColor = '#283b57')}
             onClick={() => setIsDiaryModalOpen(true)}
           >
-            <h3 className="flex items-center text-[#e2eaf8] font-bold"><Book className="w-4 h-4 mr-2" />日記</h3>
+            <h3 className="flex items-center text-[#fbf5e4] font-bold"><Book className="w-4 h-4 mr-2" />日記</h3>
           </div>
 
           {npcs.filter(n => n.isPinned).length > 0 && (
-            <div className="bg-[#132540] rounded-[5px] overflow-hidden p-3" style={{border: '0.5px solid #2a4a7f'}}
-              onMouseEnter={e => (e.currentTarget.style.borderColor = '#e6bf55')}
-              onMouseLeave={e => (e.currentTarget.style.borderColor = '#2a4a7f')}>
-              <h3 className="text-[#e6bf55] font-bold mb-3">✦ 關注</h3>
+            <div className="bg-[#132540] rounded-[8px] overflow-hidden p-3" style={{border: '0.5px solid #283b57'}}
+              onMouseEnter={e => (e.currentTarget.style.borderColor = '#fde68a')}
+              onMouseLeave={e => (e.currentTarget.style.borderColor = '#283b57')}>
+              <h3 className="text-[#fde68a] font-bold mb-3">✦ 關注</h3>
               <div className="space-y-2">
                 {npcs.filter(n => n.isPinned).map(npc => (
                   <div
                     key={npc.id}
-                    className="bg-[#1a2e50]/60 backdrop-blur-md p-3 rounded-2xl flex justify-between items-center cursor-pointer hover:bg-[#1a2e50] transition-all duration-300 shadow-md border border-white/5 relative overflow-hidden group/pinned"
+                    className="bg-[#132540]/60 backdrop-blur-md p-3 rounded-[10px] flex justify-between items-center cursor-pointer hover:bg-[#132540] transition-all duration-300 shadow-md border border-white/5 relative overflow-hidden group/pinned"
                     onClick={() => setSelectedNpc(npc)}
                   >
-                    <div className="absolute top-0 left-0 w-1 h-full bg-[#e6bf55] opacity-40"></div>
+                    <div className="absolute top-0 left-0 w-1 h-full bg-[#fde68a] opacity-40"></div>
                     <div>
-                      <div className="text-sm font-bold text-[#e2eaf8] group-hover/pinned:text-[#e6bf55] transition-colors">{npc.name}</div>
-                      <div className="text-xs text-[#8ab4e8] uppercase tracking-tighter">{npc.job}</div>
+                      <div className="text-sm font-bold text-[#fbf5e4] group-hover/pinned:text-[#fde68a] transition-colors">{npc.name}</div>
+                      <div className="text-xs text-[#e8e8e9] uppercase tracking-tighter">{npc.job}</div>
                     </div>
                     <div className="flex flex-col items-end">
                       <div className="text-xs text-rose-400 flex items-center bg-rose-400/10 px-2 py-0.5 rounded-full border border-rose-400/20">
@@ -1489,13 +1529,13 @@ Please respond as the DM.`;
             ].map(item => (
               <div
                 key={item.label}
-                className="bg-[#132540] p-2 rounded-[5px] cursor-pointer hover:bg-[#1a2e50] transition flex items-center justify-center"
-                style={{border: '0.5px solid #2a4a7f'}}
-                onMouseEnter={e => (e.currentTarget.style.borderColor = '#e6bf55')}
-                onMouseLeave={e => (e.currentTarget.style.borderColor = '#2a4a7f')}
+                className="bg-[#132540] p-2 rounded-[8px] cursor-pointer hover:bg-[#132540] transition flex items-center justify-center"
+                style={{border: '0.5px solid #283b57'}}
+                onMouseEnter={e => (e.currentTarget.style.borderColor = '#fde68a')}
+                onMouseLeave={e => (e.currentTarget.style.borderColor = '#283b57')}
                 onClick={item.action}
               >
-                <span className="flex items-center text-[#e2eaf8] font-bold text-sm">{item.icon}{item.label}</span>
+                <span className="flex items-center text-[#fbf5e4] font-bold text-sm">{item.icon}{item.label}</span>
               </div>
             ))}
           </div>
@@ -1505,7 +1545,7 @@ Please respond as the DM.`;
             const timeStr = lastSavedAt.toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
             const dateStr = lastSavedAt.toLocaleDateString('zh-TW', { month: 'numeric', day: 'numeric' });
             return (
-              <p className="text-center text-xs text-[#3a5a8a] mt-1.5">
+              <p className="text-center text-xs text-[var(--text3)] mt-1.5">
                 上次存檔 {isToday ? timeStr : `${dateStr} ${timeStr}`}
               </p>
             );
@@ -1515,11 +1555,11 @@ Please respond as the DM.`;
         {/* Center Panel */}
         <div className="flex-1 flex flex-col bg-transparent relative">
           {/* Scene Bar */}
-          <div className="bg-[#0d1f3c]/40 backdrop-blur-md border-b border-white/5 shadow-[0_4px_24px_rgba(0,0,0,0.2)] p-3 flex items-center justify-end absolute top-0 w-full z-30">
+          <div className="bg-[#24282d]/40 backdrop-blur-md border-b border-white/5 shadow-[0_4px_24px_rgba(0,0,0,0.2)] p-3 flex items-center justify-end absolute top-0 w-full z-30">
             <div className="flex space-x-2">
               <button 
                 onClick={() => setIsMapOpen(true)}
-                className="px-3 py-1.5 rounded text-xs font-medium transition bg-[#e6bf55]/20 text-[#e6bf55] hover:bg-[#e6bf55]/40 border border-[#e6bf55]/30 flex items-center"
+                className="px-3 py-1.5 rounded-[8px] text-xs font-medium transition bg-[#fde68a]/20 text-[#fde68a] hover:bg-[#fde68a]/40 border border-[#fde68a]/30 flex items-center"
               >
                 <MapIcon className="w-3.5 h-3.5 mr-1" />
                 世界地圖
@@ -1543,7 +1583,7 @@ Please respond as the DM.`;
               <div key={msg.id} className={`flex flex-col ${msg.role === 'user' ? 'items-end pl-5' : 'items-start pr-5'} max-w-3xl mx-auto w-full group relative ${activeMenuId === msg.id ? 'z-20' : 'z-0'}`}>
                 
                 <div className={`flex items-center space-x-2 mb-1 ${msg.role === 'user' ? 'mr-2 flex-row-reverse space-x-reverse' : 'ml-2'}`}>
-                  <span className="text-xs text-[#3a5a8a] font-bold">
+                  <span className="text-xs text-[var(--text3)] font-bold">
                     {msg.role === 'user' ? profile.name : '異世界'}
                   </span>
                   <div className={`flex items-center space-x-1 opacity-0 group-hover:opacity-100 transition ${activeMenuId === msg.id ? 'opacity-100' : ''}`}>
@@ -1551,7 +1591,7 @@ Please respond as the DM.`;
                       <button 
                         onClick={() => handleRegenerate(msg.id)}
                         disabled={isLoading}
-                        className="p-1 text-[#3a5a8a] hover:text-[#8ab4e8] rounded transition disabled:opacity-50 disabled:cursor-not-allowed" 
+                        className="p-1 text-[var(--text3)] hover:text-[#e8e8e9] rounded-[8px] transition disabled:opacity-50 disabled:cursor-not-allowed" 
                         title="重新生成"
                       >
                         <RefreshCw className="w-3.5 h-3.5" />
@@ -1563,16 +1603,16 @@ Please respond as the DM.`;
                           e.stopPropagation();
                           setActiveMenuId(activeMenuId === msg.id ? null : msg.id);
                         }}
-                        className="p-1 text-[#3a5a8a] hover:text-[#8ab4e8] rounded transition"
+                        className="p-1 text-[var(--text3)] hover:text-[#e8e8e9] rounded-[8px] transition"
                         title="更多選項"
                       >
                         <MoreVertical className="w-3.5 h-3.5" />
                       </button>
                       
                       {activeMenuId === msg.id && (
-                        <div className={`absolute top-full mt-1 w-24 bg-[#132540]/90 backdrop-blur-md border border-white/10 rounded-2xl shadow-[0_0_20px_rgba(0,0,0,0.3)] z-50 overflow-hidden flex flex-col ${msg.role === 'user' ? 'right-0' : 'left-0'}`}>
+                        <div className={`absolute top-full mt-1 w-24 bg-[#132540]/90 backdrop-blur-md border border-white/10 rounded-[10px] shadow-[0_0_20px_rgba(0,0,0,0.3)] z-50 overflow-hidden flex flex-col ${msg.role === 'user' ? 'right-0' : 'left-0'}`}>
                           <button 
-                            className="px-3 py-2 text-xs text-[#8ab4e8] hover:bg-[#1a2e50]/50 text-left transition"
+                            className="px-3 py-2 text-xs text-[#e8e8e9] hover:bg-[#132540]/50 text-left transition"
                             onClick={(e) => { 
                               e.stopPropagation(); 
                               navigator.clipboard.writeText(msg.text).then(() => showToast('已複製訊息')).catch(() => showToast('複製失敗'));
@@ -1582,7 +1622,7 @@ Please respond as the DM.`;
                             複製
                           </button>
                           <button 
-                            className="px-3 py-2 text-xs text-[#8ab4e8] hover:bg-[#1a2e50]/50 text-left transition"
+                            className="px-3 py-2 text-xs text-[#e8e8e9] hover:bg-[#132540]/50 text-left transition"
                             onClick={(e) => { 
                               e.stopPropagation(); 
                               setEditingMessageId(msg.id);
@@ -1593,7 +1633,7 @@ Please respond as the DM.`;
                             編輯
                           </button>
                           <button 
-                            className="px-3 py-2 text-xs text-rose-400 hover:bg-[#1a2e50]/50 text-left transition"
+                            className="px-3 py-2 text-xs text-rose-400 hover:bg-[#132540]/50 text-left transition"
                             onClick={(e) => { 
                               e.stopPropagation(); 
                               const newMessages = messages.filter(m => m.id !== msg.id);
@@ -1615,24 +1655,24 @@ Please respond as the DM.`;
                   editingMessageId === msg.id ? 'w-full' : 'w-fit'
                 } ${
                   msg.role === 'user'
-                    ? 'bg-[#e6bf55]/10 text-[#8ab4e8]'
-                    : 'bg-[#132540] text-[#e2eaf8]'
+                    ? 'bg-[#fde68a]/10 text-[#e8e8e9]'
+                    : 'bg-[#132540] text-[#fbf5e4]'
                 }`} style={{
-                  borderRadius: msg.role === 'user' ? '8px 3px 8px 8px' : '3px 8px 8px 8px',
-                  border: msg.role === 'user' ? '0.5px solid rgba(201,168,76,0.3)' : '0.5px solid #2a4a7f'
+                  borderRadius: msg.role === 'user' ? '8px' : '8px',
+                  border: msg.role === 'user' ? '0.5px solid rgba(201,168,76,0.3)' : '0.5px solid #283b57'
                 }}>
                   {editingMessageId === msg.id ? (
                     <div className="flex flex-col w-full">
                       <textarea 
                         value={editMessageText} 
                         onChange={(e) => setEditMessageText(e.target.value)}
-                        className="w-full bg-[#0d1f3c]/50 backdrop-blur-sm text-[#e2eaf8] p-3 rounded-2xl border border-white/10 focus:border-[#e6bf55]/50 focus:shadow-[0_0_15px_rgba(99,102,241,0.2)] outline-none resize-none text-sm min-h-[200px]"
+                        className="w-full bg-[#24282d]/50 backdrop-blur-sm text-[#fbf5e4] p-3 rounded-[10px] border border-white/10 focus:border-[#fde68a]/50 focus:shadow-[0_0_15px_rgba(99,102,241,0.2)] outline-none resize-none text-sm min-h-[200px]"
                         autoFocus
                       />
                       <div className="flex justify-end space-x-2 mt-2">
                         <button 
                           onClick={() => setEditingMessageId(null)} 
-                          className="text-xs text-[#3a5a8a] hover:text-[#e2eaf8] px-2 py-1"
+                          className="text-xs text-[var(--text3)] hover:text-[#fbf5e4] px-2 py-1"
                         >
                           取消
                         </button>
@@ -1644,7 +1684,7 @@ Please respond as the DM.`;
                             setEditingMessageId(null);
                             showToast('已更新訊息');
                           }} 
-                          className="text-xs bg-[#1044ab] hover:bg-[#1a56db] active:bg-[#2563eb] backdrop-blur-sm text-[#e2eaf8] px-3 py-1 rounded-xl transition shadow-[0_4px_12px_rgba(16,68,171,0.2)]"
+                          className="text-xs bg-[#1044ab] hover:bg-[#1a56db] active:bg-[#2563eb] backdrop-blur-sm text-[#fbf5e4] px-3 py-1 rounded-[8px] transition shadow-[0_4px_12px_rgba(16,68,171,0.2)]"
                         >
                           儲存
                         </button>
@@ -1654,12 +1694,12 @@ Please respond as the DM.`;
                     <p className="leading-relaxed whitespace-pre-wrap">{msg.text}</p>
                   ) : msg.text === '' && isLoading && msg.id === messages[messages.length - 1]?.id ? (
                     <div className="flex items-center space-x-2 py-0.5 select-none">
-                      <span className="text-[#e6bf55] text-sm">✦ 異世界正在回應</span>
+                      <span className="text-[#fde68a] text-sm">✦ 異世界正在回應</span>
                       <span className="flex items-end space-x-0.5 pb-0.5">
                         {[0, 200, 400].map(delay => (
                           <span
                             key={delay}
-                            className="inline-block w-1 h-1 rounded-full bg-[#e6bf55]"
+                            className="inline-block w-1 h-1 rounded-full bg-[#fde68a]"
                             style={{ animation: `blink-dot 1.4s ease-in-out infinite`, animationDelay: `${delay}ms` }}
                           />
                         ))}
@@ -1676,7 +1716,7 @@ Please respond as the DM.`;
 
           {/* Input Area */}
           <div className="absolute bottom-0 w-full pt-10 pb-4 px-6 flex flex-col items-center z-30">
-            <div className="absolute inset-0 bg-gradient-to-t from-[#0a1628]/90 via-[#0a1628]/60 to-transparent backdrop-blur-md [mask-image:linear-gradient(to_top,black_60%,transparent)] pointer-events-none -z-10"></div>
+            <div className="absolute inset-0 bg-gradient-to-t from-[#171617]/90 via-[#171617]/60 to-transparent backdrop-blur-md [mask-image:linear-gradient(to_top,black_60%,transparent)] pointer-events-none -z-10"></div>
             
             <div className="w-full max-w-3xl">
               <div className="flex space-x-2 mb-3">
@@ -1685,15 +1725,15 @@ Please respond as the DM.`;
                     key={idx}
                     onClick={() => handleSendMessage(option)}
                     disabled={isLoading}
-                    className="px-3 py-1 bg-[#132540]/60 backdrop-blur-sm hover:bg-[#1a2e50]/80 border border-white/10 rounded-full text-xs text-[#8ab4e8] transition shadow-[0_0_10px_rgba(0,0,0,0.2)] disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="px-3 py-1 bg-[#132540]/60 backdrop-blur-sm hover:bg-[#132540]/80 border border-white/10 rounded-full text-xs text-[#e8e8e9] transition shadow-[0_0_10px_rgba(0,0,0,0.2)] disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     {option}
                   </button>
                 ))}
               </div>
-              <div className="flex items-end bg-[#132540] overflow-hidden transition-all" style={{borderRadius: '8px', border: '0.5px solid #2a4a7f'}} onFocus={(e) => e.currentTarget.style.borderColor = '#e6bf55'} onBlur={(e) => e.currentTarget.style.borderColor = '#2a4a7f'}>
+              <div className="flex items-end bg-[#132540] overflow-hidden transition-all" style={{borderRadius: '8px', border: '0.5px solid #283b57'}} onFocus={(e) => e.currentTarget.style.borderColor = '#fde68a'} onBlur={(e) => e.currentTarget.style.borderColor = '#283b57'}>
                 <textarea 
-                  className="w-full bg-transparent text-[#e2eaf8] p-4 outline-none resize-none max-h-32 min-h-[56px] disabled:opacity-50" 
+                  className="w-full bg-transparent text-[#fbf5e4] p-4 outline-none resize-none max-h-32 min-h-[56px] disabled:opacity-50" 
                   placeholder={isLoading ? "AI 正在思考中..." : "輸入你的行動或對話..."}
                   rows={1}
                   value={inputText}
@@ -1711,7 +1751,7 @@ Please respond as the DM.`;
                   }}
                 ></textarea>
                 <button 
-                  className={`p-4 transition ${isLoading || !inputText.trim() ? 'text-[#2a4a7f] cursor-not-allowed' : 'text-[#e6bf55] hover:text-[#8ab4e8]'}`}
+                  className={`p-4 transition ${isLoading || !inputText.trim() ? 'text-[#283b57] cursor-not-allowed' : 'text-[#fde68a] hover:text-[#e8e8e9]'}`}
                   onClick={handleSendMessage}
                   disabled={isLoading || !inputText.trim()}
                 >
@@ -1720,7 +1760,7 @@ Please respond as the DM.`;
               </div>
 
               {/* Status Bar */}
-              <div className="mt-3 flex items-center justify-between text-xs text-[#d1e3ff] font-mono px-2">
+              <div className="mt-3 flex items-center justify-between text-xs text-[#e6d6bf] font-mono px-2">
                 <div className="flex items-center space-x-4">
                   <span className="flex items-center" title={`${currentMonthData.name}：${currentMonthData.elegant}`}>
                     <Calendar className="w-3.5 h-3.5 mr-1.5" /> 
@@ -1736,10 +1776,10 @@ Please respond as the DM.`;
                   <span className="flex items-center"><MapPin className="w-3.5 h-3.5 mr-1.5" /> {currentLocation}</span>
                 </div>
                 <div className="flex items-center space-x-4">
-                  <span className="flex items-center text-[#d1e3ff]"><Heart className="w-3.5 h-3.5 mr-1.5 fill-current text-rose-400" /> HP {profile.hp}</span>
-                  <span className="flex items-center text-[#d1e3ff]"><Zap className="w-3.5 h-3.5 mr-1.5 fill-current text-blue-400" /> MP {profile.mp}</span>
-                  <span className="flex items-center text-[#d1e3ff]"><Shield className="w-3.5 h-3.5 mr-1.5 text-[#8ab4e8]" /> {profile.job}</span>
-                  <span className="flex items-center text-[#e6bf55]"><Coins className="w-3.5 h-3.5 mr-1.5" /> {(profile.gold ?? 0).toLocaleString()} G</span>
+                  <span className="flex items-center text-[#e6d6bf]"><Heart className="w-3.5 h-3.5 mr-1.5 fill-current text-rose-400" /> HP {profile.hp}</span>
+                  <span className="flex items-center text-[#e6d6bf]"><Zap className="w-3.5 h-3.5 mr-1.5 fill-current text-blue-400" /> MP {profile.mp}</span>
+                  <span className="flex items-center text-[#e6d6bf]"><Shield className="w-3.5 h-3.5 mr-1.5 text-[#e8e8e9]" /> {profile.job}</span>
+                  <span className="flex items-center text-[#fde68a]"><Coins className="w-3.5 h-3.5 mr-1.5" /> {(profile.gold ?? 0).toLocaleString()} G</span>
                 </div>
               </div>
             </div>
@@ -1747,68 +1787,68 @@ Please respond as the DM.`;
         </div>
 
         {/* Right Panel */}
-        <div className="w-64 bg-[#0d1f3c] flex flex-col p-4 space-y-6 overflow-y-auto z-10" style={{borderLeft: '0.5px solid #2a4a7f'}}>
+        <div className="w-64 bg-[#24282d] flex flex-col p-4 space-y-6 overflow-y-auto z-10" style={{borderLeft: '0.5px solid #283b57'}}>
 
           <div>
-            <h3 className="text-[#e6bf55] font-bold mb-3 pb-2" style={{borderBottom: '0.5px solid #2a4a7f'}}>✦ 當前場景人物</h3>
+            <h3 className="text-[#fde68a] font-bold mb-3 pb-2" style={{borderBottom: '0.5px solid #283b57'}}>✦ 當前場景人物</h3>
             <div className="space-y-2">
               {npcs.filter(n => n.location === currentLocation && !n.isPinned).length > 0 ? (
                 npcs.filter(n => n.location === currentLocation && !n.isPinned).map(npc => (
                   <div 
                     key={npc.id}
-                    className="bg-[#132540]/60 backdrop-blur-md border border-white/5 p-3 rounded-2xl flex justify-between items-center cursor-pointer hover:bg-[#1a2e50]/80 transition-all duration-300 shadow-lg group/npc overflow-hidden relative"
+                    className="bg-[#132540]/60 backdrop-blur-md border border-white/5 p-3 rounded-[10px] flex justify-between items-center cursor-pointer hover:bg-[#132540]/80 transition-all duration-300 shadow-lg group/npc overflow-hidden relative"
                     onClick={() => setSelectedNpc(npc)}
                   >
-                    <div className="absolute top-0 left-0 w-1 h-full bg-gradient-to-b from-[#e6bf55]/0 via-[#e6bf55]/40 to-[#e6bf55]/0 opacity-0 group-hover/npc:opacity-100 transition-opacity"></div>
+                    <div className="absolute top-0 left-0 w-1 h-full bg-gradient-to-b from-[#fde68a]/0 via-[#fde68a]/40 to-[#fde68a]/0 opacity-0 group-hover/npc:opacity-100 transition-opacity"></div>
                     <div className="flex flex-col">
-                      <span className="text-sm font-medium text-[#e2eaf8] group-hover/npc:text-[#e6bf55] transition-colors">{npc.name}</span>
-                      <span className="text-xs text-[#8ab4e8] uppercase tracking-tighter">{npc.job}</span>
+                      <span className="text-sm font-medium text-[#fbf5e4] group-hover/npc:text-[#fde68a] transition-colors">{npc.name}</span>
+                      <span className="text-xs text-[#e8e8e9] uppercase tracking-tighter">{npc.job}</span>
                     </div>
-                    <div className={`text-xs flex items-center px-2 py-1 rounded-full bg-black/20 border border-white/5 ${npc.affection >= 80 ? 'text-emerald-400' : npc.affection >= 50 ? 'text-[#e6bf55]' : 'text-rose-400'}`}>
+                    <div className={`text-xs flex items-center px-2 py-1 rounded-full bg-black/20 border border-white/5 ${npc.affection >= 80 ? 'text-emerald-400' : npc.affection >= 50 ? 'text-[#fde68a]' : 'text-rose-400'}`}>
                       <Heart className={`w-3 h-3 mr-1 ${npc.affection >= 50 ? 'fill-current' : ''}`} /> 
                       <span className="font-mono">{npc.affection}</span>
                     </div>
                   </div>
                 ))
               ) : (
-                <div className="text-xs text-[#3a5a8a] italic text-center py-2">此處目前沒有人...</div>
+                <div className="text-xs text-[var(--text3)] italic text-center py-2">此處目前沒有人...</div>
               )}
             </div>
           </div>
 
           <div>
-            <h3 className="text-[#e6bf55] font-bold mb-3 pb-2" style={{borderBottom: '0.5px solid #2a4a7f'}}>✦ 當前場景記憶</h3>
+            <h3 className="text-[#fde68a] font-bold mb-3 pb-2" style={{borderBottom: '0.5px solid #283b57'}}>✦ 當前場景記憶</h3>
             
             <div className="mb-4">
-              <h4 className="text-xs mb-2 uppercase tracking-wider text-[#e6bf55] flex items-center">✦ 世界記憶</h4>
+              <h4 className="text-xs mb-2 uppercase tracking-wider text-[#fde68a] flex items-center">✦ 世界記憶</h4>
               <div className="space-y-2">
-                <div className="bg-gradient-to-br from-[#1e1477] to-[#0d1f3c] px-5 py-[10px] mb-2 rounded-2xl border border-white/10 shadow-[0_8px_32px_rgba(0,0,0,0.3)] backdrop-blur-md relative overflow-hidden group">
+                <div className="bg-gradient-to-br from-[#1e1477] to-[#24282d] px-5 py-[10px] mb-2 rounded-[10px] border border-white/10 shadow-[0_8px_32px_rgba(0,0,0,0.3)] backdrop-blur-md relative overflow-hidden group">
                   <div className="absolute -right-6 -bottom-6 opacity-10 group-hover:opacity-20 transition-all duration-700 rotate-12 group-hover:scale-110">
-                    <Sparkles className="w-[80px] h-[80px] text-[#e6bf55]" />
+                    <Sparkles className="w-[80px] h-[80px] text-[#fde68a]" />
                   </div>
-                  <div className="absolute top-0 left-0 w-full h-[1px] bg-gradient-to-r from-transparent via-[#e6bf55]/40 to-transparent"></div>
+                  <div className="absolute top-0 left-0 w-full h-[1px] bg-gradient-to-r from-transparent via-[#fde68a]/40 to-transparent"></div>
                   
                   <div className="flex items-center space-x-2.5 mb-2 relative z-10">
-                    <div className="p-1.5 rounded-lg bg-white/5 border border-white/10 shadow-inner">
-                      <Calendar className="w-3.5 h-3.5 text-[#e6bf55]" />
+                    <div className="p-1.5 rounded-[8px] bg-white/5 border border-white/10 shadow-inner">
+                      <Calendar className="w-3.5 h-3.5 text-[#fde68a]" />
                     </div>
-                    <span className="text-sm font-bold text-[#e2eaf8] tracking-[0.15em] uppercase">{currentMonthData.elegant}</span>
+                    <span className="text-sm font-bold text-[#fbf5e4] tracking-[0.15em] uppercase">{currentMonthData.elegant}</span>
                   </div>
-                  <p className="text-xs text-[#e2eaf8]/90 leading-relaxed relative z-10 font-light italic pl-1 border-l border-[#e6bf55]/20 mb-2">
+                  <p className="text-xs text-[#fbf5e4]/90 leading-relaxed relative z-10 font-light italic pl-1 border-l border-[#fde68a]/20 mb-2">
                     {currentMonthData.desc}
                   </p>
                 </div>
 
                 {memories.filter(m => m.type === 'world' && m.isActive).map(mem => (
-                  <div key={mem.id} className="memory-card bg-[#132540]/60 backdrop-blur-sm p-3 text-xs text-[#3a5a8a] border-l-2 border-[#e6bf55] hover:bg-[#1a2e50]/80 transition-all duration-300 shadow-sm group/mem">
+                  <div key={mem.id} className="memory-card bg-[#132540]/60 backdrop-blur-sm p-3 text-xs text-[var(--text3)] border-l-2 border-[#fde68a] hover:bg-[#132540]/80 transition-all duration-300 shadow-sm group/mem">
                     <div className="flex items-start gap-2">
-                      {mem.importance === 'critical' && <Sparkles className="w-3 h-3 text-[#e6bf55] mt-0.5 shrink-0" />}
+                      {mem.importance === 'critical' && <Sparkles className="w-3 h-3 text-[#fde68a] mt-0.5 shrink-0" />}
                       <div className="flex-1">
                         <span className="leading-relaxed">{mem.content}</span>
                         {mem.tags?.factions?.length > 0 && (
                           <div className="mt-1.5 flex flex-wrap gap-1">
                             {mem.tags.factions.map((f: string) => (
-                              <span key={f} className="text-[9px] px-1.5 py-0.5 rounded bg-[#e6bf55]/10 text-[#e6bf55]/70 border border-[#e6bf55]/20 uppercase tracking-tighter font-bold">
+                              <span key={f} className="text-[9px] px-1.5 py-0.5 rounded-[8px] bg-[#fde68a]/10 text-[#fde68a]/70 border border-[#fde68a]/20 uppercase tracking-tighter font-bold">
                                 {f}
                               </span>
                             ))}
@@ -1819,7 +1859,7 @@ Please respond as the DM.`;
                   </div>
                 ))}
                 {memories.filter(m => m.type === 'world').length === 0 && (
-                  <div className="text-xs text-[#3a5a8a] italic">尚無世界記憶</div>
+                  <div className="text-xs text-[var(--text3)] italic">尚無世界記憶</div>
                 )}
               </div>
             </div>
@@ -1831,15 +1871,15 @@ Please respond as the DM.`;
               );
               return regionMems.length > 0 ? (
                 <div className="mb-4">
-                  <h4 className="text-xs mb-2 uppercase tracking-wider flex items-center gap-1 text-[#e6bf55]">
+                  <h4 className="text-xs mb-2 uppercase tracking-wider flex items-center gap-1 text-[#fde68a]">
                     ✦ 區域記憶
                   </h4>
                   <div className="space-y-1">
                     {regionMems.map(mem => (
-                      <div key={mem.id} className="memory-card bg-[#132540]/60 backdrop-blur-sm p-3 text-xs text-[#3a5a8a] border-l-2 border-[#e6bf55] hover:bg-[#1a2e50]/80 transition-all duration-300 shadow-sm">
+                      <div key={mem.id} className="memory-card bg-[#132540]/60 backdrop-blur-sm p-3 text-xs text-[var(--text3)] border-l-2 border-[#fde68a] hover:bg-[#132540]/80 transition-all duration-300 shadow-sm">
                         <div className="leading-relaxed">
                           {mem.content}
-                          {mem.expiresAt && <span className="text-[#e6bf55]/60 ml-1.5 italic">（至 {mem.expiresAt}）</span>}
+                          {mem.expiresAt && <span className="text-[#fde68a]/60 ml-1.5 italic">（至 {mem.expiresAt}）</span>}
                         </div>
                       </div>
                     ))}
@@ -1855,22 +1895,22 @@ Please respond as the DM.`;
               );
               return (
                 <div className="mb-4">
-                  <h4 className="text-xs mb-2 uppercase tracking-wider flex items-center gap-1 text-[#e6bf55]">
+                  <h4 className="text-xs mb-2 uppercase tracking-wider flex items-center gap-1 text-[#fde68a]">
                     ✦ 場景記憶
                   </h4>
                     {sceneMems.length > 0 ? (
                       <div className="space-y-1">
                         {sceneMems.map(mem => (
-                          <div key={mem.id} className="memory-card bg-[#132540]/60 backdrop-blur-sm p-3 text-xs text-[#3a5a8a] border-l-2 border-[#e6bf55] hover:bg-[#1a2e50]/80 transition-all duration-300 shadow-sm">
+                          <div key={mem.id} className="memory-card bg-[#132540]/60 backdrop-blur-sm p-3 text-xs text-[var(--text3)] border-l-2 border-[#fde68a] hover:bg-[#132540]/80 transition-all duration-300 shadow-sm">
                             <div className="leading-relaxed">
                               {mem.content}
-                              {mem.source === 'ai_generated' && <span className="text-[#e6bf55]/40 ml-1.5 text-[9px] uppercase tracking-tighter font-bold">（AI）</span>}
+                              {mem.source === 'ai_generated' && <span className="text-[#fde68a]/40 ml-1.5 text-[9px] uppercase tracking-tighter font-bold">（AI）</span>}
                             </div>
                           </div>
                         ))}
                       </div>
                     ) : (
-                    <div className="text-xs text-[#3a5a8a] italic">此場景尚無記憶...</div>
+                    <div className="text-xs text-[var(--text3)] italic">此場景尚無記憶...</div>
                   )}
                 </div>
               );
@@ -1880,15 +1920,15 @@ Please respond as the DM.`;
               const npcMems = memories.filter(m => m.type === 'npc' && m.isActive);
               return npcMems.length > 0 ? (
                 <div>
-                  <h4 className="text-xs mb-2 uppercase tracking-wider flex items-center gap-1 text-[#e6bf55]">
+                  <h4 className="text-xs mb-2 uppercase tracking-wider flex items-center gap-1 text-[#fde68a]">
                     ✦ NPC 記憶
                   </h4>
                   <div className="space-y-1">
                     {npcMems.map(mem => (
-                      <div key={mem.id} className="memory-card bg-[#132540]/60 backdrop-blur-sm p-3 text-xs text-[#3a5a8a] border-l-2 border-[#e6bf55] hover:bg-[#1a2e50]/80 transition-all duration-300 shadow-sm">
+                      <div key={mem.id} className="memory-card bg-[#132540]/60 backdrop-blur-sm p-3 text-xs text-[var(--text3)] border-l-2 border-[#fde68a] hover:bg-[#132540]/80 transition-all duration-300 shadow-sm">
                         <div className="leading-relaxed">
                           {mem.tags?.npcs?.length > 0 && (
-                            <span className="text-[#e6bf55] font-bold mr-1.5">
+                            <span className="text-[#fde68a] font-bold mr-1.5">
                               [{mem.tags.npcs.join(',')}]
                             </span>
                           )}
@@ -1997,7 +2037,7 @@ Please respond as the DM.`;
 
       {/* Toast Notification */}
       {toastMessage && (
-        <div className="fixed top-4 left-1/2 transform -translate-x-1/2 bg-[#132540]/80 backdrop-blur-md border border-white/10 text-[#e2eaf8] px-6 py-3 rounded-full shadow-[0_0_30px_rgba(0,0,0,0.5)] z-[100] flex items-center animate-in fade-in slide-in-from-top-4 duration-300">
+        <div className="fixed top-4 left-1/2 transform -translate-x-1/2 bg-[#132540]/80 backdrop-blur-md border border-white/10 text-[#fbf5e4] px-6 py-3 rounded-full shadow-[0_0_30px_rgba(0,0,0,0.5)] z-[100] flex items-center animate-in fade-in slide-in-from-top-4 duration-300">
           <CheckSquare className="w-4 h-4 mr-2 text-emerald-400" />
           {toastMessage}
         </div>

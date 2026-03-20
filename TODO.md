@@ -58,6 +58,154 @@
 
 ---
 
+## 群組 B0｜API 設定重構（助理 GM 前置作業）
+> 群組 B（GM 助理系統）的前置任務，需先完成再實裝 Sub GM。
+
+- [x] B0-1｜State 升級：geminiApiKey → mainGMConfig / subGMConfig
+  2026-03-20 [Claude Sonnet 4.6]: types.ts 新增 GMConfig/SubGMConfig；App.tsx 以 mainGMConfig/subGMConfig state 取代 geminiApiKey/maxTokens，useState 初始化時執行 migrate
+
+  **目前狀況**：`useGameStore` 裡有 `geminiApiKey` state，存在遊戲存檔的 `localStorage` 裡。
+
+  **目標**：拆成兩組獨立設定，改存到與遊戲存檔完全分離的 `localStorage` key。
+
+  新的資料結構：
+  ```ts
+  // localStorage key: 'mainGM_config'
+  mainGMConfig: {
+    provider: 'gemini',           // 目前只支援 gemini，框架保留擴充空間
+    apiKey: string,
+    model: string,                // 例如 'gemini-2.0-flash'
+    maxTokens: number,
+    lastSaved: string,            // ISO 時間字串，UI 顯示用
+  }
+
+  // localStorage key: 'subGM_config'
+  subGMConfig: {
+    useSameKey: boolean,          // 預設 true，true 時 apiKey 欄位忽略
+    provider: 'gemini',
+    apiKey: string,
+    model: string,                // 例如 'gemini-2.0-flash'
+    maxTokens: number,
+    lastSaved: string,
+  }
+  ```
+
+  **migrate 舊 Key**：App 啟動時執行一次性搬移：
+  ```ts
+  const oldKey = localStorage.getItem('gemini_api_key');
+  if (oldKey && !localStorage.getItem('mainGM_config')) {
+    localStorage.setItem('mainGM_config', JSON.stringify({
+      provider: 'gemini',
+      apiKey: oldKey,
+      model: 'gemini-2.0-flash',
+      maxTokens: 2048,
+      lastSaved: new Date().toISOString(),
+    }));
+    localStorage.removeItem('gemini_api_key');
+  }
+  ```
+
+  **注意**：`geminiApiKey` 從 `useGameStore` 移除，不再隨存檔匯出/匯入。
+
+- [x] B0-2｜callAI 重構：支援 mainGM / subGM 分流
+  2026-03-20 [Claude Sonnet 4.6]: callAI 加入 role/maxTokens/onChunk 參數，onChunk 存在走 streaming，否則走 generateContent
+
+  **目前狀況**：`callAI` 直接讀 `geminiApiKey`，固定用 `gemini-2.0-flash`。
+
+  **目標**：callAI 接收 `role` 參數，依 role 選用對應的 config：
+
+  ```ts
+  const callAI = useCallback(async (
+    prompt: string,
+    options: { role?: 'main' | 'sub'; maxTokens?: number } = {}
+  ): Promise<string> => {
+    const { role = 'sub' } = options;
+    const cfg = role === 'main' ? mainGMConfig : subGMConfig;
+    const key = (cfg.useSameKey ?? true) ? mainGMConfig.apiKey : cfg.apiKey;
+    const model = cfg.model || 'gemini-2.0-flash';
+    const tokens = options.maxTokens ?? cfg.maxTokens ?? 500;
+
+    if (!key) return '';
+    // 目前只有 gemini，switch 框架保留擴充
+    const ai = new GoogleGenAI({ apiKey: key });
+    const response = await ai.models.generateContent({
+      model,
+      contents: prompt,
+      config: { maxOutputTokens: tokens },
+    });
+    return response.text?.trim() || '';
+  }, [mainGMConfig, subGMConfig]);
+  ```
+
+  `handleSendMessage` 改傳 `{ role: 'main', maxTokens: mainGMConfig.maxTokens }`。
+  `updateAdventureState` 改傳 `{ role: 'sub' }`（預設，不需改動）。
+
+- [x] B0-3｜移除 Gemini 硬綁定
+  2026-03-20 [Claude Sonnet 4.6]: handleGenerateDiary/handleMergeDiary 改走 callAI({role:'main'})；handleSendMessage 改走 callAI({role:'main',onChunk:()=>{}})；vite.config.ts 移除 define；.env.example 更新
+
+  需清除的項目：
+
+  | 檔案 | 動作 |
+  |---|---|
+  | `src/App.tsx` | `handleGenerateDiary` / `handleMergeDiary` 直接 `new GoogleGenAI(...)` → 改走 `callAI({ role: 'main' })` |
+  | `src/App.tsx` | `handleSendMessage` 直接 `new GoogleGenAI(...)` → 改走 provider-agnostic 的 generateStream 函式 |
+  | `.env.example` | 移除 `GEMINI_API_KEY` 說明，改為通用 API Key 說明 |
+  | `vite.config.ts` | 移除 `define: { 'process.env.GEMINI_API_KEY': ... }` |
+  | `src/App.tsx` | 移除所有 `process.env.GEMINI_API_KEY` fallback |
+
+  > 注意：`import { GoogleGenAI }` 暫時保留，只是不再硬綁定 Key 來源和模型名稱。
+
+- [x] B0-4｜SettingsModal 改版（雙 GM 設定 UI）
+  2026-03-20 [Claude Sonnet 4.6]: SettingsModal.tsx 全面改版：雙 GM 設定區塊、GEMINI_MODELS 下拉、token 數字輸入、useSameKey toggle、👁 顯示/隱藏鍵、「儲存設定」按鈕（點擊才寫 localStorage）
+
+  **Gemini 靜態模型清單**（供下拉選單使用）：
+  ```ts
+  const GEMINI_MODELS = [
+    { value: 'gemini-2.0-flash',       label: 'Gemini 2.0 Flash（快速／輕量）' },
+    { value: 'gemini-2.0-flash-lite',  label: 'Gemini 2.0 Flash Lite（最省費）' },
+    { value: 'gemini-2.5-pro-preview', label: 'Gemini 2.5 Pro（最強／較慢）' },
+    { value: 'gemini-1.5-pro',         label: 'Gemini 1.5 Pro（穩定版）' },
+    { value: 'gemini-1.5-flash',       label: 'Gemini 1.5 Flash（穩定輕量）' },
+  ];
+  ```
+
+  **provider 判斷邏輯**（API Key prefix）：
+  ```ts
+  // 目前只支援 Gemini，框架預留
+  // 'AIza...' → gemini
+  // 未來：'sk-...' → openai，'sk-ant-...' → anthropic
+  ```
+
+  **UI 版面**：
+  ```
+  ┌──────────────────────────────────────┐
+  │  ⚙️ 系統設定                          │
+  ├──────────────────────────────────────┤
+  │  ── 主 GM ──────────────────────    │
+  │  API Key  [●●●●●●●●] [👁] [貼上]    │
+  │  模型     [Gemini 2.0 Flash ▼]      │
+  │  Token 上限 [2048 ▼]                │
+  │                                      │
+  │  ── 助理 GM ─────────────────────   │
+  │  ☑ 使用與主 GM 相同的 API Key        │
+  │  （API Key 欄位灰掉不可輸入）        │
+  │  模型     [Gemini 2.0 Flash ▼]      │
+  │  Token 上限 [512 ▼]                 │
+  │                                      │
+  │  最後儲存：2026-03-19 14:23          │
+  │  當前生效：gemini-2.0-flash          │
+  │  [儲存設定]                          │
+  ├──────────────────────────────────────┤
+  │  ── 資料管理 ───────────────────    │
+  │  [匯出存檔]  [匯入存檔]  [重置]      │
+  └──────────────────────────────────────┘
+  ```
+
+  - 「儲存設定」才真正寫入 localStorage，避免玩家誤以為即時生效。
+  - 顯示「最後儲存時間」與「當前生效模型」，防止混淆。
+  - `useSameKey` 勾選時，助理 GM 的 API Key 輸入欄 disabled + 顯示「同主 GM」字樣。
+
+---
 
 ## 群組 B｜GM 助理（Sub GM）系統
 > 依賴 B0 完成後再實作，各子任務有執行順序。
@@ -96,6 +244,19 @@
 
 ## 群組 C｜前端數值與 UI
 > 各項目互相獨立，可並行或逐一完成。
+
+- [ ] **視覺主題統一（CSS Variables 落地）**
+
+  規格已定義在 CLAUDE.md，待實作到 `index.css` 與全專案 className：
+
+  | 項目 | 規格 | 狀態 |
+  |---|---|---|
+  | `--text3` 更新 | `#cec9c0` → `#b7b4ae`，全專案 `text-[#cec9c0]` 換成 `var(--text3)` | ⬜ |
+  | `--text4` 新增 | `#e6d6bf`，狀態數值（HP/MP/金幣數字）專用 | ⬜ |
+  | Tailwind 語意色 | rose-400/emerald-400/amber-400/blue-400/violet-400 覆寫 | ⬜ |
+  | 圓角統一 | 大圓角 10px / 其餘一律 8px，掃全專案 `rounded-[Npx]` | ⬜ |
+
+  > 藍色按鈕標準（`#1044ab` / `#1a56db` / `#2563eb`）已完成（2026-03-20）。
 
 - [ ] **BUG 修復：設定集 NPC 編輯後，右欄當前場景人物不同步**
 
@@ -163,10 +324,26 @@
 - [ ] **NPC 卡片 UI 重製（依設計圖）**
 
   > 依賴上方「BUG 修復」項目完成後執行（資料來源要先對）。
- 
+  > 設計圖配色與遊戲深藍金主題**分開**，NPC 卡片有自己的配色系統。
+
+  **配色規格（從設計圖提取）**
+  ```
+  卡片底色：#E8E6DF（淺暖灰）
+  卡片邊框：圓角 12px，無明顯邊框線
+  背景區塊（外貌/性格）：#D4D1CA（稍深暖灰）
+  主要文字：#1A1A2E（深藍近黑）
+  次要文字/標籤：#555577
+  好感度愛心：#FF6B8A（粉紅）
+  好感度數字：#FF6B8A
+  關係標籤（陌生人等）：次要文字色，靠右對齊
+  引用線（內心想法）：#AAAAAA，左側 2px 實線
+  儲存按鈕：#3355FF（藍）白字
+  刪除/取消按鈕：#888888（灰）白字
+  ```
+
   **縮略卡（設定集列表，Image 2）**
 
-  版面：響應式 grid，每欄等寬
+  版面：2 欄 grid，每欄等寬
 
   每張縮略卡的結構：
   ```
@@ -181,8 +358,53 @@
   - 勾選框：最右側，控制「是否注入 AI prompt」
   - 點擊卡片任意處（勾選框除外）→ 彈出詳細 Modal
 
-  **詳細 Modal（點擊縮略卡後彈出）**
+  **詳細 Modal（點擊縮略卡後彈出，Image 1）**
 
+  結構由上到下：
+  ```
+  ┌─────────────────────────────────────────┐
+  │ 芬里爾  狼族 男                   ♥ 5  │  ← Header：名字大＋種族性別小標籤，右側愛心好感度
+  │─────────────────────────────────────────│  ← 分隔線
+  │ 黑牙氏族首領                    陌生人  │  ← 職業（左）＋關係標籤（右）
+  │                                         │
+  │ ┌─────────────────────────────────────┐ │
+  │ │ 銀藍色短髮，金色眼眸，身形魁梧高大， │ │  ← 外貌區塊（灰底卡片）
+  │ │ 王者氣勢。                           │ │
+  │ └─────────────────────────────────────┘ │
+  │                                         │
+  │ ┌─────────────────────────────────────┐ │
+  │ │ Alpha。果決、聰明、改革家⋯           │ │  ← 性格區塊（灰底卡片）
+  │ └─────────────────────────────────────┘ │
+  │                                         │
+  │ ☐ 奇怪的異鄉人                     ⋯  │  ← 內心想法：勾選框＋標題＋三點選單
+  │ │ 那個人類法師又在搞些神祕兮兮的⋯      │  ← 引用線內文（左側灰色豎線）
+  │                                         │
+  │ [刪除]          [取消]       [儲存]     │  ← 底部按鈕列
+  └─────────────────────────────────────────┘
+  ```
+
+  **三點選單（`...`）展開後**
+  - 編輯
+  - 取消
+  - 刪除
+  - 彈出位置：緊貼 `...` 按鈕右側或下方，小型浮層
+
+  **內心想法區塊細節**
+  - 每則 thought 都是獨立一列：`[勾選框] 標題文字　...`
+  - 引用線內文：左側 2px 灰色豎線，內文縮排，字體略小
+  - 勾選框控制該則 thought 是否注入 prompt（對應 `thought.isActive`，若欄位不存在需新增）
+  - 三點選單操作對象是**該則 thought**
+
+  **底部按鈕**
+  - 刪除：灰底白字，點擊刪除整個 NPC（需二次確認）
+  - 取消：灰底白字，關閉 Modal 不儲存
+  - 儲存：藍底白字，儲存後關閉 Modal
+
+  **注意事項**
+  - Modal 的卡片底色用設計圖配色（`#E8E6DF`），不套用遊戲深藍金 CSS variables
+  - Modal 背景遮罩：半透明黑色 `rgba(0,0,0,0.6)`
+  - 縮略卡也用設計圖配色，與設定集列表其他類別（地點、怪物⋯）的卡片風格保持一致即可
+  - 勾選框（縮略卡右上角）只控制「是否注入 AI prompt」，對應 `lorebookEntry.isActive`，與 Modal 內 thought 的勾選框是不同功能，不要混用
 
 - [ ] 道具資訊分層注入（buildPrompt 優化）
   - 帶有 effect 的消耗品和數量 > 1 的道具完整傳送，其餘只傳名字和數量。
@@ -309,14 +531,5 @@
         → 若 diary_worthy 為 true：觸發水晶球日記，UI 亮點提示
     → 自動存檔
   ```
-- [x] B0-2｜callAI 重構：支援 mainGM / subGM 分流
-  2026-03-20 [Claude Sonnet 4.6]: callAI 加入 role/maxTokens/onChunk 參數，onChunk 存在走 streaming，否則走 generateContent
 
- - [x] B0-1｜State 升級：geminiApiKey → mainGMConfig / subGMConfig
-  2026-03-20 [Claude Sonnet 4.6]: types.ts 新增 GMConfig/SubGMConfig；App.tsx 以 mainGMConfig/subGMConfig state 取代 geminiApiKey/maxTokens，useState 初始化時執行 migrate
 
- - [x] B0-2｜callAI 重構：支援 mainGM / subGM 分流
-  2026-03-20 [Claude Sonnet 4.6]: callAI 加入 role/maxTokens/onChunk 參數，onChunk 存在走 streaming，否則走 generateContent
-
- - [x] B0-3｜移除 Gemini 硬綁定
-  2026-03-20 [Claude Sonnet 4.6]: handleGenerateDiary/handleMergeDiary 改走 callAI({role:'main'})；handleSendMessage 改走 callAI({role:'main',onChunk:()=>{}})；vite.config.ts 移除 define；.env.example 更新

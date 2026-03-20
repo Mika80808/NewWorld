@@ -5,6 +5,14 @@
 
 ---
 
+### UI 視覺統一 2026-03-20 [Claude Sonnet 4.6]
+
+**視覺-1**：三個提示文字（暫無明確目標、等待冒險展開、目前沒有任務）改為統一使用 `text-[#cec9c0]`（text3），消除因 `opacity-50`/`opacity-30`/繼承父色導致的三種不同顯示結果。
+
+**視覺-2**：全專案藍色按鈕統一為：預設 `#1044ab`、hover `#1a56db`、active `#2563eb`，消除 `DiaryModal`（三種藍紫色）、`SystemPromptModal`（`#0046eb` hover）、`LorebookModal`（active tab / AND 邏輯 badge）的散落色碼。
+
+---
+
 ### B0 API 設定重構 2026-03-20 [Claude Sonnet 4.6]
 
 **B0-1**：移除 `geminiApiKey`/`maxTokens` state，新增 `mainGMConfig`/`subGMConfig`（`src/App.tsx` line ~172）。App 啟動時一次性 migrate 舊 `gemini_api_key` → `mainGM_config`，不再隨存檔匯出。`types.ts` 新增 `GMConfig`/`SubGMConfig` 介面。

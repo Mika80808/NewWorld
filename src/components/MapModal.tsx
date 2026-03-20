@@ -245,12 +245,12 @@ export const MapModal: React.FC<MapModalProps> = ({
   return (
     <div className="fixed inset-0 bg-black/85 backdrop-blur-sm z-50 flex items-center justify-center p-4">
       <div
-        className="w-full max-w-5xl rounded-2xl shadow-[0_0_80px_rgba(0,0,0,0.8)] flex flex-col overflow-hidden h-[87vh]"
-        style={{ background: '#0d1f3c', border: '0.5px solid #2a4a7f', borderTop: '1.5px solid #e6bf55' }}
+        className="w-full max-w-5xl rounded-[10px] shadow-[0_0_80px_rgba(0,0,0,0.8)] flex flex-col overflow-hidden h-[87vh]"
+        style={{ background: '#24282d', border: '0.5px solid #283b57', borderTop: '1.5px solid #fde68a' }}
       >
         {/* ── Header ──────────────────────────────────────────────────────── */}
-        <div className="px-5 py-3 flex items-center gap-3 shrink-0" style={{ borderBottom: '0.5px solid #2a4a7f' }}>
-          <h2 className="text-base font-bold tracking-widest shrink-0" style={{ color: '#e6bf55', fontFamily: 'Georgia, serif' }}>
+        <div className="px-5 py-3 flex items-center gap-3 shrink-0" style={{ borderBottom: '0.5px solid #283b57' }}>
+          <h2 className="text-base font-bold tracking-widest shrink-0" style={{ color: '#fde68a', fontFamily: 'Georgia, serif' }}>
             ✦ 世界地圖
           </h2>
           <div className="flex-1 relative">
@@ -261,14 +261,14 @@ export const MapModal: React.FC<MapModalProps> = ({
               value={searchQuery}
               onChange={e => setSearchQuery(e.target.value)}
               className="w-full pl-8 pr-3 py-1.5 text-xs rounded-none outline-none bg-transparent"
-              style={{ borderBottom: '1px solid #2a4a7f', color: '#8ab4e8', fontFamily: 'Georgia, serif' }}
+              style={{ borderBottom: '1px solid #283b57', color: '#e8e8e9', fontFamily: 'Georgia, serif' }}
             />
           </div>
           <button
             onClick={onClose}
             className="w-7 h-7 flex items-center justify-center rounded-full shrink-0 transition"
-            style={{ background: '#0a1628', border: '0.5px solid #2a4a7f', color: '#4a7ac9' }}
-            onMouseEnter={e => (e.currentTarget.style.color = '#e6bf55')}
+            style={{ background: '#171617', border: '0.5px solid #283b57', color: '#4a7ac9' }}
+            onMouseEnter={e => (e.currentTarget.style.color = '#fde68a')}
             onMouseLeave={e => (e.currentTarget.style.color = '#4a7ac9')}
           >
             <X className="w-3.5 h-3.5" />
@@ -497,8 +497,8 @@ export const MapModal: React.FC<MapModalProps> = ({
             </button>
 
             {resetHint && (
-              <div className="absolute bottom-[100px] left-[30px] text-[11px] px-2 py-1 rounded"
-                style={{ background: '#0d1f3c', border: '0.5px solid #e6bf55', color: '#e6bf55' }}>
+              <div className="absolute bottom-[100px] left-[30px] text-[11px] px-2 py-1 rounded-[8px]"
+                style={{ background: '#24282d', border: '0.5px solid #fde68a', color: '#fde68a' }}>
                 視角已重置
               </div>
             )}
@@ -507,7 +507,7 @@ export const MapModal: React.FC<MapModalProps> = ({
           {/* ── Right Panel ─────────────────────────────────────────────── */}
           <div
             className="w-64 flex flex-col overflow-hidden shrink-0"
-            style={{ background: '#0d1f3c', borderLeft: '0.5px solid #2a4a7f' }}
+            style={{ background: '#24282d', borderLeft: '0.5px solid #283b57' }}
           >
             {selectedNode ? (
               <>
@@ -518,16 +518,16 @@ export const MapModal: React.FC<MapModalProps> = ({
                   <div>
                     <div className="flex items-start justify-between gap-2">
                       <h3 className="font-bold text-base leading-snug"
-                        style={{ color: '#e6bf55', fontFamily: 'Georgia, serif' }}>
+                        style={{ color: '#fde68a', fontFamily: 'Georgia, serif' }}>
                         ✦ 【{selectedNode.title}】
                       </h3>
                       {isAtSelected ? (
-                        <span className="shrink-0 text-[9px] px-1.5 py-0.5 rounded-sm mt-0.5"
-                          style={{ background: 'rgba(201,168,76,0.15)', border: '0.5px solid #e6bf55', color: '#e6bf55' }}>
+                        <span className="shrink-0 text-[9px] px-1.5 py-0.5 rounded-[8px] mt-0.5"
+                          style={{ background: 'rgba(201,168,76,0.15)', border: '0.5px solid #fde68a', color: '#fde68a' }}>
                           你在這裡
                         </span>
                       ) : (
-                        <span className="shrink-0 text-[9px] px-1.5 py-0.5 rounded-sm mt-0.5"
+                        <span className="shrink-0 text-[9px] px-1.5 py-0.5 rounded-[8px] mt-0.5"
                           style={{ background: 'rgba(204,68,34,0.15)', border: '0.5px solid #cc4422', color: '#ff8866' }}>
                           目標
                         </span>
@@ -535,15 +535,15 @@ export const MapModal: React.FC<MapModalProps> = ({
                     </div>
                     {/* 菱形分隔線 */}
                     <div className="flex items-center gap-1.5 mt-2">
-                      <div className="flex-1 h-px" style={{ background: '#2a4a7f' }} />
-                      <span style={{ color: '#8ab4e8', fontSize: 12 }}>◆</span>
-                      <div className="flex-1 h-px" style={{ background: '#2a4a7f' }} />
+                      <div className="flex-1 h-px" style={{ background: '#283b57' }} />
+                      <span style={{ color: '#e8e8e9', fontSize: 12 }}>◆</span>
+                      <div className="flex-1 h-px" style={{ background: '#283b57' }} />
                     </div>
                   </div>
 
                   {/* 描述 */}
                   <p className="text-xs leading-relaxed"
-                    style={{ color: '#8ab4e8', fontFamily: 'Georgia, serif' }}>
+                    style={{ color: '#e8e8e9', fontFamily: 'Georgia, serif' }}>
                     {selectedNode.content || '這個地方充滿了未知的故事，等待著探索。'}
                   </p>
 
@@ -552,7 +552,7 @@ export const MapModal: React.FC<MapModalProps> = ({
                     <div className="flex items-center gap-1.5 mb-2">
                       <div className="flex-1 h-px" style={{ background: '#1a2a4a' }} />
                       <h4 className="text-xs font-bold uppercase tracking-wider"
-                        style={{ color: '#8ab4e8', fontFamily: 'Georgia, serif', flexShrink: 0 }}>
+                        style={{ color: '#e8e8e9', fontFamily: 'Georgia, serif', flexShrink: 0 }}>
                         ✦ 區域記憶
                       </h4>
                       <div className="flex-1 h-px" style={{ background: '#1a2a4a' }} />
@@ -560,10 +560,10 @@ export const MapModal: React.FC<MapModalProps> = ({
                     {selectedMemories.length > 0 ? (
                       <div className="space-y-1.5">
                         {selectedMemories.map(m => (
-                          <div key={m.id} className="text-[11px] pl-2.5 py-1.5 pr-2 rounded-r"
+                          <div key={m.id} className="text-[11px] pl-2.5 py-1.5 pr-2 rounded-r-[8px]"
                             style={{
-                              color: '#8ab4e8',
-                              borderLeft: '2px solid #e6bf55',
+                              color: '#e8e8e9',
+                              borderLeft: '2px solid #fde68a',
                               background: 'rgba(74,122,201,0.06)',
                               fontFamily: 'Georgia, serif',
                               lineHeight: 1.5,
@@ -574,7 +574,7 @@ export const MapModal: React.FC<MapModalProps> = ({
                       </div>
                     ) : (
                       <p className="text-xs text-center py-2"
-                        style={{ color: '#3a5a8a', fontFamily: 'Georgia, serif' }}>
+                        style={{ color: 'var(--text3)', fontFamily: 'Georgia, serif' }}>
                         暫無區域記憶
                       </p>
                     )}
@@ -583,19 +583,19 @@ export const MapModal: React.FC<MapModalProps> = ({
 
                 {/* ── 下：前往方式（固定在底部） ── */}
                 {!isAtSelected && (
-                  <div className="shrink-0 p-4 space-y-2" style={{ borderTop: '0.5px solid #2a4a7f' }}>
+                  <div className="shrink-0 p-4 space-y-2" style={{ borderTop: '0.5px solid #283b57' }}>
                     <h4 className="text-xs font-bold uppercase tracking-wider"
-                      style={{ color: '#8ab4e8', fontFamily: 'Georgia, serif' }}>
+                      style={{ color: '#e8e8e9', fontFamily: 'Georgia, serif' }}>
                       前往方式
                     </h4>
                     <div className="flex gap-2">
                       {/* 徒步 */}
                       <button
                         onClick={() => { setTravelMode(prev => prev === 'walk' ? null : 'walk'); setGoldWarning(false); }}
-                        className="flex-1 py-1.5 text-xs rounded transition"
+                        className="flex-1 py-1.5 text-xs rounded-[8px] transition"
                         style={{
-                          border: `1px solid ${travelMode === 'walk' ? '#8ab4e8' : '#2a4a7f'}`,
-                          color: travelMode === 'walk' ? '#fff' : '#8ab4e8',
+                          border: `1px solid ${travelMode === 'walk' ? '#e8e8e9' : '#283b57'}`,
+                          color: travelMode === 'walk' ? '#fff' : '#e8e8e9',
                           background: travelMode === 'walk' ? 'rgba(74,122,201,0.25)' : 'transparent',
                           fontFamily: 'Georgia, serif',
                         }}
@@ -606,10 +606,10 @@ export const MapModal: React.FC<MapModalProps> = ({
                       {(selectedNode.cartFare ?? 0) > 0 && (
                         <button
                           onClick={() => { setTravelMode(prev => prev === 'carriage' ? null : 'carriage'); setGoldWarning(false); }}
-                          className="flex-1 py-1.5 text-xs rounded transition"
+                          className="flex-1 py-1.5 text-xs rounded-[8px] transition"
                           style={{
-                            border: `1px solid ${travelMode === 'carriage' ? '#e6bf55' : '#4a4a2a'}`,
-                            color: travelMode === 'carriage' ? '#fde68a' : '#e6bf55',
+                            border: `1px solid ${travelMode === 'carriage' ? '#fde68a' : '#4a4a2a'}`,
+                            color: travelMode === 'carriage' ? '#fde68a' : '#fde68a',
                             background: travelMode === 'carriage' ? 'rgba(201,168,76,0.2)' : 'transparent',
                             fontFamily: 'Georgia, serif',
                           }}
@@ -624,10 +624,10 @@ export const MapModal: React.FC<MapModalProps> = ({
                     {travelMode && (
                       <button
                         onClick={handleDepart}
-                        className="w-full py-2 text-sm font-bold rounded tracking-widest transition"
-                        style={{ background: '#e6bf55', color: '#0a1628', fontFamily: 'Georgia, serif' }}
+                        className="w-full py-2 text-sm font-bold rounded-[8px] tracking-widest transition"
+                        style={{ background: '#fde68a', color: '#171617', fontFamily: 'Georgia, serif' }}
                         onMouseEnter={e => (e.currentTarget.style.background = '#e0bc62')}
-                        onMouseLeave={e => (e.currentTarget.style.background = '#e6bf55')}
+                        onMouseLeave={e => (e.currentTarget.style.background = '#fde68a')}
                       >
                         ✦ 啟程
                       </button>
@@ -640,7 +640,7 @@ export const MapModal: React.FC<MapModalProps> = ({
               <div className="flex-1 flex flex-col overflow-hidden">
                 <div className="px-4 pt-4 pb-2 shrink-0">
                   <h4 className="text-xs font-bold uppercase tracking-wider"
-                    style={{ color: '#8ab4e8', fontFamily: 'Georgia, serif' }}>
+                    style={{ color: '#e8e8e9', fontFamily: 'Georgia, serif' }}>
                     已知地點
                   </h4>
                 </div>
@@ -650,11 +650,11 @@ export const MapModal: React.FC<MapModalProps> = ({
                     .map(loc => (
                       <button key={loc.id}
                         onClick={() => { setSelectedTitle(loc.title); setTravelMode(null); setGoldWarning(false); }}
-                        className="w-full text-left px-2.5 py-2 rounded text-xs transition"
+                        className="w-full text-left px-2.5 py-2 rounded-[8px] text-xs transition"
                         style={{
                           background: loc.title === currentLocation ? 'rgba(201,168,76,0.1)' : 'transparent',
                           border: `0.5px solid ${loc.title === currentLocation ? '#4a4a2a' : '#1a2a4a'}`,
-                          color: loc.title === currentLocation ? '#e6bf55' : '#8ab4e8',
+                          color: loc.title === currentLocation ? '#fde68a' : '#e8e8e9',
                           fontFamily: 'Georgia, serif',
                         }}
                         onMouseEnter={e => (e.currentTarget.style.background = 'rgba(74,122,201,0.1)')}
@@ -669,7 +669,7 @@ export const MapModal: React.FC<MapModalProps> = ({
                     <>
                       <div className="flex items-center gap-1.5 py-1">
                         <div className="flex-1 h-px" style={{ background: '#1a2a4a' }} />
-                        <span style={{ color: '#2a4a7f', fontSize: 9 }}>未踏足</span>
+                        <span style={{ color: '#283b57', fontSize: 9 }}>未踏足</span>
                         <div className="flex-1 h-px" style={{ background: '#1a2a4a' }} />
                       </div>
                       {(searchQuery.trim() ? filteredNodes : mapNodes)
@@ -677,10 +677,10 @@ export const MapModal: React.FC<MapModalProps> = ({
                         .map(loc => (
                           <button key={loc.id}
                             onClick={() => { setSelectedTitle(loc.title); setTravelMode(null); setGoldWarning(false); }}
-                            className="w-full text-left px-2.5 py-2 rounded text-xs transition"
-                            style={{ background: 'transparent', border: '0.5px solid #1a2a4a', color: '#2a4a7f', fontFamily: 'Georgia, serif' }}
+                            className="w-full text-left px-2.5 py-2 rounded-[8px] text-xs transition"
+                            style={{ background: 'transparent', border: '0.5px solid #1a2a4a', color: '#283b57', fontFamily: 'Georgia, serif' }}
                             onMouseEnter={e => (e.currentTarget.style.color = '#4a7ac9')}
-                            onMouseLeave={e => (e.currentTarget.style.color = '#2a4a7f')}
+                            onMouseLeave={e => (e.currentTarget.style.color = '#283b57')}
                           >
                             ? {loc.title}
                           </button>
@@ -695,16 +695,16 @@ export const MapModal: React.FC<MapModalProps> = ({
             {/* 旅途發現（無 mapX 的條目） */}
             {undiscoveredList.length > 0 && (
               <div className="shrink-0 p-3 space-y-1.5 max-h-36 overflow-y-auto"
-                style={{ borderTop: '0.5px solid #2a4a7f' }}>
+                style={{ borderTop: '0.5px solid #283b57' }}>
                 <h4 className="text-xs font-bold uppercase tracking-wider mb-2"
-                  style={{ color: '#8ab4e8', fontFamily: 'Georgia, serif' }}>
+                  style={{ color: '#e8e8e9', fontFamily: 'Georgia, serif' }}>
                   旅途發現
                 </h4>
                 {undiscoveredList.map(loc => (
-                  <div key={loc.id} className="text-[11px] px-2.5 py-1.5 rounded"
+                  <div key={loc.id} className="text-[11px] px-2.5 py-1.5 rounded-[8px]"
                     style={{ background: 'rgba(74,122,201,0.06)', border: '0.5px solid #1a2a4a', fontFamily: 'Georgia, serif' }}>
-                    <span style={{ color: '#e6bf55', fontWeight: 600 }}>{loc.title}</span>
-                    <span style={{ color: '#2a4a7f', marginLeft: 6, fontSize: 9 }}>
+                    <span style={{ color: '#fde68a', fontWeight: 600 }}>{loc.title}</span>
+                    <span style={{ color: '#283b57', marginLeft: 6, fontSize: 9 }}>
                       {loc.mapStatus === 'known' ? '✓' : '?'}
                     </span>
                     <p style={{ color: '#4a7ac9', fontSize: 9, marginTop: 2 }}>{loc.content}</p>

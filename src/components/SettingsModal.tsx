@@ -56,28 +56,28 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     } catch { return '—'; }
   };
 
-  const inputClass = "w-full bg-[#0d1f3c]/60 border border-[#2a4a7f] rounded-lg px-3 py-2 text-sm text-[#e2eaf8] outline-none focus:border-[#e6bf55]/50 transition";
-  const selectClass = "w-full bg-[#0d1f3c]/60 border border-[#2a4a7f] rounded-lg px-3 py-2 text-sm text-[#e2eaf8] outline-none focus:border-[#e6bf55]/50 transition";
-  const labelClass = "text-xs text-[#8ab4e8] mb-1 block";
-  const sectionClass = "bg-[#132540]/40 border border-[#2a4a7f]/40 rounded-[8px] p-4 space-y-3";
+  const inputClass = "w-full bg-[#24282d]/60 border border-[#283b57] rounded-[8px] px-3 py-2 text-sm text-[#fbf5e4] outline-none focus:border-[#fde68a]/50 transition";
+  const selectClass = "w-full bg-[#24282d]/60 border border-[#283b57] rounded-[8px] px-3 py-2 text-sm text-[#fbf5e4] outline-none focus:border-[#fde68a]/50 transition";
+  const labelClass = "text-xs text-[#e8e8e9] mb-1 block";
+  const sectionClass = "bg-[#132540]/40 border border-[#283b57]/40 rounded-[8px] p-4 space-y-3";
 
   return (
     <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-      <div className="bg-[#0d1f3c]/90 backdrop-blur-xl w-full max-w-sm rounded-[8px] shadow-[0_0_40px_rgba(0,0,0,0.5)] flex flex-col overflow-hidden text-[#e2eaf8] border border-[#2a4a7f]/60">
+      <div className="bg-[#24282d]/90 backdrop-blur-xl w-full max-w-sm rounded-[8px] shadow-[0_0_40px_rgba(0,0,0,0.5)] flex flex-col overflow-hidden text-[#fbf5e4] border border-[#283b57]/60">
 
         {/* 標題列 */}
-        <div className="p-4 border-b border-[#2a4a7f]/40 flex justify-between items-center">
-          <h2 className="text-base font-bold flex items-center gap-2 text-[#e6bf55]">
+        <div className="p-4 border-b border-[#283b57]/40 flex justify-between items-center">
+          <h2 className="text-base font-bold flex items-center gap-2 text-[#fde68a]">
             <Settings className="w-4 h-4" /> 系統設定
           </h2>
-          <button onClick={onClose} className="text-[#3a5a8a] hover:text-[#e2eaf8] transition text-lg leading-none">✕</button>
+          <button onClick={onClose} className="text-[var(--text3)] hover:text-[#fbf5e4] transition text-lg leading-none">✕</button>
         </div>
 
         <div className="p-4 space-y-4 overflow-y-auto max-h-[80vh]">
 
           {/* ── 主 GM ─────────────────────────────────────────── */}
           <div className={sectionClass}>
-            <p className="text-xs font-bold text-[#e6bf55] uppercase tracking-wider">主 GM</p>
+            <p className="text-xs font-bold text-[#fde68a] uppercase tracking-wider">主 GM</p>
 
             <div>
               <label className={labelClass}>API Key</label>
@@ -91,7 +91,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 />
                 <button
                   onClick={() => setShowMainKey(v => !v)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-[#3a5a8a] hover:text-[#8ab4e8] transition"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-[var(--text3)] hover:text-[#e8e8e9] transition"
                 >
                   {showMainKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                 </button>
@@ -130,14 +130,14 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
           {/* ── 助理 GM ───────────────────────────────────────── */}
           <div className={sectionClass}>
-            <p className="text-xs font-bold text-[#e6bf55] uppercase tracking-wider">助理 GM</p>
+            <p className="text-xs font-bold text-[#fde68a] uppercase tracking-wider">助理 GM</p>
 
             <label className="flex items-center gap-2 text-sm cursor-pointer select-none">
               <input
                 type="checkbox"
                 checked={draftSub.useSameKey}
                 onChange={e => setDraftSub(p => ({ ...p, useSameKey: e.target.checked }))}
-                className="accent-[#e6bf55]"
+                className="accent-[#fde68a]"
               />
               使用與主 GM 相同的 API Key
             </label>
@@ -155,7 +155,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   />
                   <button
                     onClick={() => setShowSubKey(v => !v)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-[#3a5a8a] hover:text-[#8ab4e8] transition"
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-[var(--text3)] hover:text-[#e8e8e9] transition"
                   >
                     {showSubKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                   </button>
@@ -192,45 +192,45 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
           {/* ── 狀態資訊 + 儲存 ──────────────────────────────── */}
           <div className="space-y-2">
-            <div className="text-xs text-[#3a5a8a] space-y-0.5">
+            <div className="text-xs text-[var(--text3)] space-y-0.5">
               <p>最後儲存：{formatLastSaved(mainGMConfig.lastSaved)}</p>
               <p>當前生效：{mainGMConfig.model || '—'}</p>
             </div>
             <button
               onClick={handleSave}
-              className="w-full py-2.5 rounded-[5px] bg-[#e6bf55]/20 border border-[#e6bf55]/40 text-[#e6bf55] text-sm font-bold hover:bg-[#e6bf55]/30 transition"
+              className="w-full py-2.5 rounded-[8px] bg-[#fde68a]/20 border border-[#fde68a]/40 text-[#fde68a] text-sm font-bold hover:bg-[#fde68a]/30 transition"
             >
               儲存設定
             </button>
-            <p className="text-[11px] text-[#3a5a8a]">
+            <p className="text-[11px] text-[var(--text3)]">
               API Key 只存在本機瀏覽器，不會上傳。取得：{' '}
-              <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer" className="text-[#8ab4e8] hover:underline">aistudio.google.com</a>
+              <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer" className="text-[#e8e8e9] hover:underline">aistudio.google.com</a>
             </p>
           </div>
 
-          <div className="border-t border-[#2a4a7f]/40 pt-2" />
+          <div className="border-t border-[#283b57]/40 pt-2" />
 
           {/* ── 資料管理 ──────────────────────────────────────── */}
           <button
             onClick={handleExportSave}
-            className="w-full bg-[#132540]/40 border border-[#2a4a7f]/40 hover:bg-[#1a2e50]/50 text-[#e2eaf8] py-2.5 px-4 rounded-[5px] flex items-center justify-between transition text-sm"
+            className="w-full bg-[#132540]/40 border border-[#283b57]/40 hover:bg-[#132540]/50 text-[#fbf5e4] py-2.5 px-4 rounded-[8px] flex items-center justify-between transition text-sm"
           >
             <span className="flex items-center"><Upload className="w-4 h-4 mr-2 text-[#00d492]" /> 匯出存檔</span>
-            <span className="text-xs text-[#8ab4e8]">下載 JSON</span>
+            <span className="text-xs text-[#e8e8e9]">下載 JSON</span>
           </button>
 
           <button
             onClick={() => fileInputRef.current?.click()}
-            className="w-full bg-[#132540]/40 border border-[#2a4a7f]/40 hover:bg-[#1a2e50]/50 text-[#e2eaf8] py-2.5 px-4 rounded-[5px] flex items-center justify-between transition text-sm"
+            className="w-full bg-[#132540]/40 border border-[#283b57]/40 hover:bg-[#132540]/50 text-[#fbf5e4] py-2.5 px-4 rounded-[8px] flex items-center justify-between transition text-sm"
           >
             <span className="flex items-center"><Download className="w-4 h-4 mr-2 text-emerald-400" /> 匯入存檔</span>
-            <span className="text-xs text-[#8ab4e8]">讀取 JSON</span>
+            <span className="text-xs text-[#e8e8e9]">讀取 JSON</span>
           </button>
           <input type="file" accept=".json" className="hidden" ref={fileInputRef} onChange={handleImportSave} />
 
           <button
             onClick={handleResetGame}
-            className="w-full bg-rose-900/20 hover:bg-rose-900/40 border border-rose-800/30 text-rose-300 py-2.5 px-4 rounded-[5px] flex items-center justify-between transition text-sm"
+            className="w-full bg-rose-900/20 hover:bg-rose-900/40 border border-rose-800/30 text-rose-300 py-2.5 px-4 rounded-[8px] flex items-center justify-between transition text-sm"
           >
             <span className="flex items-center"><RotateCcw className="w-4 h-4 mr-2" /> 重置遊戲</span>
             <span className="text-xs text-rose-400/70">清除所有進度</span>
