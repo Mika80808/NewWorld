@@ -740,6 +740,24 @@ ${recentChat}
     }));
   };
 
+  const handleClearNewMemories = (npcId: number) => {
+    setNpcs(prev => prev.map(n => {
+      if (n.id !== npcId) return n;
+      const updatedNpc = { ...n, memories: n.memories.map(m => m.isNew ? { ...m, isNew: false } : m) };
+      if (selectedNpc?.id === npcId) setSelectedNpc(updatedNpc);
+      return updatedNpc;
+    }));
+  };
+
+  const handleDeleteNpc = (npcId: number, lorebookId?: number) => {
+    setNpcs(prev => prev.filter(n => n.id !== npcId));
+    if (lorebookId !== undefined) {
+      setLorebookEntries(prev => prev.filter(e => e.id !== lorebookId));
+    }
+    setSelectedNpc(null);
+    showToast('角色已刪除');
+  };
+
   const handleTogglePinNpc = (npcId: number) => {
     setNpcs(prevNpcs => {
       return prevNpcs.map(n => {
@@ -774,6 +792,9 @@ ${recentChat}
     const newEntry = {
       id: newId,
       title: npc.name,
+      gender: npc.gender,
+      race: npc.race,
+      backstory: npc.backstory,
       job: npc.job,
       appearance: npc.appearance,
       personality: npc.personality,
@@ -960,7 +981,9 @@ ${relevantLorebook.map(e => {
         memoriesText = `｜[記憶庫] ${toInject.map(m => `(${m.createdAt})${m.text}`).join(' / ')}`;
       }
     }
-    return `[NPC] ${e.title}｜職業：${e.job || ''}｜外貌：${e.appearance || ''}｜個性：${e.personality || ''}｜備註：${e.other || ''}${thoughtsText}${memoriesText}`;
+    const raceText = e.race ? `｜種族：${e.race}` : (e.other ? `｜備註：${e.other}` : '');
+    const backstoryText = (npcData?.affection ?? 0) >= 20 && e.backstory ? `｜背景：${e.backstory}` : '';
+    return `[NPC] ${e.title}｜性別：${e.gender || ''}${raceText}｜職業：${e.job || ''}｜外貌：${e.appearance || ''}｜個性：${e.personality || ''}${backstoryText}${thoughtsText}${memoriesText}`;
   }
   return `[${e.category}] ${e.title}：${e.content}`;
 }).join('\n') || '（無）'}
@@ -971,7 +994,12 @@ ${pinnedNpcs.length > 0 ? pinnedNpcs.map(n => {
     ? `｜[近期想法] ${n.thoughts.map((t, i) => `${i + 1}.${t.text}`).join(' / ')}`
     : '';
   return (() => {
-    const lines: string[] = [`- ${n.name}（${n.job}）好感度:${n.affection}${thoughtsText}`];
+    const lorePinned = lorebookEntries.find(e => e.category === 'NPC' && e.title === n.name);
+    const genderPinned = lorePinned?.gender ? `${lorePinned.gender}・` : '';
+    const racePinned = lorePinned?.race ? `種族：${lorePinned.race}｜` : '';
+    const jobPinned = lorePinned?.job ?? n.job ?? '';
+    const backstoryPinned = n.affection >= 20 && lorePinned?.backstory ? `｜背景：${lorePinned.backstory}` : '';
+    const lines: string[] = [`- ${n.name}（${genderPinned}${jobPinned}）${racePinned}好感度:${n.affection}${backstoryPinned}${thoughtsText}`];
     // 好感度 ≥ 60 且有記憶才注入
     if (n.affection >= 60 && n.memories && n.memories.length > 0) {
       const MAX_NORMAL = 5;
@@ -1793,8 +1821,12 @@ Please respond as the DM.`;
             <h3 className="text-[#fde68a] font-bold mb-3 pb-2" style={{borderBottom: '0.5px solid #283b57'}}>✦ 當前場景人物</h3>
             <div className="space-y-2">
               {npcs.filter(n => n.location === currentLocation && !n.isPinned).length > 0 ? (
-                npcs.filter(n => n.location === currentLocation && !n.isPinned).map(npc => (
-                  <div 
+                npcs.filter(n => n.location === currentLocation && !n.isPinned).map(npc => {
+                  const lore = lorebookEntries.find(e => e.category === 'NPC' && e.title === npc.name);
+                  const displayJob    = lore?.job    ?? npc.job    ?? '';
+                  const displayGender = lore?.gender ?? '';
+                  return (
+                  <div
                     key={npc.id}
                     className="bg-[#132540]/60 backdrop-blur-md border border-white/5 p-3 rounded-[10px] flex justify-between items-center cursor-pointer hover:bg-[#132540]/80 transition-all duration-300 shadow-lg group/npc overflow-hidden relative"
                     onClick={() => setSelectedNpc(npc)}
@@ -1802,14 +1834,15 @@ Please respond as the DM.`;
                     <div className="absolute top-0 left-0 w-1 h-full bg-gradient-to-b from-[#fde68a]/0 via-[#fde68a]/40 to-[#fde68a]/0 opacity-0 group-hover/npc:opacity-100 transition-opacity"></div>
                     <div className="flex flex-col">
                       <span className="text-sm font-medium text-[#fbf5e4] group-hover/npc:text-[#fde68a] transition-colors">{npc.name}</span>
-                      <span className="text-xs text-[#e8e8e9] uppercase tracking-tighter">{npc.job}</span>
+                      <span className="text-xs text-[#e8e8e9] uppercase tracking-tighter">{displayGender ? `${displayGender}・${displayJob}` : displayJob}</span>
                     </div>
                     <div className={`text-xs flex items-center px-2 py-1 rounded-full bg-black/20 border border-white/5 ${npc.affection >= 80 ? 'text-emerald-400' : npc.affection >= 50 ? 'text-[#fde68a]' : 'text-rose-400'}`}>
-                      <Heart className={`w-3 h-3 mr-1 ${npc.affection >= 50 ? 'fill-current' : ''}`} /> 
+                      <Heart className={`w-3 h-3 mr-1 ${npc.affection >= 50 ? 'fill-current' : ''}`} />
                       <span className="font-mono">{npc.affection}</span>
                     </div>
                   </div>
-                ))
+                  );
+                })
               ) : (
                 <div className="text-xs text-[var(--text3)] italic text-center py-2">此處目前沒有人...</div>
               )}
@@ -1982,23 +2015,29 @@ Please respond as the DM.`;
         isOpen={isLorebookModalOpen}
         onClose={() => setIsLorebookModalOpen(false)}
         lorebookEntries={lorebookEntries}
+        npcs={npcs}
         onAddLorebook={handleAddLorebook}
         onUpdateLorebook={handleUpdateLorebook}
         onDeleteLorebook={handleDeleteLorebook}
         onLorebookKeywordAdd={handleLorebookKeywordAdd}
         onLorebookKeywordRemove={handleLorebookKeywordRemove}
+        onSelectNpc={setSelectedNpc}
         showToast={showToast}
       />
 
       {/* NPC Modal Overlay */}
       <NpcModal
         selectedNpc={selectedNpc}
+        lorebookEntries={lorebookEntries}
         onClose={() => setSelectedNpc(null)}
         onRecordNpc={handleRecordNpc}
         onTogglePinNpc={handleTogglePinNpc}
         onAddNpcMemory={handleAddNpcMemory}
         onRemoveNpcMemory={handleRemoveNpcMemory}
         onUpdateNpcMemory={handleUpdateNpcMemory}
+        onUpdateLorebook={handleUpdateLorebook}
+        onDeleteNpc={handleDeleteNpc}
+        onClearNewMemories={handleClearNewMemories}
       />
 
       {/* System Prompt Modal Overlay */}

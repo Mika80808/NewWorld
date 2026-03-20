@@ -173,6 +173,7 @@ ${toMerge.map(m => `- ${m.text}`).join('\n')}`;
         source: 'merged' as const,
         importance: 'normal' as const,
         isMerged: false,
+        isNew: true,
         mergedFrom: toMerge.map(m => m.id),
       };
 
@@ -463,7 +464,7 @@ ${toMerge.map(m => `- ${m.text}`).join('\n')}`;
       const npcThoughtMatch = cmd.match(/^NPC_THOUGHT:(.+):(.+)$/i);
       if (npcThoughtMatch) {
         const [, name, text] = npcThoughtMatch;
-        const THOUGHTS_LIMIT = 5;
+        const THOUGHTS_LIMIT = 10;
         const MEMORIES_MERGE_THRESHOLD = 8;
 
         setNpcs(prev => prev.map(npc => {
@@ -489,6 +490,7 @@ ${toMerge.map(m => `- ${m.text}`).join('\n')}`;
             source: 'pre_merge' as const,
             importance: 'normal' as const,
             isMerged: false,
+            isNew: true,
           };
 
           const updatedMemories = [...(npc.memories || []), newMemory];
@@ -514,16 +516,16 @@ ${toMerge.map(m => `- ${m.text}`).join('\n')}`;
         continue;
       }
 
-      // NPC_NEW:姓名:種族:職業:外貌:個性
-      const npcNewMatch = cmd.match(/^NPC_NEW:([^:]+):([^:]+):([^:]+):([^:]+):(.+)$/i);
+      // NPC_NEW:姓名:種族:性別:職業:外貌:性格:背景故事（50字以內，選填）
+      const npcNewMatch = cmd.match(/^NPC_NEW:([^:]+):([^:]+):([^:]+):([^:]+):([^:]+):([^:]+)(?::(.+))?$/i);
       if (npcNewMatch) {
-        const [, npcName, race, job, appearance, personality] = npcNewMatch.map(s => s?.trim());
+        const [, npcName, race, gender, job, appearance, personality, backstory] = npcNewMatch.map(s => s?.trim());
         const newId = Date.now();
         setLorebookEntries(prev => {
           if (prev.some(e => e.title === npcName && e.category === 'NPC')) return prev;
           return [...prev, {
             id: newId, title: npcName, content: '', category: 'NPC', isActive: true,
-            job, appearance, personality, other: race,
+            gender, race, backstory, job, appearance, personality, other: '',
             keywords: [npcName], selective: false, secondaryKeys: [], insertionOrder: 100,
             homeLocation: '', roamLocations: [],
           }];
@@ -532,7 +534,7 @@ ${toMerge.map(m => `- ${m.text}`).join('\n')}`;
           if (prev.some(n => n.name === npcName)) return prev;
           return [...prev, {
             id: newId + 1, name: npcName, job, affection: 0, affectionLabel: '陌生人',
-            appearance, personality, other: race,
+            appearance, personality, gender, race, backstory,
             category: 'NPC', isActive: true, isPinned: false, memories: [], thoughts: [],
             location: currentLocation, lastSeenLocation: currentLocation,
           }];
