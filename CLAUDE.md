@@ -128,10 +128,11 @@ interface LorebookEntry {
   content: string                     // 非 NPC 類使用
   isActive: boolean
   // NPC 類專用
-  gender?: string                 // 自由文字，例：男、女、無性別、不明
+  gender?: string                     // 自由文字，例：男、女、無性別、不明
   job?: string
   appearance?: string
   personality?: string
+  backstory?: string                  // 角色背景故事，50 字以內；好感度 ≥ 20 永久解鎖顯示
   other?: string
   homeLocation?: string               // NPC 主場地點（唯寫一次）
   roamLocations?: string[]            // 巡遊地點（滑動窗口，最多 3 個）
@@ -245,7 +246,7 @@ TIME:+2h
 ITEM_ADD:草藥:1:回復 20 HP:heal:20
 ITEM_REMOVE:草藥:1
 ITEM_USE:草藥
-NPC_NEW:芬里爾:精靈:獵人:銀髮高挑:冷靜寡言
+NPC_NEW:芬里爾:精靈:男:獵人:銀髮高挑:冷靜寡言:深山出身的獨行獵人，曾在戰爭中失去摯友。
 NPC_HOME:芬里爾:迷霧森林
 NPC_LOCATION:芬里爾:月湖鎮
 NPC_THOUGHT:芬里爾:覺得玩家值得信任
@@ -256,6 +257,13 @@ MEMORY_ADD:region:normal:迷霧森林昨日大火:locations=迷霧森林:keyword
 MEMORY_ADD:world:critical:魔王宣戰:keywords=魔王,宣戰
 <</COMMANDS>>
 ```
+
+**NPC_NEW 完整格式：**
+```
+NPC_NEW:姓名:種族:性別:職業:外貌:性格:背景故事（50字以內）
+```
+- 背景故事為選填，省略時留空或不寫第 7 個參數
+- AI 創建新角色時應盡量生成背景故事，寫入 `lorebookEntries` 的 `backstory` 欄位
 
 **MEMORY_ADD 完整格式：**
 ```
@@ -272,6 +280,7 @@ MEMORY_ADD:type:importance:content:locations=x,y:npcs=a:factions=b:keywords=c,d:
 
 ```css
 :root {
+  /* 主題色（可隨主題調整） */
   --bg0:     #171617;   /* 最外層背景 */
   --bg1:     #24282d;   /* 左右側欄 */
   --bg2:     #132540;   /* 卡片、輸入框、對話泡泡 */
@@ -283,19 +292,12 @@ MEMORY_ADD:type:importance:content:locations=x,y:npcs=a:factions=b:keywords=c,d:
   --accent:  #fde68a;   /* 金色強調 */
   --danger:  #ff8866;   /* HP 警示 */
 
-/* 好感度顏色（固定語意色，不隨主題變動） */
---affection-max:     #fb7185;              /* ≥ 100，彩度 100% */
---affection-high:    rgba(251,113,133,0.80); /* ≥ 80，彩度 80% */
---affection-mid:     rgba(251,113,133,0.60); /* ≥ 50，彩度 60% */
---affection-low:     #a0a0a0;              /* ≥ 0，淺灰 */
---affection-hostile: #505050;              /* < 0，深灰 */
-```
-
----
-
-在 `關鍵函數索引` 表格補一行：
-```
-| `NpcModal.tsx` `affectionColor(affection)` | 回傳好感度對應 CSS 變數色碼字串，供 style={{ color }} 使用 |
+  /* 好感度顏色（固定語意色，不隨主題變動） */
+  --affection-max:     #fb7185;               /* ≥ 100，彩度 100% */
+  --affection-high:    rgba(251,113,133,0.80); /* ≥ 80，彩度 80% */
+  --affection-mid:     rgba(251,113,133,0.60); /* ≥ 50，彩度 60% */
+  --affection-low:     #a0a0a0;               /* ≥ 0，淺灰 */
+  --affection-hostile: #505050;               /* < 0，深灰（敵對） */
 }
 ```
 
@@ -333,6 +335,8 @@ violet-400  → #a78bfa   （紫，用於魔法/特殊）
 | 深藍金主題 | 深海藍 × 金色手稿風，統一 UI 視覺語言 |
 | NPC 兩階段注入 | 避免全體 NPC 塞滿 prompt，Phase 1 輕量候選，Phase 2 出場才完整注入 |
 | 日記關鍵字觸發 | 玩家主控注入，GM 助理不自動新增關鍵字 |
+| 好感度顏色固定 | 語意色不隨主題變動，統一用 CSS 變數管理 |
+| backstory 在 lorebookEntries | 屬於靜態角色定義，由玩家填寫或 AI 創建時生成 |
 
 ---
 
@@ -360,6 +364,10 @@ violet-400  → #a78bfa   （紫，用於魔法/特殊）
 
 8. **`pinnedNpcs` 已在 `relevantLorebook` 去重**，不要讓同一 NPC 出現兩次於 prompt
 
+9. **`backstory` 解鎖條件是好感度 ≥ 20，永久解鎖**（不因好感度下降而隱藏）。UI 顯示在性格欄位下方，未解鎖時顯示「？？？」或隱藏。
+
+10. **好感度顏色一律使用 CSS 變數**（`var(--affection-*)`)，不要用 Tailwind class 或硬編碼色碼。`affectionColor()` 是唯一判斷入口。
+
 ---
 
 ## 關鍵函數索引
@@ -380,3 +388,4 @@ violet-400  → #a78bfa   （紫，用於魔法/特殊）
 | `useCommandParser` `triggerNpcMemoryMerge(npc)` | 呼叫助理 GM 融合 NPC 舊記憶 |
 | `useGameStore` `saveToStorage(snapshot?)` | 統一存檔入口（key: `rpworld_save`）|
 | `useGameStore` `loadFromData(data)` | 匯入存檔並自動 migrate 舊格式 |
+| `NpcModal.tsx` `affectionColor(affection)` | 回傳好感度對應 CSS 變數字串，供 `style={{ color }}` 使用 |
