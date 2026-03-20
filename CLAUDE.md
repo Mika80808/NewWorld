@@ -283,7 +283,7 @@ MEMORY_ADD:type:importance:content:locations=x,y:npcs=a:factions=b:keywords=c,d:
   /* 主題色（可隨主題調整） */
   --bg0:     #171617;   /* 最外層背景 */
   --bg1:     #24282d;   /* 左右側欄 */
-  --bg2:     #272a2e;   /* 卡片、輸入框、對話泡泡 */
+  --bg2:     #303438;   /* 卡片、輸入框、對話泡泡 */
   --border:  #2a4a7f;   /* 所有邊框（0.5px solid）*/
   --text1:   #fbf5e4;   /* 主要文字 */
   --text2:   #e8e8e9;   /* 次要文字、標籤 */
