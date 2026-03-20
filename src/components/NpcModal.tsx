@@ -80,10 +80,11 @@ export const NpcModal: React.FC<NpcModalProps> = ({
 
   // 好感度顏色
   const affectionColor =
-    selectedNpc.affection >= 80 ? 'text-emerald-400' :
-    selectedNpc.affection >= 50 ? 'text-amber-400' :
+    selectedNpc.affection >= 80 ? 'text-[#f73e59]' :
+    selectedNpc.affection >= 50 ? 'text-[#fb7185]' :
     selectedNpc.affection >= 0  ? 'text-[#e8e8e9]' :
-    'text-rose-400';
+    selectedNpc.affection < 0  ? 'text-[#b6b6b8]' :
+    'text-[#fb7185]';
 
   return (
     <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
