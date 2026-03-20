@@ -272,16 +272,14 @@ MEMORY_ADD:type:importance:content:locations=x,y:npcs=a:factions=b:keywords=c,d:
 
 ```css
 :root {
-  --bg0:     #0a1628;   /* 最外層背景 */
-  --bg1:     #0d1f3c;   /* 左右側欄 */
+  --bg0:     #171617;   /* 最外層背景 */
+  --bg1:     #24282d;   /* 左右側欄 */
   --bg2:     #132540;   /* 卡片、輸入框、對話泡泡 */
-  --bg3:     #1a2e50;   /* NPC chip、次要卡片 */
   --border:  #2a4a7f;   /* 所有邊框（0.5px solid）*/
-  --text1:   #e2eaf8;   /* 主要文字 */
-  --text2:   #8ab4e8;   /* 次要文字、標籤 */
-  --text3:   #3a5a8a;   /* 提示文字、時間戳 */
-  --accent:  #e6bf55;   /* 金色強調 */
-  --accent2: #fde68a;   /* 金色高亮 */
+  --text1:   #fbf5e4;   /* 主要文字 */
+  --text2:   #e8e8e9;   /* 次要文字、標籤 */
+  --text3:   #cec9c0;   /* 提示文字、時間戳 */
+  --accent:  #fde68a;   /* 金色強調 */
   --danger:  #ff8866;   /* HP 警示 */
 }
 ```
