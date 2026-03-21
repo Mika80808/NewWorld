@@ -93,7 +93,7 @@ export interface LorebookEntry {
   mapX?: number;
   mapY?: number;
   cartFare?: number;
-  mapStatus?: 'discovered' | 'known';
+  mapStatus?: 'heard' | 'known';
   adjacentTo?: string[];
   locationType?: 'town' | 'wilderness' | 'building';
 }
