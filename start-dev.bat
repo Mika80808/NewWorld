@@ -1,3 +1,3 @@
 @echo off
-cd /d E:\MIKA\RP-world
+cd /d F:\New world
 "C:\Program Files\nodejs\npm.cmd" run dev
