@@ -101,7 +101,7 @@ export const MapModal: React.FC<MapModalProps> = ({
 
   // ── Data ────────────────────────────────────────────────────────────────────
   const mapNodes = lorebookEntries.filter(e => e.category === '地點' && e.mapX != null && e.mapY != null);
-  const undiscoveredList = lorebookEntries.filter(e => e.category === '地點' && e.mapX == null);
+  const unheardList = lorebookEntries.filter(e => e.category === '地點' && e.mapX == null);
 
   // 座標分群：距離 < CLUSTER_THRESHOLD 的節點合為一群
   const clusters: Cluster[] = [];
@@ -347,7 +347,7 @@ export const MapModal: React.FC<MapModalProps> = ({
                     style={{ cursor: 'pointer' }}
                     onClick={(e) => handleClusterClick(cluster, e)}
                   >
-                    {/* ── Discovered: 虛線圓圈 ── */}
+                    {/* ── Heard: 虛線圓圈 ── */}
                     {!isKnown && (
                       <>
                         {isSelected && (
