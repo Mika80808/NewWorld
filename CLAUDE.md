@@ -139,7 +139,7 @@ interface LorebookEntry {
   // 地點類專用
   mapX?: number
   mapY?: number
-  mapStatus?: 'discovered' | 'known'
+  mapStatus?: 'heard' | 'known'
   cartFare?: number
   adjacentTo?: string[]
   locationType?: 'town' | 'wilderness' | 'building'
@@ -284,12 +284,11 @@ MEMORY_ADD:type:importance:content:locations=x,y:npcs=a:factions=b:keywords=c,d:
   --bg0:     #171617;   /* 最外層背景 */
   --bg1:     #24282d;   /* 左右側欄 */
   --bg2:     #303438;   /* 卡片、輸入框、對話泡泡 */
-  --border:  #2a4a7f;   /* 所有邊框（0.5px solid）*/
+  --border:  #444d5c;   /* 所有邊框（0.5px solid）*/
   --text1:   #fbf5e4;   /* 主要文字 */
   --text2:   #e8e8e9;   /* 次要文字、標籤 */
   --text3:   #b7b4ae;   /* 提示文字、時間戳（placeholder 統一用此色）*/
   --text4:   #e6d6bf;   /* 狀態數值專用（HP、MP、金幣等數字）*/
-  --text5:   #332f2d;   /* 設定集內的資料文字*/
   --accent:  #fde68a;   /* 金色強調 */
   --danger:  #ff8866;   /* HP 警示 */
 
