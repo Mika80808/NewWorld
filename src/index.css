@@ -3,7 +3,7 @@
 :root {
   --bg0:     #171617;
   --bg1:     #24282d;
-  --bg2:     #132540;
+  --bg2:     #272a2e;
   --bg3:     #132540;
   --border:  #283b57;
   --text1:   #fbf5e4;
@@ -13,6 +13,13 @@
   --accent2: #fde68a;
   --text4:   #e6d6bf;
   --danger:  #ff8866;
+
+  /* 好感度顏色（固定語意色，不隨主題變動） */
+  --affection-max:     #fb7185;
+  --affection-high:    rgba(251,113,133,0.80);
+  --affection-mid:     rgba(251,113,133,0.60);
+  --affection-low:     #a0a0a0;
+  --affection-hostile: #505050;
 }
 
 @theme {

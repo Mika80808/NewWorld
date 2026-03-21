@@ -101,7 +101,7 @@ export const MapModal: React.FC<MapModalProps> = ({
 
   // ── Data ────────────────────────────────────────────────────────────────────
   const mapNodes = lorebookEntries.filter(e => e.category === '地點' && e.mapX != null && e.mapY != null);
-  const heardList = lorebookEntries.filter(e => e.category === '地點' && e.mapX == null);
+  const undiscoveredList = lorebookEntries.filter(e => e.category === '地點' && e.mapX == null);
 
   // 座標分群：距離 < CLUSTER_THRESHOLD 的節點合為一群
   const clusters: Cluster[] = [];
@@ -347,7 +347,7 @@ export const MapModal: React.FC<MapModalProps> = ({
                     style={{ cursor: 'pointer' }}
                     onClick={(e) => handleClusterClick(cluster, e)}
                   >
-                    {/* ── Heard: 虛線圓圈 ── */}
+                    {/* ── Discovered: 虛線圓圈 ── */}
                     {!isKnown && (
                       <>
                         {isSelected && (
@@ -693,14 +693,14 @@ export const MapModal: React.FC<MapModalProps> = ({
             )}
 
             {/* 旅途發現（無 mapX 的條目） */}
-            {heardList.length > 0 && (
+            {undiscoveredList.length > 0 && (
               <div className="shrink-0 p-3 space-y-1.5 max-h-36 overflow-y-auto"
                 style={{ borderTop: '0.5px solid #283b57' }}>
                 <h4 className="text-xs font-bold uppercase tracking-wider mb-2"
                   style={{ color: '#e8e8e9', fontFamily: 'Georgia, serif' }}>
                   旅途發現
                 </h4>
-                {heardList.map(loc => (
+                {undiscoveredList.map(loc => (
                   <div key={loc.id} className="text-[11px] px-2.5 py-1.5 rounded-[8px]"
                     style={{ background: 'rgba(74,122,201,0.06)', border: '0.5px solid #1a2a4a', fontFamily: 'Georgia, serif' }}>
                     <span style={{ color: '#fde68a', fontWeight: 600 }}>{loc.title}</span>

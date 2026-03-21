@@ -1,4 +1,4 @@
-import { LorebookEntry, SystemPrompt, WorldMap, Message } from './types';
+import { LorebookEntry, SystemPrompt, Message } from './types';
 
 export const MONTHS_DATA = [
   { id: 1, name: '一月', elegant: '初雪之月', desc: '山頂除穢日：將象徵厄運的舊物丟下山崖。' },

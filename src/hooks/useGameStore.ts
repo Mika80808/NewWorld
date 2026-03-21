@@ -1,11 +1,11 @@
 import { useState } from 'react';
 import {
   TimeState, Profile, Quest, Npc, NpcMemory, LorebookEntry, SystemPrompt,
-  DiaryEntry, Message, WorldMap, MemoryEntry, EquipmentItem, ItemEntry,
+  DiaryEntry, Message, MemoryEntry, EquipmentItem, ItemEntry,
 } from '../types';
 import {
   INITIAL_SYSTEM_PROMPT, INITIAL_LOREBOOK_ENTRIES,
-  INITIAL_WORLD_MAP, INITIAL_MESSAGES,
+  INITIAL_MESSAGES,
 } from '../constants';
 
 export const SAVE_KEY = 'rpworld_save';
@@ -37,7 +37,6 @@ export interface GameSaveData {
   quickOptions: string[];
   timeState: TimeState;
   quests: Quest[];
-  worldMap: WorldMap;
   adventureLog: string[];
   currentGoals: string[];
 }
@@ -205,11 +204,6 @@ export function useGameStore() {
     () => (_s?.quickOptions as string[]) || ['觀察四周', '檢查自己', '大聲求助']
   );
 
-  // ── 世界地圖 ────────────────────────────────────────────────────────────────
-  const [worldMap, setWorldMap] = useState<WorldMap>(
-    () => (_s?.worldMap as WorldMap) || INITIAL_WORLD_MAP
-  );
-
   const [adventureLog, setAdventureLog] = useState<string[]>(
     () => (_s?.adventureLog as string[]) || []
   );
@@ -224,7 +218,7 @@ export function useGameStore() {
       npcs, appearingNpcs,
       equipment, items,
       currentLocation, messages, memories, quickOptions,
-      timeState, quests, worldMap,
+      timeState, quests,
       adventureLog, currentGoals,
       ...snapshot,
     };
@@ -284,7 +278,6 @@ export function useGameStore() {
         weather: t.weather || '晴朗',
       });
     }
-    if (saveData.worldMap) setWorldMap(saveData.worldMap as WorldMap);
     if (saveData.adventureLog) setAdventureLog(saveData.adventureLog as string[]);
     if (saveData.currentGoals) setCurrentGoals(saveData.currentGoals as string[]);
 
@@ -339,8 +332,6 @@ export function useGameStore() {
     // 對話
     messages, setMessages,
     quickOptions, setQuickOptions,
-    // 地圖
-    worldMap, setWorldMap,
     // 冒險狀態
     adventureLog, setAdventureLog,
     currentGoals, setCurrentGoals,

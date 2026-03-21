@@ -5,6 +5,95 @@
 
 ---
 
+### NPC 欄位擴充 + UI 全面重製 2026-03-21 [Claude Sonnet 4.6]
+
+**NPC 欄位**：`types.ts` — `Npc` 與 `LorebookEntry` 加 `gender?`、`race?`、`backstory?`；`NpcMemory` 加 `isNew?`。`useCommandParser.ts` — `NPC_NEW` regex 從 5 欄升為 7 欄（`姓名:種族:性別:職業:外貌:性格:背景`，背景選填）；THOUGHTS_LIMIT 5→10；pre_merge/merged 記憶寫入帶 `isNew: true`。`App.tsx` — `buildPrompt` NPC 注入新增種族/背景故事欄位（背景好感≥20才注入）；`handleRecordNpc` 同步 race/gender/backstory；新增 `handleClearNewMemories`/`handleDeleteNpc`。
+
+**LorebookModal 重製**：NPC tab 改為 2 欄暖米色卡片 grid（`bg-[#e2d8c4]`），每張卡顯示：第一行（名字+種族性別+好感度愛心+勾選框），第二行（職業左＋關係右）。點擊卡片呼叫 `onSelectNpc` 開啟 NpcModal。非 NPC 分類保持原有列表 UI。
+
+**NpcModal 全面重製**：新 header（isActive checkbox + 名字/種族/性別 + 好感度 + pin + 三點選單 + 關閉）；副標題行（職業左＋關係右）；上次見面行。資料/記憶雙分頁，記憶頁 tab 有 isNew 粉紅點。資料頁：顯示模式（種族/外貌/個性/背景故事卡片，backstory 好感≥20解鎖）與編輯模式（inline 表單）。記憶頁：thoughts 只顯示前5條（漸層 opacity）、角色記憶（好感≥60解鎖）帶 isNew 粉紅點標記、封存記憶可展開。三點選單含「編輯角色」、「記入設定集」、「刪除角色（二次確認）」。`affectionColor()` 函數 export 供 LorebookModal 共用。
+
+- [x] **新增 NPC 欄位 gender、backstory** 2026-03-21 [Claude Sonnet 4.6]
+
+ 
+  找到右欄遍歷 `appearingNpcs` 渲染卡片的程式碼，將靜態欄位的來源改為 `lorebookEntries`：
+
+  ```tsx
+  // 修改前（靜態資料從 npcs[] 讀）
+  appearingNpcs.map(npcName => {
+    const npc = npcs.find(n => n.name === npcName)
+    // npc.job, npc.appearance, npc.personality...
+  })
+
+  // 修改後（靜態資料從 lorebookEntries 讀，動態資料仍從 npcs[] 讀）
+  appearingNpcs.map(npcName => {
+    const npc  = npcs.find(n => n.name === npcName)
+    const lore = lorebookEntries.find(
+      e => e.category === 'NPC' && e.title === npcName
+    )
+    const displayData = {
+      name:           npcName,
+      // 靜態資料：優先 lorebookEntries，fallback npcs[]
+      gender:         lore?.gender       ?? '',
+      job:            lore?.job          ?? npc?.job          ?? '',
+      appearance:     lore?.appearance   ?? npc?.appearance   ?? '',
+      personality:    lore?.personality  ?? npc?.personality  ?? '',
+      backstory:      lore?.backstory    ?? '',
+      other:          lore?.other        ?? npc?.other        ?? '',
+      // 動態資料：只從 npcs[] 讀
+      affection:      npc?.affection     ?? 0,
+      affectionLabel: npc?.affectionLabel ?? '',
+      thoughts:       npc?.thoughts      ?? [],
+      memories:       npc?.memories      ?? [],
+      isPinned:       npc?.isPinned      ?? false,
+    }
+    // 用 displayData 渲染卡片（gender 顯示在卡片上，與 job 並列）
+  })
+  ```
+
+  **注意事項**
+  - `NPC_NEW` 寫入 `npcs[]` 的 job/appearance 等欄位**不需要移除**，保留作為 fallback（向下相容舊存檔）
+  - `lorebookEntries` 的 NPC 判斷條件是 `category === 'NPC'`，`title` 對應 NPC 名字
+  - 設定集本身的卡片直接顯示 `lorebookEntries`，確認沒有經過 `npcs[]` 即可，不需要改
+  - 只改右欄的**讀取邏輯**，不改任何資料結構
+  - **`gender` 與 `backstory` 需同步補在以下四個地方：**
+    1. `types.ts` — `LorebookEntry` 介面加 `gender?: string`、`backstory?: string`
+    2. 設定集 NPC 編輯表單 — 加 gender 自由文字輸入欄、backstory 文字輸入欄（50 字上限）
+    3. backstory 於好感度 ≥ 20 後永久解鎖顯示；角色記憶於好感度 ≥ 60 後永久解鎖顯示
+    4. `buildPrompt` — NPC 資料注入 AI 時把 `gender` 與 `backstory` 帶入
+
+---
+- [x] **新增 NPC 種族（race）欄位** 2026-03-21 [Claude Sonnet 4.6]
+
+  **改動範圍**
+
+  1. `types.ts` — `LorebookEntry` 與 `Npc` 介面加 `race?: string`
+
+  2. `displayData` 區塊 — 新增一行，並做舊存檔 migration fallback：
+     ```ts
+     race: lore?.race ?? lore?.other ?? npc?.other ?? '',
+     ```
+     fallback 順序：`lore.race` → `lore.other`（舊存檔 migration）→ `npc.other` → `''`
+
+  3. `useCommandParser.ts` — `NPC_NEW` 解析後 race 存入 `race` 欄位，不再存 `other`
+
+  4. `App.tsx` — `handleRecordNpc` 建立 lorebook 條目時帶入 `race: npc.race`
+
+  5. `buildPrompt` — NPC 注入格式加入種族，找到這行：
+     ```ts
+     return `[NPC] ${e.title}｜職業：...｜備註：${e.other || ''}...`
+     ```
+     改為在職業前插入 `種族：${e.race || e.other || ''}`
+
+  6. LorebookModal NPC 編輯表單 — 在職業欄上方新增種族輸入欄
+     - placeholder：`例：人類、精靈、狼族`
+
+  7. NPC 縮略卡與 Modal header — 名字右側顯示 `種族 性別`（小字，color: var(--text2)）
+
+  **注意事項**
+  - `NPC_NEW` 寫入 `npcs[]` 的舊欄位不需要移除，保留作為 fallback（向下相容）
+  - `other` 欄位保留不刪，migration 只是讀取時優先用 `race`
+
 ### UI 視覺統一 2026-03-20 [Claude Sonnet 4.6]
 
 **視覺-1**：三個提示文字（暫無明確目標、等待冒險展開、目前沒有任務）改為統一使用 `text-[#cec9c0]`（text3），消除因 `opacity-50`/`opacity-30`/繼承父色導致的三種不同顯示結果。

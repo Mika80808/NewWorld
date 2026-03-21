@@ -100,8 +100,9 @@
 ---
 
 
-- [ ] **NPC 卡片 UI 重製（依設計圖）**
+- [x] **NPC 卡片 UI 重製（依設計圖）**
   2026-03-21 [Claude Sonnet 4.6]: LorebookModal.tsx NPC tab 改為 2欄暖米色卡片 grid（bg-[#e2d8c4]），卡片含名字/種族性別/好感度/勾選框/職業/關係；NpcModal.tsx 全面重製：header（checkbox/名字/種族性別/好感度/pin/三點選單/關閉）、職業+關係副標題、上次見面行、資料/記憶分頁（isNew 粉紅點）、backstory 好感≥20解鎖、編輯模式、刪除二次確認；App.tsx 加 handleDeleteNpc 與相關 props
+  2026-03-21 [Claude Sonnet 4.6]: 修正工具列排版：搜尋欄（左）＋「+新增」按鈕（右）獨立成第一行，分類 tabs 移至第二行（對齊截圖設計）
 
 
    **縮略卡（設定集列表）**
@@ -192,7 +193,8 @@
   - 好感度顏色一律使用 `affectionColor()` 回傳的 CSS 變數，不硬編碼色碼
   - 點擊右欄[當前場景人物] 時，也連結到同一個詳細 Modal。
 
-- [ ] **好感度顏色系統統一（affectionColor）**
+- [x] **好感度顏色系統統一（affectionColor）**
+  2026-03-21 [Claude Sonnet 4.6]: index.css 補 --affection-* 五個 CSS 變數；App.tsx import affectionColor from NpcModal；修正兩處硬編碼：釘選 NPC 卡片（text-rose-400）與場景人物卡片（三元 Tailwind class）均改用 style={{ color: affectionColor() }}
 
   將全專案所有好感度顏色判斷統一為 `affectionColor()` function，移除所有散落的硬編碼色碼與 Tailwind class。
 

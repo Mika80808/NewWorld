@@ -1,7 +1,7 @@
 import React from 'react';
 import {
   Profile, Npc, Quest, LorebookEntry, MemoryEntry,
-  EquipmentItem, ItemEntry, TimeState, WorldMap, Message,
+  EquipmentItem, ItemEntry, TimeState, Message,
 } from '../types';
 
 // ─── 依賴的 Store 切面 ────────────────────────────────────────────────────────
@@ -26,7 +26,6 @@ export interface CommandParserDeps {
   setItems: React.Dispatch<React.SetStateAction<ItemEntry[]>>;
   setNpcs: React.Dispatch<React.SetStateAction<Npc[]>>;
   setLorebookEntries: React.Dispatch<React.SetStateAction<LorebookEntry[]>>;
-  setWorldMap: React.Dispatch<React.SetStateAction<WorldMap>>;
   setQuickOptions: React.Dispatch<React.SetStateAction<string[]>>;
   setStickyCounters: React.Dispatch<React.SetStateAction<Record<string, number>>>;
   setCooldownCounters: React.Dispatch<React.SetStateAction<Record<string, number>>>;
@@ -49,7 +48,7 @@ export function useCommandParser(deps: CommandParserDeps) {
     stickyCounters, cooldownCounters, messages, lorebookEntries,
     setTimeState, setProfile, setCurrentLocation, setQuests,
     setMemories, setEquipment, setItems, setNpcs,
-    setLorebookEntries, setWorldMap, setQuickOptions,
+    setLorebookEntries, setQuickOptions,
     setStickyCounters, setCooldownCounters,
     showToast, notifyCommandResult, onNewQuest, callAI,
   } = deps;
@@ -372,7 +371,7 @@ ${toMerge.map(m => `- ${m.text}`).join('\n')}`;
           trigger: { scanDepth: 5, probability: 100, sticky, cooldown: 0 },
           isActive: true,
           source: 'ai_generated',
-          createdAt: `${timeState.year}年${timeState.month}月${timeState.day}日`,
+          createdAt: `帝國曆 ${timeState.year}年${timeState.month}月${timeState.day}日`,
           ...(expires ? { expiresAt: expires } : {}),
         };
         setMemories(prev => [...prev, newMem]);
@@ -477,7 +476,7 @@ ${toMerge.map(m => `- ${m.text}`).join('\n')}`;
             return { ...npc, thoughts: updatedThoughts };
           }
 
-          // thoughts 滿 10 則：串接寫入 memories，清空 thoughts
+          // thoughts 滿 5 則：串接寫入 memories，清空 thoughts
           const mergedText = [...updatedThoughts]
             .reverse()
             .map(t => `[${t.createdAt}] ${t.text}`)
@@ -634,7 +633,7 @@ ${toMerge.map(m => `- ${m.text}`).join('\n')}`;
           if (q.status !== 'active' || !q.deadline) return q;
           const daysElapsed = newTotalDays - q.createdAtTotalDays;
           if (daysElapsed >= q.deadline) {
-            cmdResults.push(`任務逾期：${q.title}`);
+            cmdResults.push(`⏰ 任務逾期：${q.title}`);
             return { ...q, status: 'failed' as const };
           }
           return q;

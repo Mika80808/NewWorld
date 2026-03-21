@@ -52,6 +52,7 @@ export interface NpcMemory {
   // normal = 依截斷規則（最近 5 則，超出 300 字縮減到 3 則）
   isMerged?: boolean;                                 // 已被 AI 融合，保留但不注入 prompt
   mergedFrom?: string[];                              // 融合來源的 id 陣列
+  isNew?: boolean;                                    // 剛融合產生，尚未被玩家讀取，NpcModal 開啟後自動清除
 }
 
 export interface Npc {
@@ -62,6 +63,9 @@ export interface Npc {
   affectionLabel: string;
   appearance: string;
   personality: string;
+  gender?: string;
+  race?: string;
+  backstory?: string;
   other?: string;
   relationship?: string;
   location?: string;
@@ -80,6 +84,9 @@ export interface LorebookEntry {
   content: string;
   category: string;
   isActive: boolean;
+  gender?: string;
+  race?: string;
+  backstory?: string;
   job?: string;
   appearance?: string;
   personality?: string;
@@ -165,30 +172,6 @@ export interface Message {
   role: 'user' | 'assistant' | 'system';
   text: string;
   timestamp?: string;
-}
-
-export interface MapLocation {
-  id: string;
-  name: string;
-  type: 'town' | 'city' | 'danger' | 'poi';
-  x: number;
-  y: number;
-  desc: string;
-  discovered?: boolean;
-}
-
-export interface DynamicLocation {
-  id: string;
-  name: string;
-  location: string;
-  desc: string;
-  isPinned: boolean;
-  discovered?: boolean;
-}
-
-export interface WorldMap {
-  fixed: MapLocation[];
-  dynamic: DynamicLocation[];
 }
 
 // ─── GM 設定（不隨存檔匯出，單獨存於 localStorage）────────────────────────────

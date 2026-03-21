@@ -56,11 +56,11 @@ export const LorebookModal: React.FC<LorebookModalProps> = ({
 
   return (
     <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-      <div className="bg-[#24282d]/70 backdrop-blur-xl w-full max-w-3xl rounded-[8px] shadow-[0_0_40px_rgba(0,0,0,0.5)] flex flex-col overflow-hidden text-[#fbf5e4] border border-white/10 relative h-[85vh]">
+      <div className="bg-[#24282d]/70 backdrop-blur-xl w-full max-w-3xl rounded-[8px] shadow-[0_0_40px_rgba(0,0,0,0.5)] flex flex-col overflow-hidden text3-[#b7b4ae] border border-white/10 relative h-[85vh]">
         <div className="p-4 border-b border-white/5 flex justify-between items-center bg-[#24282d]/50">
           <div className="flex items-center">
             <h2 className="text-lg font-bold flex items-center text-[#fde68a]"><BookOpen className="w-5 h-5 mr-2 text-[#fde68a]" /> 世界觀與設定集</h2>
-            <span className="ml-4 text-xs text-[#e8e8e9]">勾選的項目將會被 AI 讀取並作為背景知識</span>
+            <span className="ml-4 text-xs text3-[#b7b4ae]">勾選的項目將會被 AI 讀取並作為背景知識</span>
           </div>
           <button 
             className="text-[var(--text3)] hover:text-[#fbf5e4] transition"
@@ -70,31 +70,33 @@ export const LorebookModal: React.FC<LorebookModalProps> = ({
           </button>
         </div>
         
-        <div className="p-4 border-b border-white/5 bg-[#24282d]/30 flex gap-3 items-center">
-          <button 
-            onClick={handleAdd}
-            className="bg-[#1044ab] hover:bg-[#1a56db] active:bg-[#2563eb] backdrop-blur-sm border border-white/10 hover:border-white/20 text-[#fbf5e4] px-4 h-8 rounded-[8px] flex items-center transition shadow-[0_4px_12px_rgba(16,68,171,0.2)]"
-          >
-            <Plus className="w-4 h-4 mr-2" /> 新增設定
-          </button>
-          
-          <div className="flex-1 max-w-xs relative ml-4">
-            <Search className="w-4 h-4 absolute left-3 top-1/2 transform -translate-y-1/2 text-[var(--text3)]" />
-            <input
-              type="text"
-              placeholder="搜尋設定..."
-              value={lorebookSearch}
-              onChange={(e) => setLorebookSearch(e.target.value)}
-              className="w-full bg-[#24282d]/50 backdrop-blur-sm border border-white/10 rounded-[8px] h-8 pl-9 pr-3 text-sm text-[#fbf5e4] focus:border-[#fde68a]/50 focus:shadow-[0_0_15px_rgba(99,102,241,0.2)] outline-none transition"
-            />
+        <div className="px-4 pt-3 pb-0 border-b border-white/5 bg-[#24282d]/30 space-y-2">
+          {/* 第一行：搜尋欄（左）＋ +新增（右） */}
+          <div className="flex gap-2 items-center">
+            <div className="flex-1 relative">
+              <Search className="w-4 h-4 absolute left-3 top-1/2 transform -translate-y-1/2 text-[var(--text3)]" />
+              <input
+                type="text"
+                placeholder="搜尋..."
+                value={lorebookSearch}
+                onChange={(e) => setLorebookSearch(e.target.value)}
+                className="w-full bg-[#24282d]/50 backdrop-blur-sm border border-white/10 rounded-[8px] h-9 pl-9 pr-3 text-sm text3-[#fbf5e4] focus:border-[#fde68a]/50 outline-none transition"
+              />
+            </div>
+            <button
+              onClick={handleAdd}
+              className="bg-[#1044ab] hover:bg-[#1a56db] active:bg-[#2563eb] backdrop-blur-sm border border-white/10 hover:border-white/20 text-[#fbf5e4] px-4 h-9 rounded-[8px] flex items-center gap-1.5 transition shadow-[0_4px_12px_rgba(16,68,171,0.2)] shrink-0"
+            >
+              <Plus className="w-4 h-4" /> 新增
+            </button>
           </div>
-
-          <div className="flex bg-[#24282d]/50 border border-white/10 rounded-[8px] overflow-hidden ml-auto">
+          {/* 第二行：分類 tabs */}
+          <div className="flex bg-[#24282d]/50 border border-white/10 rounded-t-[8px] overflow-hidden">
             {['地點', 'NPC', '怪物', '物品', '歷史', '其他'].map((cat) => (
               <button
                 key={cat}
                 onClick={() => setLorebookFilter(cat)}
-                className={`px-4 py-2 text-[14px] leading-[14px] transition ${
+                className={`flex-1 px-3 py-2 text-[13px] leading-[13px] transition ${
                   lorebookFilter === cat
                     ? 'bg-[#1044ab] text-[#fbf5e4] shadow-[0_4px_12px_rgba(16,68,171,0.2)]'
                     : 'text-[var(--text3)] hover:bg-[#1a56db] hover:text-[#fbf5e4]'
@@ -108,7 +110,7 @@ export const LorebookModal: React.FC<LorebookModalProps> = ({
 
         <div className="flex-1 overflow-y-auto p-4">
 
-          {/* ── NPC 人物：2 欄暖色卡片 Grid ── */}
+          {/* ── NPC 人物：2 欄卡片 Grid ── */}
           {lorebookFilter === 'NPC' ? (() => {
             const filtered = lorebookEntries
               .filter(e => e.category === 'NPC')
@@ -162,16 +164,16 @@ export const LorebookModal: React.FC<LorebookModalProps> = ({
                     <div
                       key={entry.id}
                       onClick={handleCardClick}
-                      className="bg-[#e2d8c4] border border-[#c4b89e] rounded-[8px] px-4 py-3 cursor-pointer hover:bg-[#ede5d2] transition-colors shadow-sm select-none"
+                      className="bg2-[#303438]/70 border border-white/10 rounded-[8px] px-4 py-3 cursor-pointer hover:bg2-[#303438] hover:border-white/20 transition-colors shadow-sm select-none"
                     >
                       {/* 第一行：名字 + 種族性別 + 愛心好感度 + 勾選框 */}
                       <div className="flex items-start justify-between gap-2 mb-1.5">
                         <div className="flex items-baseline gap-1.5 flex-1 min-w-0">
-                          <span className="text-[17px] font-bold text-[#2a1e10] leading-tight" style={{ fontFamily: 'Georgia, serif' }}>
+                          <span className="text-[17px] font-bold text-[#fbf5e4] leading-tight" style={{ fontFamily: 'Georgia, serif' }}>
                             {entry.title || '未命名'}
                           </span>
                           {(entry.race || entry.gender) && (
-                            <span className="text-[11px] text-[#7d7060] shrink-0 leading-tight">
+                            <span className="text-[11px] text-[var(--text3)] shrink-0 leading-tight">
                               {[entry.race, entry.gender].filter(Boolean).join(' ')}
                             </span>
                           )}
@@ -190,17 +192,131 @@ export const LorebookModal: React.FC<LorebookModalProps> = ({
                             title={entry.isActive ? 'AI 將讀取此設定' : 'AI 不讀取此設定'}
                           >
                             {entry.isActive
-                              ? <CheckSquare className="w-4 h-4 text-[#2a3d52]" />
-                              : <Square className="w-4 h-4 text-[#9a9080]" />}
+                              ? <CheckSquare className="w-4 h-4 text-[#fde68a]" />
+                              : <Square className="w-4 h-4 text-[var(--text3)]" />}
                           </button>
                         </div>
                       </div>
 
                       {/* 第二行：職業（左）＋關係（右） */}
                       <div className="flex justify-between items-center">
-                        <span className="text-xs text-[#5a5040]">{entry.job ?? npcData?.job ?? ''}</span>
-                        <span className="text-xs text-[#5a5040]">{relationship}</span>
+                        <span className="text-xs text-[var(--text2)]">{entry.job ?? npcData?.job ?? ''}</span>
+                        <span className="text-xs text-[var(--text3)]">{relationship}</span>
                       </div>
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          })() : lorebookFilter === '地點' ? (() => {
+            const filtered = lorebookEntries
+              .filter(e => e.category === '地點')
+              .filter(e => {
+                if (!lorebookSearch.trim()) return true;
+                const s = lorebookSearch.toLowerCase();
+                return (
+                  (e.title && e.title.toLowerCase().includes(s)) ||
+                  (e.content && e.content.toLowerCase().includes(s))
+                );
+              });
+
+            if (filtered.length === 0) {
+              return <div className="text-center text-[var(--text3)] py-10 italic">此分類尚無設定</div>;
+            }
+
+            return (
+              <div className="grid grid-cols-2 gap-3">
+                {filtered.map(entry => {
+                  const isEditing = editingLorebookId === entry.id;
+
+                  if (isEditing) {
+                    return (
+                      <div key={entry.id} className="col-span-2 bg-[#24282d]/60 border border-[#fde68a]/30 rounded-[8px] p-4 space-y-3">
+                        {/* 地名 */}
+                        <input
+                          type="text"
+                          value={entry.title}
+                          onChange={(e) => onUpdateLorebook(entry.id, { title: e.target.value })}
+                          className="w-full bg2-[#303438]/60 border border-white/10 rounded-[8px] p-2.5 text-sm font-bold text-[#fbf5e4] focus:border-[#fde68a]/50 outline-none transition"
+                          placeholder="地點名稱..."
+                        />
+                        {/* 簡介 */}
+                        <textarea
+                          value={entry.content}
+                          onChange={(e) => onUpdateLorebook(entry.id, { content: e.target.value })}
+                          className="w-full bg2-[#303438]/60 border border-white/10 rounded-[8px] p-2.5 text-sm text-[#fbf5e4] focus:border-[#fde68a]/50 outline-none transition resize-none min-h-[80px]"
+                          placeholder="一句簡介（例：湖畔小鎮，商旅往來頻繁。）"
+                          autoFocus
+                        />
+                        {/* 關鍵字 */}
+                        <div className="bg2-[#303438]/50 rounded-[8px] p-3 border border-white/5 space-y-2">
+                          <div className="text-[11px] text-[var(--text3)] uppercase tracking-wider">主關鍵字</div>
+                          <div className="flex flex-wrap gap-1.5">
+                            {(entry.keywords || []).map((kw: string) => (
+                              <span key={kw} className="flex items-center gap-1 bg-indigo-900/50 border border-[#fde68a]/40 text-[#e8e8e9] text-xs px-2 py-0.5 rounded-full">
+                                {kw}
+                                <button onClick={() => onLorebookKeywordRemove(entry.id, 'keywords', kw)} className="text-[#fde68a] hover:text-[var(--text3)] transition leading-none">×</button>
+                              </span>
+                            ))}
+                          </div>
+                          <input type="text" placeholder="輸入後按 Enter..."
+                            className="w-full bg-[#24282d]/50 border border-white/10 rounded-[8px] px-3 py-1.5 text-xs text-[#fbf5e4] outline-none focus:border-[#fde68a]/50 transition"
+                            onKeyDown={(e) => { if (e.key === 'Enter') { onLorebookKeywordAdd(entry.id, 'keywords', e.currentTarget.value); e.currentTarget.value = ''; }}} />
+                          <div className="flex items-center gap-2">
+                            <span className="text-[11px] text-[var(--text3)] uppercase tracking-wider whitespace-nowrap">注入順序</span>
+                            <input
+                              type="number" min={0} max={999}
+                              value={entry.insertionOrder ?? 100}
+                              onChange={(e) => onUpdateLorebook(entry.id, { insertionOrder: parseInt(e.target.value) || 0 })}
+                              className="w-16 bg-[#24282d]/50 border border-white/10 rounded-[8px] px-2 py-1 text-xs text-[#fbf5e4] outline-none focus:border-[#fde68a]/50 transition text-center"
+                            />
+                            <span className="text-[11px] text-[var(--text3)]">數字越小越先注入</span>
+                          </div>
+                        </div>
+                        {/* 操作列 */}
+                        <div className="flex justify-between items-center">
+                          <button
+                            onClick={() => handleDelete(entry.id)}
+                            className="text-xs text-[var(--text3)] hover:text-[var(--danger)] transition flex items-center gap-1"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" /> 刪除
+                          </button>
+                          <button
+                            onClick={() => { setEditingLorebookId(null); showToast('已儲存設定'); }}
+                            className="text-xs bg-[#1044ab] hover:bg-[#1a56db] active:bg-[#2563eb] text-[#fbf5e4] px-4 py-1.5 rounded-[8px] transition shadow-[0_4px_12px_rgba(16,68,171,0.2)]"
+                          >
+                            儲存
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  }
+
+                  return (
+                    <div
+                      key={entry.id}
+                      onClick={() => setEditingLorebookId(entry.id)}
+                      className="bg2-[#303438]/70 border border-white/10 rounded-[8px] px-4 py-3 cursor-pointer hover:bg2-[#303438] hover:border-white/20 transition-colors shadow-sm select-none"
+                    >
+                      {/* 第一行：地名 + 勾選框 */}
+                      <div className="flex items-center justify-between gap-2 mb-1.5">
+                        <span className="text-[16px] font-bold text-[#fbf5e4] leading-tight truncate" style={{ fontFamily: 'Georgia, serif' }}>
+                          {entry.title || '未命名地點'}
+                        </span>
+                        <button
+                          onClick={(e) => { e.stopPropagation(); onUpdateLorebook(entry.id, { isActive: !entry.isActive }); }}
+                          className="transition shrink-0"
+                          title={entry.isActive ? 'AI 將讀取此設定' : 'AI 不讀取此設定'}
+                        >
+                          {entry.isActive
+                            ? <CheckSquare className="w-4 h-4 text-[#fde68a]" />
+                            : <Square className="w-4 h-4 text-[var(--text3)]" />}
+                        </button>
+                      </div>
+                      {/* 第二行：一句簡介 */}
+                      <p className="text-xs text-[var(--text2)] leading-relaxed line-clamp-2">
+                        {entry.content || <span className="italic text-[var(--text3)]">點擊以新增簡介...</span>}
+                      </p>
                     </div>
                   );
                 })}
@@ -339,7 +455,7 @@ export const LorebookModal: React.FC<LorebookModalProps> = ({
                           ))}
                         </div>
                         <input type="text" placeholder="輸入後按 Enter..."
-                          className="w-full bg-[#132540]/50 border border-white/10 rounded-[8px] px-3 py-1.5 text-xs text-[#fbf5e4] outline-none focus:border-[#fde68a]/50 transition"
+                          className="w-full bg2-[#303438]/50 border border-white/10 rounded-[8px] px-3 py-1.5 text-xs text-[#fbf5e4] outline-none focus:border-[#fde68a]/50 transition"
                           onKeyDown={(e) => { if (e.key === 'Enter') { onLorebookKeywordAdd(entry.id, 'keywords', e.currentTarget.value); e.currentTarget.value = ''; }}} />
                       </div>
 
@@ -364,7 +480,7 @@ export const LorebookModal: React.FC<LorebookModalProps> = ({
                               ))}
                             </div>
                             <input type="text" placeholder="次要關鍵字，輸入後按 Enter..."
-                              className="w-full bg-[#132540]/50 border border-white/10 rounded-[8px] px-3 py-1.5 text-xs text-[#e8e8e9] outline-none focus:border-amber-500/50 transition"
+                              className="w-full bg2-[#303438]/50 border border-white/10 rounded-[8px] px-3 py-1.5 text-xs text-[#e8e8e9] outline-none focus:border-amber-500/50 transition"
                               onKeyDown={(e) => { if (e.key === 'Enter') { onLorebookKeywordAdd(entry.id, 'secondaryKeys', e.currentTarget.value); e.currentTarget.value = ''; }}} />
                           </>
                         )}
@@ -376,7 +492,7 @@ export const LorebookModal: React.FC<LorebookModalProps> = ({
                           type="number" min={0} max={999}
                           value={entry.insertionOrder ?? 100}
                           onChange={(e) => onUpdateLorebook(entry.id, { insertionOrder: parseInt(e.target.value) || 0 })}
-                          className="w-20 bg-[#132540]/50 border border-white/10 rounded-[8px] px-2 py-1 text-xs text-[#fbf5e4] outline-none focus:border-[#fde68a]/50 transition text-center"
+                          className="w-20 bg2-[#303438]/50 border border-white/10 rounded-[8px] px-2 py-1 text-xs text-[#fbf5e4] outline-none focus:border-[#fde68a]/50 transition text-center"
                         />
                         <span className="text-[12px] text-[#e8e8e9]">數字越小越先注入（0–999）</span>
                       </div>
@@ -407,7 +523,7 @@ export const LorebookModal: React.FC<LorebookModalProps> = ({
                         entry.category === '怪物' ? 'bg-orange-900/40 text-orange-400' :
                         entry.category === '物品' ? 'bg-blue-900/40 text-blue-400' :
                         entry.category === '歷史' ? 'bg-violet-900/40 text-violet-400' :
-                        'bg-[#132540] text-[#e8e8e9]'
+                        'bg2-[#303438] text-[#e8e8e9]'
                       }`}>
                         {entry.category}
                       </span>
@@ -438,7 +554,7 @@ export const LorebookModal: React.FC<LorebookModalProps> = ({
                           <span key={kw} className="text-xs px-1.5 py-0.5 rounded-full bg-amber-900/40 border border-amber-500/30 text-[#e8e8e9]">+{kw}</span>
                         ))}
                         {entry.insertionOrder !== undefined && entry.insertionOrder !== 100 && (
-                          <span className="text-xs px-1.5 py-0.5 rounded-full bg-[#132540] border border-[#283b57]/40 text-[#e8e8e9]">#{entry.insertionOrder}</span>
+                          <span className="text-xs px-1.5 py-0.5 rounded-full bg2-[#303438] border border-[#283b57]/40 text-[#e8e8e9]">#{entry.insertionOrder}</span>
                         )}
                       </div>
                     )}
