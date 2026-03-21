@@ -372,7 +372,7 @@ ${toMerge.map(m => `- ${m.text}`).join('\n')}`;
           trigger: { scanDepth: 5, probability: 100, sticky, cooldown: 0 },
           isActive: true,
           source: 'ai_generated',
-          createdAt: `帝國曆 ${timeState.year}年${timeState.month}月${timeState.day}日`,
+          createdAt: `${timeState.year}年${timeState.month}月${timeState.day}日`,
           ...(expires ? { expiresAt: expires } : {}),
         };
         setMemories(prev => [...prev, newMem]);
@@ -477,7 +477,7 @@ ${toMerge.map(m => `- ${m.text}`).join('\n')}`;
             return { ...npc, thoughts: updatedThoughts };
           }
 
-          // thoughts 滿 5 則：串接寫入 memories，清空 thoughts
+          // thoughts 滿 10 則：串接寫入 memories，清空 thoughts
           const mergedText = [...updatedThoughts]
             .reverse()
             .map(t => `[${t.createdAt}] ${t.text}`)
@@ -600,7 +600,7 @@ ${toMerge.map(m => `- ${m.text}`).join('\n')}`;
             content: '',
             category: '地點',
             isActive: true,
-            mapStatus: 'discovered' as const,
+            mapStatus: 'heard' as const,
             locationType: inferLocationType(locName),
             keywords: [locName],
             selective: false,
@@ -634,7 +634,7 @@ ${toMerge.map(m => `- ${m.text}`).join('\n')}`;
           if (q.status !== 'active' || !q.deadline) return q;
           const daysElapsed = newTotalDays - q.createdAtTotalDays;
           if (daysElapsed >= q.deadline) {
-            cmdResults.push(`⏰ 任務逾期：${q.title}`);
+            cmdResults.push(`任務逾期：${q.title}`);
             return { ...q, status: 'failed' as const };
           }
           return q;
