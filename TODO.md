@@ -332,56 +332,12 @@
   - 取代 localStorage，支援跨裝置同步。（目前已決定暫緩）
 
 - [ ] Scrollbar 樣式統一
-  - 用 `::-webkit-scrollbar` CSS 自訂滾動條，配合現有石板/棕色系 UI。
+  - 用 `::-webkit-scrollbar` CSS 自訂滾動條。
 
 ---
 
 ## ✅ 已完成
 
-- [x] NPC 出場流程
-  2026-03-18 [Claude Sonnet 4.6]: buildPrompt npcCandidates 上限動態化、relevantLorebook 加入 affection≥60 條件（限候選名單內）、pinnedNpcs 去重、handleSendMessage [出場:] 改用 matchAll；types.ts 加 locationType；constants.ts 15 筆地點補值；useCommandParser LOCATION_DISCOVER 加 inferLocationType；LorebookModal 加地點類型下拉
-
-- [x] NPC 記憶庫設計
-  好感度達到 60 時解鎖，屬於永久性功能，不會因好感度下降而關閉。NPC_THOUGHT 跟 memories 優化。只有當 NPC 出現在 appearingNpcs 或 isPinned 時，才注入其記憶庫內容。當記憶庫累積到一定數量時，由助理 GM 主動觸發融合。
-
-- [x] 道具 effect 前端處理
-  2026-03-18 [Claude Sonnet 4.6]: types.ts ConsumableItem 已有 effect 欄位；useCommandParser applyItemEffect 修正 race condition 與負值防呆；ITEM_ADD / ITEM_USE 指令完整支援；App.tsx 道具欄「使用」按鈕整合完成。
-
-- [x] 指令執行結果顯示一致化（toastQueue → notifyCommandResult）
-  2026-03-18 [Claude Sonnet 4.6]: App.tsx 新增 notifyCommandResult（自適應間隔：≤3 條 700ms、4–6 條 500ms、7+ 條 350ms）、toastTimerRef 統一管理 timer；useCommandParser 局部變數改名 cmdResults，移除硬編碼 setTimeout 排隊，改呼叫 notifyCommandResult。
-
-- [x] 等待串流期間的視覺呈現
-  2026-03-19 [Claude Sonnet 4.6]: index.css 新增 `@keyframes blink-dot`；App.tsx 訊息渲染區判斷「最後一則 assistant 訊息 text 為空且 isLoading 為 true」時，顯示金色 `✦ 異世界正在回應` + 3 顆依序彈跳的金色小圓點（stagger 0 / 200 / 400ms），串流第一個字元到來後自動切回正常文字渲染。
-
-- [x] 道具 effect 前端處理
-  2026-03-18 [Claude Sonnet 4.6]: types.ts ConsumableItem 已有 effect 欄位；useCommandParser applyItemEffect 修正 race condition 與負值防呆；ITEM_ADD / ITEM_USE 指令完整支援；App.tsx 道具欄「使用」按鈕整合完成。
-
-- [x] 串流顯示策略（延遲顯示）
-
-  主 GM 採用**延遲顯示**而非即時串流，避免 `<<COMMANDS>>` 原始指令短暫顯示在對話框造成出戲感。
-
-  **執行順序**
-  ```
-  玩家送出訊息
-    → buildPrompt 組裝主 GM Prompt
-    → 主 GM 串流回覆（背景接收，不顯示）
-    → 串流結束，parseAndExecuteCommands 執行
-    → 解析 [出場:] 標記，更新 appearingNpcs
-    → setMessages 顯示最終 narrative（一次性呈現）
-    → 判斷是否觸發 GM 助理
-        → 若觸發：Sub GM 輸出 JSON，更新摘要與目標
-        → 若 diary_worthy 為 true：觸發水晶球日記，UI 亮點提示
-    → 自動存檔
-  ```
-
-- [x] B0-2｜callAI 重構：支援 mainGM / subGM 分流
-  2026-03-20 [Claude Sonnet 4.6]: callAI 加入 role/maxTokens/onChunk 參數，onChunk 存在走 streaming，否則走 generateContent
-
-- [x] B0-1｜State 升級：geminiApiKey → mainGMConfig / subGMConfig
-  2026-03-20 [Claude Sonnet 4.6]: types.ts 新增 GMConfig/SubGMConfig；App.tsx 以 mainGMConfig/subGMConfig state 取代 geminiApiKey/maxTokens，useState 初始化時執行 migrate
-
-- [x] B0-3｜移除 Gemini 硬綁定
-  2026-03-20 [Claude Sonnet 4.6]: handleGenerateDiary/handleMergeDiary 改走 callAI({role:'main'})；handleSendMessage 改走 callAI({role:'main',onChunk:()=>{}})；vite.config.ts 移除 define；.env.example 更新
 
 - [x] **視覺主題統一（CSS Variables 落地）**
 

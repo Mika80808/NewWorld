@@ -28,7 +28,7 @@ LLM 擔任 GM 的開放式世界文字冒險 RPG，玩家以自由文字輸入�
 - **框架**：React 19 + TypeScript + Vite
 - **樣式**：Tailwind CSS v4
 - **AI**：Google Gemini（`@google/genai`），透過 `callAI` 封裝層呼叫，不直接散落在各處
-- **儲存**：localStorage（未來規劃 Firebase 或 SQLite等技術）
+- **儲存**：localStorage（未來規劃 Firebase 或 SQLite 等技術）
 - **主要邏輯檔案**：`src/App.tsx`（所有邏輯集中此處，不新增其他邏輯檔案）
 - **自訂 Hooks**：`src/hooks/useGameStore.ts`（state）、`src/hooks/useCommandParser.ts`（指令解析）
 - **組件**：`src/components/`（純 UI，只接收 props 和 callback）
@@ -44,30 +44,143 @@ LLM 擔任 GM 的開放式世界文字冒險 RPG，玩家以自由文字輸入�
 
 ---
 
-## API 設定架構（B0 重構後）
+## 顏色系統強制規則 ⚠️
 
-> ⚠️ 目前仍在重構中（TODO 群組 B0），以下為目標狀態。重構完成前請查看 App.tsx 現況。
+**以下規則優先於所有其他考量，違反將導致主題不一致。**
+
+### 禁止事項
+1. **禁止硬編碼色碼** — 不得出現 `text-[#fde68a]`、`bg-[#24282d]`、`style={{ color: '#ff0000' }}` 等
+2. **禁止使用 Tailwind 內建顏色 class 於 UI 顏色** — 不得使用 `bg-gray-900`、`text-blue-400`、`bg-indigo-900` 等
+3. **禁止在 `@theme` 覆寫 Tailwind 顏色** — 舊的 `--color-emerald-400`、`--color-rose-400` 覆寫已全部移除，不得重新加入
+
+### 正確做法
+```tsx
+// ✅ 顏色一律用 CSS Variables
+<div style={{ background: 'var(--bg-elevated)', color: 'var(--text-primary)' }}>
+
+// ✅ Tailwind 只用於排版、間距、字體、圓角
+<div className="flex flex-col gap-2 p-4 rounded-[8px]"
+     style={{ background: 'var(--bg-elevated)' }}>
+
+// ❌ 禁止
+<div className="bg-[#24282d] text-[#fde68a]">
+<div className="bg-gray-900 text-amber-400">
+```
+
+### 唯一例外
+- `affectionColor()` 函數回傳的 CSS 變數字串，用於 `style={{ color }}` — **這是唯一允許的動態顏色**
+
+---
+
+## CSS Variables 完整清單（`src/index.css`）
+
+```css
+:root {
+  /* ── 背景層次 ──────────────────────────────────────────── */
+  --bg-base:         #0c0d0d;   /* 最外層背景 */
+  --bg-elevated:     #282929;   /* 左右側欄、Modal 底色 */
+  --bg-ui-card:      #353434;   /* Modal 內部二次容器（讓 A/B 區塊易於區別） */
+  --bg-overlay:      rgba(0, 0, 0, 0.2);
+  --bg-mark:         #ff637e;   /* 新日記亮點「通知」 */
+
+  /* ── 邊框 ───────────────────────────────────────────────── */
+  --border-default:  #4e4e4e;   /* 所有邊框 */
+  --border-width:    0.5px;
+  --border-accent:   #7e7c72;   /* 選中狀態邊框 */
+
+  /* ── 文字 ───────────────────────────────────────────────── */
+  --text-primary:    #e9d69e;   /* 左右欄功能名稱、Modal 名稱（暖黃） */
+  --text-title:      #ff11d7;   /* 欄位名稱、地名 */
+  --text-tab:        #fff7e2;   /* 分頁標題（如：人物、怪物） */
+  --text-body:       #fffaf1;   /* 地點介紹、一般段落 */
+  --text-main:       #e8e8e9;   /* 輸入文字 */
+  --text-muted:      #acacac;   /* 提示文字、時間戳、placeholder */
+  --text-stat-label: #bdb394;   /* 狀態名稱（HP、MP、金幣等標籤） */
+  --text-stat-value: #fafafa;   /* 狀態數值（HP、MP、金幣等數字） */
+  --text-danger:     #ff5757;   /* 危險動作文字（刪除、重置） */
+
+  /* ── 分頁 ───────────────────────────────────────────────── */
+  --tab-active:      #0069a8;   /* 選中分頁標籤底色 */
+  --tab-inactive:    #282929;   /* 未選中分頁標籤底色 */
+
+  /* ── 按鈕：Primary（新增、儲存）───────────────────────── */
+  --btn--text:           #ffffff;   /* 預設 */
+  --btn-primary:         #00598a;   /* 預設 */
+  --btn-primary-hover:   #006aa3;   /* 懸停 */
+  --btn-primary-active:  #007dbe;   /* 按下 */
+
+  /* ── 按鈕：Secondary（取消）────────────────────────────── */
+  --btn-secondary:         #a0a0a1;   /* 預設 */
+  --btn-secondary-hover:   #7d8694;   /* 懸停 */
+  --btn-secondary-active:  #a1a1a1;   /* 按下 */
+
+  /* ── 陰影 ───────────────────────────────────────────────── */
+  --shadow:          0 4px 12px rgba(16, 68, 171, 0.2);
+
+  /* ── 表單 ───────────────────────────────────────────────── */
+  --bg-sys-field:    #454545;   /* 輸入框底色 */
+  --bg-sys-tag:      #0092cc;   /* 關鍵字膠囊底色 */
+
+  /* ── 對話視窗 ───────────────────────────────────────────── */
+  --bg-bubble-self:    rgba(117, 117, 117, 0.15);  /* 玩家對話泡泡 */
+  --bg-bubble-npc:     rgba(68, 68, 68, 0.45);    /* NPC 對話泡泡 */
+  --bg-dialog-input:   #282929;                 /* 玩家輸入框 */
+  --text-dialog-main:  #fafafa;                 /* 對話台詞 */
+  --text-dialog-muted: #d1d1d1;                 /* 敘述描寫 */
+
+  /* ── 語意色（Tailwind 對應，取代 @theme 覆寫） ─────────── */
+  --color-rose:    #ff2222;   /* 刪除／危險動作 */
+  --color-emerald: #fb7185;   /* 好感度愛心（粉紅） */
+  --color-amber:   #ffd037;   /* 警告／稀有 */
+  --color-blue:    #5f93d3;   /* 連結／資訊 */
+  --color-violet:  #7008e7;   /* 魔法／特殊 */
+  --color-success: #4ade80;   /* 成功／進行中 */
+  --color-sky:     #30b1d8;   /* 已完成 */  
+  --color-taupe:   #ac9f9a;   /* 失敗／負面 */
+
+  /* ── 好感度顏色（固定語意色，不隨主題變動） ────────────── */
+  --affection-max:     #ff2d2d;   /* ≥ 100 */
+  --affection-high:    #ff7967;   /* ≥ 80  */
+  --affection-mid:     #ffaa83;   /* ≥ 50  */
+  --affection-low:     #acacac;   /* ≥ 0   */
+  --affection-hostile: #928366;   /* < 0（敵對） */
+
+  /* ── 任務卡片背景 ─────────────────────────────────────── */
+  --bg-quest-active:      rgba(22, 101, 52, 0.12);
+  --border-quest-active:  rgba(34, 197, 94, 0.30);
+  --bg-quest-pending:     rgba(120, 53, 15, 0.12);
+  --border-quest-pending: rgba(245, 158, 11, 0.40);
+  --bg-quest-failed:      rgba(69, 10, 10, 0.10);
+  --border-quest-failed:  rgba(153, 27, 27, 0.30);
+
+}
+```
+
+### 按鈕使用標準
+
+```tsx
+// Primary 按鈕（新增、儲存、確認）
+<button style={{
+  background: 'var(--btn-primary)',
+  boxShadow: 'var(--shadow)'
+}}
+onMouseEnter={e => e.currentTarget.style.background = 'var(--btn-primary-hover)'}
+onMouseLeave={e => e.currentTarget.style.background = 'var(--btn-primary)'}
+>
+
+// 危險動作（刪除、重置）→ 用紅色文字，不用紅色按鈕
+<button style={{ color: 'var(--text-danger)' }}>刪除</button>
+```
+
+---
+
+## API 設定架構
 
 玩家 API 設定**不隨存檔匯出/匯入**，單獨存在 localStorage：
 
 ```
 localStorage key: 'mainGM_config'   → 主 GM 設定
 localStorage key: 'subGM_config'    → 助理 GM 設定
-```
-
-資料結構：
-```typescript
-interface GMConfig {
-  provider: 'gemini'   // 目前只支援 gemini，框架預留擴充
-  apiKey: string
-  model: string        // 來自靜態清單，例如 'gemini-2.0-flash'
-  maxTokens: number
-  lastSaved: string    // ISO 時間字串
-}
-
-interface SubGMConfig extends GMConfig {
-  useSameKey: boolean  // true（預設）時使用主 GM 的 apiKey
-}
 ```
 
 **callAI 簽名：**
@@ -101,7 +214,7 @@ interface MemoryEntry {
   importance: 'critical' | 'normal' | 'flavor'
   content: string
   tags: {
-    locations: string[]               // 地點名稱，用於觸發篩選
+    locations: string[]
     npcs: string[]
     factions: string[]
     keywords: string[]
@@ -114,8 +227,8 @@ interface MemoryEntry {
   }
   isActive: boolean
   source: 'manual' | 'ai_generated'
-  createdAt: string                   // 遊戲內時間字串
-  expiresAt?: string                  // 選填，臨時記憶
+  createdAt: string
+  expiresAt?: string
 }
 ```
 
@@ -125,29 +238,29 @@ interface LorebookEntry {
   id: number
   title: string
   category: '地點' | 'NPC' | '怪物' | '物品' | '歷史' | string
-  content: string                     // 非 NPC 類使用
+  content: string
   isActive: boolean
   // NPC 類專用
-  gender?: string                     // 自由文字，例：男、女、無性別、不明
+  gender?: string
   job?: string
   appearance?: string
   personality?: string
-  backstory?: string                  // 角色背景故事，50 字以內；好感度 ≥ 20 永久解鎖顯示
+  backstory?: string                  // 好感度 ≥ 20 永久解鎖顯示
   other?: string
-  homeLocation?: string               // NPC 主場地點（唯寫一次）
-  roamLocations?: string[]            // 巡遊地點（滑動窗口，最多 3 個）
+  homeLocation?: string
+  roamLocations?: string[]            // 滑動窗口，最多 3 個
   // 地點類專用
   mapX?: number
   mapY?: number
   mapStatus?: 'heard' | 'known'
-  cartFare?: number
+  cartFare?: number                   // 由 AI 指令寫入，玩家 UI 不顯示
   adjacentTo?: string[]
   locationType?: 'town' | 'wilderness' | 'building'
   // 觸發控制（共用）
-  keywords: string[]                  // 主關鍵字（OR）
-  selective: boolean                  // true = AND 邏輯
-  secondaryKeys: string[]             // 次要關鍵字（selective=true 時使用）
-  insertionOrder: number              // 數字越小越先注入，預設 100
+  keywords: string[]
+  selective: boolean
+  secondaryKeys: string[]
+  insertionOrder: number              // 預設 100
 }
 ```
 
@@ -166,48 +279,20 @@ interface Npc {
   location?: string
   lastSeenLocation?: string
   lastSeenDate?: string
-  thoughts?: { text: string; createdAt: string }[]  // 最多 5 則，滿了寫入 memories
+  thoughts?: { text: string; createdAt: string }[]  // 最多 10 則，滿了寫入 memories
   isPinned?: boolean
   memories: NpcMemory[]
 }
 
 interface NpcMemory {
-  id: string                                // `nmem_${Date.now()}_${random}`
+  id: string
   text: string
-  createdAt: string                         // 遊戲內時間
+  createdAt: string
   source: 'manual' | 'pre_merge' | 'merged'
-  // manual    = 玩家手動輸入
-  // pre_merge = thoughts 自動串接（尚未 AI 融合）
-  // merged    = Sub GM AI 融合後的摘要
   importance: 'core' | 'normal'
-  // core   = 永遠注入 prompt
-  // normal = 截斷規則：最近 5 則，超過 300 字縮到 3 則
-  isMerged?: boolean                        // 已被融合，保留但不注入 prompt
-  mergedFrom?: string[]
-}
-```
-
-### diaryEntries[]（日記）
-```typescript
-interface DiaryEntry {
-  id: number
-  text: string
-  isActive: boolean
-  keywords: string[]                  // 空陣列 = 永遠注入；有值 = 關鍵字觸發
-  source?: 'manual' | 'ai_generated' | 'merged'
-  mergedFrom?: number[]
   isMerged?: boolean
-}
-```
-
-### 道具 / 裝備
-```typescript
-interface EquipmentItem {             // 穿戴型，舊名 InventoryItem
-  id: number; name: string; description: string; isEquipped: boolean
-}
-interface ItemEntry {                 // 使用型，舊名 ConsumableItem
-  id: number; name: string; quantity: number; description: string
-  effect?: { type: string; value: number }  // 前端直接套用的數值效果
+  mergedFrom?: string[]
+  isNew?: boolean
 }
 ```
 
@@ -218,11 +303,11 @@ interface ItemEntry {                 // 使用型，舊名 ConsumableItem
 **Phase 1（buildPrompt 入口）**：依地點篩選候選名單
 - `homeLocation === currentLocation` 或 `roamLocations.includes(currentLocation)` 的 NPC 列入候選
 - 上限：`locationType === 'town'` → 8 人，其他 → 3 人
-- 只輸出輕量名單給 AI（`[當前場景可能出現的角色]`），AI 決定誰真正出場
+- 只輸出輕量名單給 AI，AI 決定誰真正出場
 
 **Phase 2（handleSendMessage 後）**：AI 回應出現 `[出場:姓名]` 標記後完整注入
 - 更新 `appearingNpcs`，下一輪 `buildPrompt` 才注入完整 NPC 資料
-- 防呆：`matchAll` 收集所有標記並去重，避免重複注入
+- 防呆：`matchAll` 收集所有標記並去重
 
 **NPC 注入資格（Phase 2 後）**：
 1. `appearingNpcs` 裡的 NPC
@@ -232,8 +317,6 @@ interface ItemEntry {                 // 使用型，舊名 ConsumableItem
 ---
 
 ## AI 回應格式約定
-
-AI 回應包含指令區塊，**前端攔截解析，不顯示給玩家**：
 
 ```
 <<COMMANDS>>
@@ -246,7 +329,7 @@ TIME:+2h
 ITEM_ADD:草藥:1:回復 20 HP:heal:20
 ITEM_REMOVE:草藥:1
 ITEM_USE:草藥
-NPC_NEW:芬里爾:精靈:男:獵人:銀髮高挑:冷靜寡言:深山出身的獨行獵人，曾在戰爭中失去摯友。
+NPC_NEW:芬里爾:精靈:男:獵人:銀髮高挑:冷靜寡言:深山出身的獨行獵人。
 NPC_HOME:芬里爾:迷霧森林
 NPC_LOCATION:芬里爾:月湖鎮
 NPC_THOUGHT:芬里爾:覺得玩家值得信任
@@ -254,70 +337,10 @@ NPC_RELATIONSHIP:芬里爾:盟友
 QUEST_GOAL_MET:任務ID
 QUEST_COMPLETE:任務ID
 MEMORY_ADD:region:normal:迷霧森林昨日大火:locations=迷霧森林:keywords=大火:sticky=3
-MEMORY_ADD:world:critical:魔王宣戰:keywords=魔王,宣戰
 <</COMMANDS>>
 ```
 
-**NPC_NEW 完整格式：**
-```
-NPC_NEW:姓名:種族:性別:職業:外貌:性格:背景故事（50字以內）
-```
-- 背景故事為選填，省略時留空或不寫第 7 個參數
-- AI 創建新角色時應盡量生成背景故事，寫入 `lorebookEntries` 的 `backstory` 欄位
-
-**MEMORY_ADD 完整格式：**
-```
-MEMORY_ADD:type:importance:content:locations=x,y:npcs=a:factions=b:keywords=c,d:sticky=N:expires=日期
-```
-- `scene` / `region` 若未指定 `locations`，自動使用當前地點
-- 簡化格式也支援：`MEMORY_ADD:scene:內容`
-
 **COMMANDS 區塊在串流結束後才解析**，不要在串流中途觸發。
-
----
-
-## 深藍金主題 CSS Variables
-
-```css
-:root {
-  /* 主題色（可隨主題調整） */
-  --bg0:     #171617;   /* 最外層背景 */
-  --bg1:     #24282d;   /* 左右側欄 */
-  --bg2:     #303438;   /* 卡片、輸入框、對話泡泡 */
-  --border:  #444d5c;   /* 所有邊框（0.5px solid）*/
-  --text1:   #fbf5e4;   /* 主要文字 */
-  --text2:   #e8e8e9;   /* 次要文字、標籤 */
-  --text3:   #b7b4ae;   /* 提示文字、時間戳（placeholder 統一用此色）*/
-  --text4:   #e6d6bf;   /* 狀態數值專用（HP、MP、金幣等數字）*/
-  --accent:  #fde68a;   /* 金色強調 */
-  --danger:  #ff8866;   /* HP 警示 */
-
-  /* 好感度顏色（固定語意色，不隨主題變動） */
-  --affection-max:     #fb7185;               /* ≥ 100，彩度 100% */
-  --affection-high:    rgba(251,113,133,0.80); /* ≥ 80，彩度 80% */
-  --affection-mid:     rgba(251,113,133,0.60); /* ≥ 50，彩度 60% */
-  --affection-low:     #a0a0a0;               /* ≥ 0，淺灰 */
-  --affection-hostile: #505050;               /* < 0，深灰（敵對） */
-}
-```
-
-**藍色按鈕標準**（全專案統一）：
-```
-預設：#1044ab　　hover：#1a56db　　active：#2563eb
-shadow：0_4px_12px_rgba(16,68,171,0.2)
-```
-
-**Tailwind 語意色對應**（覆寫預設色票）：
-```
-rose-400    → #b0b0b0   （中性灰，用於刪除/危險動作）
-emerald-400 → #fb7185   （粉紅，用於好感度愛心等）
-amber-400   → #e8a88c   （暖橙，用於警告/稀有）
-blue-400    → #5f93d3   （中藍，用於連結/信息）
-violet-400  → #a78bfa   （紫，用於魔法/特殊）
-```
-
-- **字體**：`body { font-family: Georgia, serif; }`
-- **圓角規格**：大圓角 10px / 全圓角（膠囊）9999px / 設定集縮略卡 - 左上右下 8px，左下右上 0px / 其餘一律 8px
 
 ---
 
@@ -325,18 +348,17 @@ violet-400  → #a78bfa   （紫，用於魔法/特殊）
 
 | 決策 | 原因 |
 |---|---|
-| HP / MP 無上限 | 支援升級後成長感，不 clamp 到 maxHp/maxMp |
+| HP / MP 無上限 | 支援升級後成長感 |
 | 所有邏輯在 App.tsx | 維持簡單，避免跨檔依賴 |
 | localStorage 儲存 | 先做 UI，Firebase 之後再加 |
-| API Key 不進存檔 | 安全性考量，單獨存 localStorage |
+| API Key 不進存檔 | 安全性考量 |
 | callAI 封裝層 | 未來換 API 服務只需改一處 |
 | 記憶四層架構 | world / region / scene / npc，依影響範圍分層注入 |
-| Lorebook 關鍵字觸發 | 仿 SillyTavern，支援 AND/OR 邏輯 |
-| 深藍金主題 | 深海藍 × 金色手稿風，統一 UI 視覺語言 |
-| NPC 兩階段注入 | 避免全體 NPC 塞滿 prompt，Phase 1 輕量候選，Phase 2 出場才完整注入 |
-| 日記關鍵字觸發 | 玩家主控注入，GM 助理不自動新增關鍵字 |
-| 好感度顏色固定 | 語意色不隨主題變動，統一用 CSS 變數管理 |
-| backstory 在 lorebookEntries | 屬於靜態角色定義，由玩家填寫或 AI 創建時生成 |
+| CSS Variables 統一顏色 | 主題切換只需改 Variables，不動 className |
+| 顏色禁止硬編碼 | 維護性，未來多主題支援 |
+| NPC 兩階段注入 | 避免全體 NPC 塞滿 prompt |
+| 好感度顏色固定 | 語意色不隨主題變動 |
+| `cartFare` 僅 AI 寫入 | 玩家 UI 不顯示馬車費用欄位 |
 
 ---
 
@@ -364,9 +386,13 @@ violet-400  → #a78bfa   （紫，用於魔法/特殊）
 
 8. **`pinnedNpcs` 已在 `relevantLorebook` 去重**，不要讓同一 NPC 出現兩次於 prompt
 
-9. **`backstory` 解鎖條件是好感度 ≥ 20，永久解鎖**（不因好感度下降而隱藏）。UI 顯示在性格欄位下方，未解鎖時顯示「？？？」或隱藏。
+9. **`backstory` 解鎖條件是好感度 ≥ 20，永久解鎖**（不因好感度下降而隱藏）
 
-10. **好感度顏色一律使用 CSS 變數**（`var(--affection-*)`)，不要用 Tailwind class 或硬編碼色碼。`affectionColor()` 是唯一判斷入口。
+10. **好感度顏色一律使用 CSS 變數**（`var(--affection-*)`），`affectionColor()` 是唯一判斷入口
+
+11. **顏色禁止硬編碼，禁止使用 Tailwind 內建顏色 class**，一律用 CSS Variables（見上方「顏色系統強制規則」）
+
+12. **`@theme` 區塊只保留字體定義**，不得覆寫任何顏色
 
 ---
 
@@ -388,4 +414,4 @@ violet-400  → #a78bfa   （紫，用於魔法/特殊）
 | `useCommandParser` `triggerNpcMemoryMerge(npc)` | 呼叫助理 GM 融合 NPC 舊記憶 |
 | `useGameStore` `saveToStorage(snapshot?)` | 統一存檔入口（key: `rpworld_save`）|
 | `useGameStore` `loadFromData(data)` | 匯入存檔並自動 migrate 舊格式 |
-| `NpcModal.tsx` `affectionColor(affection)` | 回傳好感度對應 CSS 變數字串，供 `style={{ color }}` 使用 |
+| `NpcModal.tsx` `affectionColor(affection)` | 回傳好感度對應 CSS 變數字串 |
