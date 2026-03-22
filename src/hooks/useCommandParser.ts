@@ -94,6 +94,9 @@ export function useCommandParser(deps: CommandParserDeps) {
 
   // ─── 記憶計數器更新 ───────────────────────────────────────────────────────
   const tickMemoryCounters = (triggeredIds: string[]) => {
+    // 先計算哪些 id 的 sticky 歸零後需要進入 cooldown
+    const newCooldowns: Record<string, number> = {};
+
     setStickyCounters(prev => {
       const next = { ...prev };
       triggeredIds.forEach(id => {
@@ -108,7 +111,7 @@ export function useCommandParser(deps: CommandParserDeps) {
             const mem = memories.find(m => m.id === id);
             const cd = mem?.trigger?.cooldown ?? 0;
             if (cd > 0) {
-              setCooldownCounters(c => ({ ...c, [id]: cd }));
+              newCooldowns[id] = cd;
             }
           }
         }
@@ -116,9 +119,9 @@ export function useCommandParser(deps: CommandParserDeps) {
       return Object.fromEntries(Object.entries(next).filter(([, v]) => v > 0));
     });
     setCooldownCounters(prev => {
-      const next = { ...prev };
-      Object.keys(next).forEach(id => {
-        if (next[id] > 0) next[id] -= 1;
+      const next = { ...prev, ...newCooldowns };
+      Object.keys(prev).forEach(id => {
+        if (next[id] > 0 && !newCooldowns[id]) next[id] -= 1;
       });
       return Object.fromEntries(Object.entries(next).filter(([, v]) => v > 0));
     });
@@ -226,6 +229,24 @@ ${toMerge.map(m => `- ${m.text}`).join('\n')}`;
       setQuickOptions(allOptions.length > 0 ? allOptions : ['觀察四周', '檢查自己', '大聲求助']);
     } else {
       setQuickOptions(['觀察四周', '檢查自己', '大聲求助']);
+    }
+
+    // ── Fallback：掃描散落在敘事中的裸指令（AI 未包在 <<COMMANDS>> 內的情況）──
+    const bareCommandPattern = /^(HP:[+-]\d+|MP:[+-]\d+|GOLD:[+-]\d+|AFFINITY:.+:[+-]\d+|LOCATION:.+|TIME:\+\d+[hm]|ITEM_ADD:.+|ITEM_REMOVE:.+:\d+|ITEM_USE:.+|NPC_NEW:.+|NPC_HOME:.+:.+|NPC_LOCATION:.+:.+|NPC_THOUGHT:.+:.+|NPC_RELATIONSHIP:.+:.+|QUEST_ADD:.+|QUEST_GOAL_MET:.+|QUEST_COMPLETE:.+|MEMORY_ADD:.+|LOCATION_DISCOVER:.+)$/im;
+    const narrativeLines = narrative.split('\n');
+    const bareCommands: string[] = [];
+    const cleanLines: string[] = [];
+    for (const line of narrativeLines) {
+      const trimmed = line.trim().replace(/^<<|>>$/g, '');
+      if (bareCommandPattern.test(trimmed)) {
+        bareCommands.push(trimmed);
+      } else {
+        cleanLines.push(line);
+      }
+    }
+    if (bareCommands.length > 0) {
+      allCommands.push(...bareCommands);
+      narrative = cleanLines.join('\n').trim();
     }
 
     if (allCommands.length === 0) {
@@ -476,7 +497,7 @@ ${toMerge.map(m => `- ${m.text}`).join('\n')}`;
             return { ...npc, thoughts: updatedThoughts };
           }
 
-          // thoughts 滿 5 則：串接寫入 memories，清空 thoughts
+          // thoughts 滿 10 則：串接寫入 memories，清空 thoughts
           const mergedText = [...updatedThoughts]
             .reverse()
             .map(t => `[${t.createdAt}] ${t.text}`)
@@ -515,16 +536,16 @@ ${toMerge.map(m => `- ${m.text}`).join('\n')}`;
         continue;
       }
 
-      // NPC_NEW:姓名:種族:性別:職業:外貌:性格:背景故事（50字以內，選填）
-      const npcNewMatch = cmd.match(/^NPC_NEW:([^:]+):([^:]+):([^:]+):([^:]+):([^:]+):([^:]+)(?::(.+))?$/i);
+      // NPC_NEW:姓名:種族:性別:年齡:職業:外貌:性格:背景故事（50字以內，選填）
+      const npcNewMatch = cmd.match(/^NPC_NEW:([^:]+):([^:]+):([^:]+):([^:]+):([^:]+):([^:]+):([^:]+)(?::(.+))?$/i);
       if (npcNewMatch) {
-        const [, npcName, race, gender, job, appearance, personality, backstory] = npcNewMatch.map(s => s?.trim());
+        const [, npcName, race, gender, age, job, appearance, personality, backstory] = npcNewMatch.map(s => s?.trim());
         const newId = Date.now();
         setLorebookEntries(prev => {
           if (prev.some(e => e.title === npcName && e.category === 'NPC')) return prev;
           return [...prev, {
             id: newId, title: npcName, content: '', category: 'NPC', isActive: true,
-            gender, race, backstory, job, appearance, personality, other: '',
+            gender, race, age, backstory, job, appearance, personality, other: '',
             keywords: [npcName], selective: false, secondaryKeys: [], insertionOrder: 100,
             homeLocation: '', roamLocations: [],
           }];
@@ -533,7 +554,7 @@ ${toMerge.map(m => `- ${m.text}`).join('\n')}`;
           if (prev.some(n => n.name === npcName)) return prev;
           return [...prev, {
             id: newId + 1, name: npcName, job, affection: 0, affectionLabel: '陌生人',
-            appearance, personality, gender, race, backstory,
+            appearance, personality, gender, race, age, backstory,
             category: 'NPC', isActive: true, isPinned: false, memories: [], thoughts: [],
             location: currentLocation, lastSeenLocation: currentLocation,
           }];
@@ -572,10 +593,12 @@ ${toMerge.map(m => `- ${m.text}`).join('\n')}`;
         continue;
       }
 
-      // LOCATION_DISCOVER
-      const locDiscoverMatch = cmd.match(/^LOCATION_DISCOVER:(.+)$/i);
+      // LOCATION_DISCOVER:地點名稱:x:y
+      const locDiscoverMatch = cmd.match(/^LOCATION_DISCOVER:([^:]+):(-?\d+):(-?\d+)$/i);
       if (locDiscoverMatch) {
         const locName = locDiscoverMatch[1].trim();
+        const mapX = parseInt(locDiscoverMatch[2], 10);
+        const mapY = parseInt(locDiscoverMatch[3], 10);
 
         const inferLocationType = (name: string): 'town' | 'wilderness' | 'building' => {
           if (/館|店|坊|院|殿|堂|所|塔|屋|宅|公寓|廢墟|遺址|驛站|市集|詩社|花園/.test(name)) return 'building';
@@ -599,6 +622,8 @@ ${toMerge.map(m => `- ${m.text}`).join('\n')}`;
             content: '',
             category: '地點',
             isActive: true,
+            mapX,
+            mapY,
             mapStatus: 'heard' as const,
             locationType: inferLocationType(locName),
             keywords: [locName],
