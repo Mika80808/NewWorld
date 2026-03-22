@@ -27,11 +27,11 @@ function renderInline(text: string, keyPrefix: string): React.ReactNode[] {
     if (match.index > lastIndex) parts.push(text.slice(lastIndex, match.index));
     const token = match[0];
     if (token.startsWith('`')) {
-      parts.push(<span key={`${keyPrefix}-c${keyIdx++}`} className="text-rose-400 font-medium">{token.slice(1, -1)}</span>);
+      parts.push(<span key={`${keyPrefix}-c${keyIdx++}`} className="font-medium" style={{ color: 'var(--color-rose)' }}>{token.slice(1, -1)}</span>);
     } else if (token.startsWith('**')) {
       parts.push(<strong key={`${keyPrefix}-b${keyIdx++}`}>{token.slice(2, -2)}</strong>);
     } else {
-      parts.push(<em key={`${keyPrefix}-i${keyIdx++}`} className="text-[#e8e8e9]">{token.slice(1, -1)}</em>);
+      parts.push(<em key={`${keyPrefix}-i${keyIdx++}`} style={{ color: 'var(--text-dialog-muted)' }}>{token.slice(1, -1)}</em>);
     }
     lastIndex = match.index + token.length;
   }
@@ -60,9 +60,9 @@ function renderLines(text: string): React.ReactNode {
         i++;
       }
       result.push(
-        <div key={`bq-${startI}`} className="border-l-2 border-[#444d5c] pl-3 my-2 bg2-[#303438]/30 rounded-r-[8px] py-2 space-y-1">
+        <div key={`bq-${startI}`} className="border-l-2 pl-3 my-2 rounded-r-[8px] py-2 space-y-1" style={{ borderColor: 'var(--border-default)' }}>
           {quoteLines.map((ql, qi) => (
-            <p key={qi} className="text-[#e8e8e9] leading-relaxed text-sm">{renderInline(ql, `bq-${startI}-${qi}`)}</p>
+            <p key={qi} className="leading-relaxed text-sm" style={{ color: 'var(--text-body)' }}>{renderInline(ql, `bq-${startI}-${qi}`)}</p>
           ))}
         </div>
       );
@@ -70,7 +70,7 @@ function renderLines(text: string): React.ReactNode {
     }
     // 分隔線
     if (line.trim() === '---') {
-      result.push(<hr key={`hr-${i}`} className="border-[#444d5c]/60 my-3" />);
+      result.push(<hr key={`hr-${i}`} className="my-3" style={{ borderColor: 'var(--bg-elevated)', opacity: 0.6 }} />);
       i++; continue;
     }
     // 空行 → 間距
@@ -112,6 +112,13 @@ function renderMarkdown(text: string): React.ReactNode {
   );
 }
 
+// ─── 顯示時清理殘留指令（AI 有時不包在 COMMANDS 區塊內）─────────────────────
+const BARE_CMD_PATTERN = /^(?:<<)?(?:HP:[+-]\d+|MP:[+-]\d+|GOLD:[+-]\d+|AFFINITY:.+:[+-]?\d+|LOCATION:.+|TIME:\+\d+[hm]|ITEM_ADD:.+|ITEM_REMOVE:.+:\d+|ITEM_USE:.+|NPC_NEW:.+|NPC_HOME:[^:]+:.+|NPC_LOCATION:[^:]+:.+|NPC_THOUGHT:[^:]+:.+|NPC_RELATIONSHIP:[^:]+:.+|QUEST_ADD:.+|QUEST_GOAL_MET:.+|QUEST_COMPLETE:.+|MEMORY_ADD:.+|LOCATION_DISCOVER:.+)(?:>>)?$/;
+
+function stripBareCommands(text: string): string {
+  return text.split('\n').filter(line => !BARE_CMD_PATTERN.test(line.trim())).join('\n').replace(/\n{3,}/g, '\n\n').trim();
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 
 export default function App() {
@@ -124,6 +131,12 @@ export default function App() {
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
   const [isInventoryOpen, setIsInventoryOpen] = useState(false);
   const [isConsumablesOpen, setIsConsumablesOpen] = useState(false);
+  const inventoryBtnRef = useRef<HTMLButtonElement>(null);
+  const consumablesBtnRef = useRef<HTMLButtonElement>(null);
+  const inventoryPanelRef = useRef<HTMLDivElement>(null);
+  const consumablesPanelRef = useRef<HTMLDivElement>(null);
+  const [inventoryPanelPos, setInventoryPanelPos] = useState({ top: 0, left: 0 });
+  const [consumablesPanelPos, setConsumablesPanelPos] = useState({ top: 0, left: 0 });
   const [isUpdatingLog, setIsUpdatingLog] = useState(false);
 
   // 背景處理：整理冒險日誌與目標（使用 callAI 封裝層，不綁定特定 API）
@@ -207,7 +220,7 @@ ${lastMessages}`;
     const oldKey = localStorage.getItem('gemini_api_key');
     if (oldKey && !localStorage.getItem('mainGM_config')) {
       const cfg: GMConfig = {
-        provider: 'gemini', apiKey: oldKey, model: 'gemini-2.0-flash',
+        provider: 'gemini', apiKey: oldKey, model: 'gemini-2.5-flash',
         maxTokens: 2048, lastSaved: new Date().toISOString(),
       };
       localStorage.setItem('mainGM_config', JSON.stringify(cfg));
@@ -217,17 +230,25 @@ ${lastMessages}`;
     }
     try {
       const raw = localStorage.getItem('mainGM_config');
-      if (raw) return { provider: 'gemini', model: 'gemini-2.0-flash', maxTokens: 2048, apiKey: '', lastSaved: '', ...JSON.parse(raw) };
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed.model === 'gemini-2.0-flash') parsed.model = 'gemini-2.5-flash';
+        return { provider: 'gemini', model: 'gemini-2.5-flash', maxTokens: 2048, apiKey: '', lastSaved: '', ...parsed };
+      }
     } catch { /* ignore */ }
-    return { provider: 'gemini', apiKey: '', model: 'gemini-2.0-flash', maxTokens: 2048, lastSaved: '' };
+    return { provider: 'gemini', apiKey: '', model: 'gemini-2.5-flash', maxTokens: 2048, lastSaved: '' };
   });
 
   const [subGMConfig, setSubGMConfig] = useState<SubGMConfig>(() => {
     try {
       const raw = localStorage.getItem('subGM_config');
-      if (raw) return { provider: 'gemini', model: 'gemini-2.0-flash', maxTokens: 512, apiKey: '', useSameKey: true, lastSaved: '', ...JSON.parse(raw) };
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed.model === 'gemini-2.0-flash') parsed.model = 'gemini-2.5-flash';
+        return { provider: 'gemini', model: 'gemini-2.5-flash', maxTokens: 512, apiKey: '', useSameKey: true, lastSaved: '', ...parsed };
+      }
     } catch { /* ignore */ }
-    return { provider: 'gemini', apiKey: '', model: 'gemini-2.0-flash', maxTokens: 512, useSameKey: true, lastSaved: '' };
+    return { provider: 'gemini', apiKey: '', model: 'gemini-2.5-flash', maxTokens: 512, useSameKey: true, lastSaved: '' };
   });
 
   // ─── 遊戲狀態（useGameStore）────────────────────────────────────────────────
@@ -301,27 +322,27 @@ ${lastMessages}`;
 
   const getWeatherIcon = () => {
     switch (timeState.weather) {
-      case '晴朗': return <Sun className="w-3.5 h-3.5 mr-1.5 text-amber-400" />;
-      case '陰天': return <Cloud className="w-3.5 h-3.5 mr-1.5 text-[var(--text3)]" />;
-      case '下雨': return <CloudRain className="w-3.5 h-3.5 mr-1.5 text-blue-400" />;
-      case '下雪': return <Snowflake className="w-3.5 h-3.5 mr-1.5 text-sky-200" />;
-      case '起霧': return <Wind className="w-3.5 h-3.5 mr-1.5 text-[#e8e8e9]" />;
-      default: return <Sun className="w-3.5 h-3.5 mr-1.5 text-amber-400" />;
+      case '晴朗': return <Sun className="w-3.5 h-3.5 mr-1.5" style={{ color: 'var(--color-amber)' }} />;
+      case '陰天': return <Cloud className="w-3.5 h-3.5 mr-1.5 text-[var(--text-muted)]" />;
+      case '下雨': return <CloudRain className="w-3.5 h-3.5 mr-1.5" style={{ color: 'var(--color-blue)' }} />;
+      case '下雪': return <Snowflake className="w-3.5 h-3.5 mr-1.5" style={{ color: 'var(--color-sky)' }} />;
+      case '起霧': return <Wind className="w-3.5 h-3.5 mr-1.5" style={{ color: 'var(--text-body)' }} />;
+      default: return <Sun className="w-3.5 h-3.5 mr-1.5" style={{ color: 'var(--color-amber)' }} />;
     }
   };
   const getCelestialIcon = () => {
     if (timeState.month === 4) {
       return (
         <div className="flex items-center mr-1.5 relative w-5 h-4">
-          <Moon className="w-3.5 h-3.5 text-[#e8e8e9] absolute left-0" />
-          <Moon className="w-3.5 h-3.5 text-purple-300 absolute right-0 top-0.5 opacity-80" />
+          <Moon className="w-3.5 h-3.5 absolute left-0" style={{ color: 'var(--text-body)' }} />
+          <Moon className="w-3.5 h-3.5 absolute right-0 top-0.5 opacity-80" style={{ color: 'var(--color-violet)' }} />
         </div>
       );
     }
     if (timeOfDay === '夜晚' || timeOfDay === '清晨') {
-      return <Moon className="w-3.5 h-3.5 mr-1.5 text-[#e8e8e9]" />;
+      return <Moon className="w-3.5 h-3.5 mr-1.5" style={{ color: 'var(--text-body)' }} />;
     }
-    return <Sun className="w-3.5 h-3.5 mr-1.5 text-amber-500 opacity-50" />;
+    return <Sun className="w-3.5 h-3.5 mr-1.5 opacity-50" style={{ color: 'var(--color-amber)' }} />;
   };
 
   // ─── Toast（notifyCommandResult）────────────────────────────────────────────
@@ -376,7 +397,7 @@ ${lastMessages}`;
     const cfg = role === 'main' ? mainGMConfig : subGMConfig;
     const key = (role === 'sub' && subGMConfig.useSameKey) ? mainGMConfig.apiKey : cfg.apiKey;
     if (!key.trim()) return '';
-    const model = cfg.model || 'gemini-2.0-flash';
+    const model = cfg.model || 'gemini-2.5-flash';
     const tokens = options?.maxTokens ?? cfg.maxTokens;
     try {
       const ai = new GoogleGenAI({ apiKey: key.trim() });
@@ -395,7 +416,7 @@ ${lastMessages}`;
         });
         return response.text?.trim() || '';
       }
-    } catch { return ''; }
+    } catch (err) { throw err; }
   }, [mainGMConfig, subGMConfig]);
 
   // ─── 指令解析器（useCommandParser）─────────────────────────────────────────
@@ -452,6 +473,23 @@ ${lastMessages}`;
     return () => document.removeEventListener('click', handleClickOutside);
   }, [activeMenuId]);
 
+  useEffect(() => {
+    if (!isInventoryOpen && !isConsumablesOpen) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      const target = e.target as Node;
+      if (
+        inventoryBtnRef.current?.contains(target) ||
+        inventoryPanelRef.current?.contains(target) ||
+        consumablesBtnRef.current?.contains(target) ||
+        consumablesPanelRef.current?.contains(target)
+      ) return;
+      setIsInventoryOpen(false);
+      setIsConsumablesOpen(false);
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [isInventoryOpen, isConsumablesOpen]);
+
   const handleAddDiary = () => {
     const newId = Date.now();
     setDiaryEntries([{ id: newId, text: '', isActive: true, keywords: [] }, ...diaryEntries]);
@@ -486,7 +524,7 @@ ${lastMessages}`;
     ));
   };
 
-  // ─── 🔮 水晶球日記：AI 自動生成 ────────────────────────────────────────────
+  // ─── 🔮 魔法日記：AI 自動生成 ────────────────────────────────────────────
   const handleGenerateDiary = async () => {
     if (!mainGMConfig.apiKey.trim()) { showToast('❌ 請先設定 API Key'); return; }
     try {
@@ -586,6 +624,26 @@ ${recentChat}
     return newId;
   };
 
+  const handleAddNpc = () => {
+    const newId = Date.now();
+    const newNpc = {
+      id: newId, name: '新角色', job: '', affection: 0, affectionLabel: '陌生人',
+      appearance: '', personality: '', gender: '', race: '',
+      backstory: '', other: '', relationship: '',
+      location: '', lastSeenLocation: '',
+      category: 'NPC', isActive: true, isPinned: false, memories: [], thoughts: [],
+    };
+    const newLore = {
+      id: newId + 1, title: '新角色', category: 'NPC', content: '',
+      isActive: true, insertionOrder: 100, selective: false, secondaryKeys: [], keywords: [],
+      gender: '', race: '', age: '', job: '', appearance: '', personality: '', backstory: '', other: '',
+      homeLocation: '', roamLocations: [],
+    };
+    setNpcs(prev => [newNpc, ...prev]);
+    setLorebookEntries(prev => [newLore, ...prev]);
+    setSelectedNpc(newNpc);
+  };
+
   const visibleMessages = visibleMessageCount > 0 ? messages.slice(-visibleMessageCount) : [];
   const hiddenMessageCount = Math.max(messages.length - visibleMessages.length, 0);
 
@@ -639,29 +697,7 @@ ${recentChat}
     const safeName = (profile.name || '玩家').replace(/[\\/:*?"<>|]/g, '_');
     const defaultFilename = `RPworld-${safeName}-${date}-${hr}-${mi}.json`;
 
-    // 嘗試使用 File System Access API
-    if ('showSaveFilePicker' in window) {
-      try {
-        const handle = await (window as any).showSaveFilePicker({
-          suggestedName: defaultFilename,
-          types: [{
-            description: 'JSON 存檔',
-            accept: { 'application/json': ['.json'] },
-          }],
-        });
-        const writable = await handle.createWritable();
-        await writable.write(blob);
-        await writable.close();
-        showToast('存檔已匯出');
-        return;
-      } catch (err: any) {
-        // 如果使用者取消選擇，AbortError，不顯示錯誤
-        if (err.name === 'AbortError') return;
-        console.warn('File System Access API 失敗，退回傳統下載模式', err);
-      }
-    }
-
-    // 退回傳統下載模式
+    // 直接使用傳統下載模式（避免 showSaveFilePicker 與 fallback 雙重觸發）
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -746,6 +782,11 @@ ${recentChat}
       if (selectedNpc?.id === npcId) setSelectedNpc(updatedNpc);
       return updatedNpc;
     }));
+  };
+
+  const handleUpdateNpcName = (npcId: number, name: string) => {
+    setNpcs(prev => prev.map(n => n.id === npcId ? { ...n, name } : n));
+    setSelectedNpc(prev => prev?.id === npcId ? { ...prev, name } : prev);
   };
 
   const handleDeleteNpc = (npcId: number, lorebookId?: number) => {
@@ -981,8 +1022,9 @@ ${relevantLorebook.map(e => {
       }
     }
     const raceText = e.race ? `｜種族：${e.race}` : (e.other ? `｜備註：${e.other}` : '');
+    const ageText = e.age ? `｜年齡：${e.age}` : '';
     const backstoryText = (npcData?.affection ?? 0) >= 20 && e.backstory ? `｜背景：${e.backstory}` : '';
-    return `[NPC] ${e.title}｜性別：${e.gender || ''}${raceText}｜職業：${e.job || ''}｜外貌：${e.appearance || ''}｜個性：${e.personality || ''}${backstoryText}${thoughtsText}${memoriesText}`;
+    return `[NPC] ${e.title}｜性別：${e.gender || ''}${raceText}${ageText}｜職業：${e.job || ''}｜外貌：${e.appearance || ''}｜個性：${e.personality || ''}${backstoryText}${thoughtsText}${memoriesText}`;
   }
   return `[${e.category}] ${e.title}：${e.content}`;
 }).join('\n') || '（無）'}
@@ -996,9 +1038,10 @@ ${pinnedNpcs.length > 0 ? pinnedNpcs.map(n => {
     const lorePinned = lorebookEntries.find(e => e.category === 'NPC' && e.title === n.name);
     const genderPinned = lorePinned?.gender ? `${lorePinned.gender}・` : '';
     const racePinned = lorePinned?.race ? `種族：${lorePinned.race}｜` : '';
+    const agePinned = lorePinned?.age ? `年齡：${lorePinned.age}｜` : '';
     const jobPinned = lorePinned?.job ?? n.job ?? '';
     const backstoryPinned = n.affection >= 20 && lorePinned?.backstory ? `｜背景：${lorePinned.backstory}` : '';
-    const lines: string[] = [`- ${n.name}（${genderPinned}${jobPinned}）${racePinned}好感度:${n.affection}${backstoryPinned}${thoughtsText}`];
+    const lines: string[] = [`- ${n.name}（${genderPinned}${jobPinned}）${racePinned}${agePinned}好感度:${n.affection}${backstoryPinned}${thoughtsText}`];
     // 好感度 ≥ 60 且有記憶才注入
     if (n.affection >= 60 && n.memories && n.memories.length > 0) {
       const MAX_NORMAL = 5;
@@ -1065,17 +1108,17 @@ AFFINITY:角色名:+10
 LOCATION:新地點名稱
 TIME:+1h
 ITEM_ADD:道具名:1:說明文字
-- ITEM_ADD：當玩家獲得道具時輸出。若道具為消耗品（藥水、食物、卷軸等），請加上 effect 欄位（hp/mp/gold/status=值），前端會自動分類為消耗品欄並套用數值。
-- ITEM_USE：當玩家在對話中明確表示使用某消耗品時輸出，使用與道具欄完全相同的道具名稱，前端會套用 effect 並扣除數量。
+- ITEM_ADD：當玩家獲得道具時輸出，格式 ITEM_ADD:名稱:數量:說明文字。說明文字請描述外觀與用途。
+- ITEM_USE：當玩家明確使用某道具時輸出，前端會扣除數量，AI 根據道具說明接續描述效果。
 QUEST_ADD:任務名稱:委託人NPC:目標描述:獎勵金幣:獎勵道具(逗號分隔可留空):期限天數(可留空=無期限)
 QUEST_GOAL_MET:任務名稱
 QUEST_COMPLETE:任務名稱
 NPC_THOUGHT:角色名:一句話內心想法
 NPC_RELATIONSHIP:角色名:與玩家的關係描述
-NPC_NEW:姓名:種族:職業:外貌一句話:個性一句話
+NPC_NEW:姓名:種族:性別:年齡:職業:外貌一句話:個性一句話:背景故事（50字以內，選填）
 NPC_HOME:姓名:地點名稱
 NPC_LOCATION:姓名:地點名稱
-LOCATION_DISCOVER:地點名稱
+LOCATION_DISCOVER:地點名稱:x座標:y座標
 MEMORY_ADD:region:normal:迷霧森林昨日大火，黑牙氏族前往支援:locations=迷霧森林:factions=黑牙氏族:keywords=大火,火災:sticky=3
 MEMORY_ADD:scene:normal:酒館因打架暫時關閉:locations=酒館
 MEMORY_ADD:npc:normal:芬里爾透露停火協議內容:npcs=芬里爾:keywords=停火,協議
@@ -1093,7 +1136,6 @@ MEMORY_ADD:world:critical:魔王宣布向月湖鎮宣戰:keywords=魔王,宣戰
 
 【AI 何時應輸出 ITEM_ADD / ITEM_USE】
 - ITEM_ADD：當玩家獲得任何道具時輸出，格式 ITEM_ADD:名稱:數量:說明文字。說明文字請詳細描述外觀與效果，玩家使用時 AI 根據說明生成劇情。
-- ITEM_USE：當玩家明確使用某道具時輸出，前端會扣除數量並送訊息給 AI 接續描述。
 - ITEM_USE：當玩家明確使用某道具時輸出，前端會扣除數量並送訊息給 AI 接續描述。
 
 【AI 何時應輸出 QUEST_ADD】
@@ -1114,7 +1156,7 @@ MEMORY_ADD:world:critical:魔王宣布向月湖鎮宣戰:keywords=魔王,宣戰
 每個場景或回合開頭，從「當前場景可能出現的角色」候選名單中選擇誰真正在場；也可不選任何人（輸出 [出場:]），或加入候選名單以外的新角色。每次回應都應輸出此標記讓前端追蹤。
 
 【AI 何時應輸出 LOCATION_DISCOVER】
-當玩家在旅途中路過、聽說或間接發現某個尚未正式踏足的地點（如路牌、旅人提及、地圖殘片等），輸出 LOCATION_DISCOVER:地點名稱，前端會自動將其標記為「待探索」地點加入世界地圖。
+當玩家在旅途中路過、聽說或間接發現某個尚未記錄的地點（如路牌、旅人提及、地圖殘片等），輸出 LOCATION_DISCOVER:地點名稱:x:y，前端會以 heard 狀態將其加入世界地圖（虛線圓圈）。x/y 為地圖相對座標（整數，月湖鎮為 0,0），必須同時提供。
 
 【字體標記（可選）】
 敘事中若有特殊文體段落，可用以下標記包裹，前端會自動套用對應字體：
@@ -1168,6 +1210,12 @@ Please respond as the DM.`;
 
       // 使用 streaming（避免長回應 timeout），背景累積不即時顯示，避免 <<COMMANDS>> 閃現
       const fullText = await callAI(prompt, { role: 'main', onChunk: () => {} });
+      if (!fullText) {
+        showToast('❌ AI 沒有回應，請檢查 API Key 或網路連線');
+        if (aiMessageId !== null) setMessages(prev => prev.filter(m => m.id !== aiMessageId));
+        setIsLoading(false);
+        return;
+      }
 
       const { narrative: parsedNarrative, newItems } = parseAndExecuteCommands(fullText);
       const rawNarrative = parsedNarrative;
@@ -1253,148 +1301,167 @@ Please respond as the DM.`;
   };
 
   return (
-    <div className="flex flex-col h-screen bg-[#171617] text-[#fbf5e4] font-sans overflow-hidden" style={{backgroundImage: 'radial-gradient(ellipse at top right, #24282d, #303438, #171617)'}}>
+    <div className="flex flex-col h-screen font-sans overflow-hidden" style={{ background: 'var(--bg-base)', color: 'var(--text-title)', backgroundImage: 'radial-gradient(ellipse at top right, var(--bg-elevated), #303438, var(--bg-base))' }}>
       {/* Main Content */}
       <div className="flex flex-1 overflow-hidden">
-        
+
         {/* Left Panel */}
-        <div className="w-64 bg-[#24282d] flex flex-col p-4 space-y-4 overflow-y-auto z-10" style={{borderRight: '0.5px solid #444d5c'}}>
+        <div className="w-64 flex flex-col px-0 py-4 space-y-4 overflow-y-auto" style={{ background: 'var(--bg-elevated)', boxShadow: 'inset -1px 0 8px rgba(0, 0, 0, 0.2)' }}>
           {/* Adventure Log & Goals */}
-          <div className="text1-#fbf5e4 p-3 rounded-[8px] border border-[#444d5c] shadow-inner">
-            <h3 className="flex items-center text-[#fbf5e4] font-bold text-sm mb-2">
+          <div className="px-4 py-3 transition-all" style={{ boxShadow: 'none' }}
+            onMouseEnter={e => { e.currentTarget.style.boxShadow = '0 5px 10px rgba(204, 173, 105, 0.6), 0 12px 40px rgba(65, 46, 109, 0.3)'; }}
+            onMouseLeave={e => { e.currentTarget.style.boxShadow = 'none'; }}>
+            <h3 className="flex items-center font-bold text-lg mb-2" style={{ color: 'var(--text-primary)' }}>
               <ScrollText className="w-4 h-4 mr-2" /> 當前目標
               {isUpdatingLog && <RefreshCw className="w-3 h-3 ml-2 animate-spin opacity-50" />}
             </h3>
-            <ul className="text-xs space-y-1.5 text-[#e8e8e9]">
+            <ul className="text-sm space-y-1.5" style={{ color: 'var(--text-body)' }}>
               {currentGoals.length > 0 ? (
                 currentGoals.map((goal, i) => (
-                  <li key={i} className="flex items-start gap-2">
-                    <span className="mt-1 w-1 h-1 rounded-full bg-[#444d5c] flex-shrink-0" />
-                    <span>{goal}</span>
-                  </li>
+                  <li key={i} className="text-sm leading-relaxed pl-2 py-0.5 italic" style={{ color: 'var(--text-body)', borderLeft: '2px solid var(--border-default)' }}>{goal}</li>
                 ))
               ) : (
-                <li className="italic text-[var(--text3)]">暫無明確目標...</li>
+                <li className="text-sm ml-6 text-[var(--text-muted)] italic">暫無明確目標...</li>
               )}
             </ul>
           </div>
 
-          <div className="bg2-[#303438] p-3 rounded-[8px] border border-[#444d5c]">
-            <h3 className="flex items-center text-[#fbf5e4] font-bold text-sm mb-2">
-              <History className="w-4 h-4 mr-2 text1-[#fbf5e4]" /> 冒險摘要
+          <div className="px-4 py-3 transition-all" style={{ boxShadow: 'none' }}
+            onMouseEnter={e => { e.currentTarget.style.boxShadow = '0 5px 10px rgba(204, 173, 105, 0.6), 0 12px 40px rgba(65, 46, 109, 0.3)'; }}
+            onMouseLeave={e => { e.currentTarget.style.boxShadow = 'none'; }}>
+            <h3 className="flex items-center font-bold text-lg mb-2" style={{ color: 'var(--text-primary)' }}>
+              <History className="w-4 h-4 mr-2" /> 冒險摘要
             </h3>
             <div className="max-h-32 overflow-y-auto space-y-2 pr-1 custom-scrollbar">
               {adventureLog.length > 0 ? (
                 adventureLog.map((log, i) => (
-                  <div key={i} className="text-xs leading-relaxed text-[#e8e8e9] border-l border-[#444d5c] pl-2 py-0.5 italic">
+                  <div key={i} className="text-sm leading-relaxed pl-2 py-0.5 italic" style={{ color: 'var(--text-body)', borderLeft: '2px solid var(--border-default)' }}>
                     {log}
                   </div>
                 ))
               ) : (
-                <div className="text-xs text-[var(--text3)] italic">等待冒險展開...</div>
+                <div className="text-sm ml-6 text-[var(--text-muted)] italic">等待冒險展開...</div>
               )}
             </div>
           </div>
 
           <div
-            className="bg2-[#303438] p-3 rounded-[8px] cursor-pointer hover:bg2-[#303438] transition relative group"
-            style={{border: '0.5px solid #444d5c'}}
-            onMouseEnter={e => (e.currentTarget.style.borderColor = '#444d5c')}
-            onMouseLeave={e => (e.currentTarget.style.borderColor = '#444d5c')}
+            className="px-4 py-3 cursor-pointer transition-all relative group"
+            style={{ boxShadow: 'none' }}
+            onMouseEnter={e => { e.currentTarget.style.boxShadow = '0 5px 10px rgba(204, 173, 105, 0.6), 0 12px 40px rgba(65, 46, 109, 0.3)'; }}
+            onMouseLeave={e => { e.currentTarget.style.boxShadow = 'none'; }}
             onClick={() => setIsQuestModalOpen(true)}
           >
-            <div className="flex items-center justify-between mb-2">
-              <h3 className="flex items-center text-[#fbf5e4] font-bold"><Book className="w-4 h-4 mr-2" /> 任務日誌</h3>
-              <ChevronRight className="w-4 h-4 text-[#444d5c]/50 group-hover:text-[#444d5c] transition" />
+            <div className="flex items-center justify-between text-lg mb-2">
+              <h3 className="flex items-center font-bold" style={{ color: 'var(--text-primary)' }}><Book className="w-4 h-4 mr-2" /> 任務日誌</h3>
+              <ChevronRight className="w-4 h-4 transition" style={{ color: 'var(--bg-elevated)', opacity: 0.5 }} />
             </div>
-            <ul className="text-sm space-y-1 text-[#e8e8e9]">
+            <ul className="text-sm space-y-1" style={{ color: 'var(--text-body)' }}>
               {quests.filter(q => q.status === 'active').length > 0 ? (
                 <>
                   {quests.filter(q => q.status === 'active').slice(0, 3).map(q => (
                     <li key={q.id} className="flex items-center gap-1.5 truncate">
-                      <span className="w-1.5 h-1.5 rounded-full bg-[#fb7185] flex-shrink-0" />
+                      <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: 'var(--color-emerald)' }} />
                       <span className="truncate">{q.title}</span>
                     </li>
                   ))}
                   {quests.filter(q => q.status === 'active').length > 3 && (
-                    <li className="text-[var(--text3)] text-xs pl-3">…還有 {quests.filter(q => q.status === 'active').length - 3} 個</li>
+                    <li className="text-[var(--text-muted)] text-sm pl-3">…還有 {quests.filter(q => q.status === 'active').length - 3} 個</li>
                   )}
                 </>
               ) : (
-                <li className="text-xs text-[var(--text3)] italic">目前沒有任務</li>
+                <li className="text-sm ml-6 text-[var(--text-muted)] italic">目前沒有任務</li>
               )}
             </ul>
           </div>
-          
+
           <div className="relative">
-            <div className="bg2-[#303438] rounded-[8px] transition-colors" style={{border: '0.5px solid #444d5c'}}
-              onMouseEnter={e => (e.currentTarget.style.borderColor = '#444d5c')}
-              onMouseLeave={e => (e.currentTarget.style.borderColor = '#444d5c')}>
+            <div className="transition-all">
               <button
+                ref={inventoryBtnRef}
                 onClick={() => {
+                  if (!isInventoryOpen && inventoryBtnRef.current) {
+                    const rect = inventoryBtnRef.current.getBoundingClientRect();
+                    setInventoryPanelPos({ top: rect.top, left: rect.right + 8 });
+                  }
                   setIsInventoryOpen(!isInventoryOpen);
                   if (isConsumablesOpen) setIsConsumablesOpen(false);
                 }}
-                className={`w-full p-3 flex items-center justify-between hover:bg2-[#303438] transition rounded-[8px] ${isInventoryOpen ? 'bg2-[#303438]' : ''}`}
+                className="w-full px-4 py-3 flex items-center justify-between transition-all"
+                style={{ boxShadow: 'none' }}
+                onMouseEnter={e => { e.currentTarget.style.boxShadow = '0 5px 10px rgba(204, 173, 105, 0.6), 0 12px 40px rgba(65, 46, 109, 0.3)'; }}
+                onMouseLeave={e => { e.currentTarget.style.boxShadow = 'none'; }}
               >
-                <h3 className="flex items-center text-[#fbf5e4] font-bold">
+                <h3 className="flex items-center font-bold text-lg" style={{ color: 'var(--text-primary)' }}>
                   <Package className="w-4 h-4 mr-2" /> 裝備 ({equipment.length})
                 </h3>
-                <ChevronRight className={`w-4 h-4 text-[var(--text3)] transition-transform ${isInventoryOpen ? 'rotate-90 text-[#444d5c]' : ''}`} />
+                <ChevronRight className="w-4 h-4 transition-transform" style={{ color: isInventoryOpen ? 'var(--bg-elevated)' : 'var(--text-muted)', transform: isInventoryOpen ? 'rotate(90deg)' : undefined }} />
               </button>
             </div>
-            
+
             <AnimatePresence>
               {isInventoryOpen && (
-                <motion.div 
+                <motion.div
+                  ref={inventoryPanelRef}
                   initial={{ opacity: 0, x: -10, scale: 0.95 }}
                   animate={{ opacity: 1, x: 0, scale: 1 }}
                   exit={{ opacity: 0, x: -10, scale: 0.95 }}
                   transition={{ duration: 0.2, ease: "easeOut" }}
-                  className="absolute left-[calc(100%+8px)] top-0 w-72 bg2-[#303438]/95 backdrop-blur-xl border border-[#444d5c] rounded-[8px] shadow-[0_8px_32px_rgba(0,0,0,0.5)] z-50 flex flex-col overflow-hidden"
-                  style={{ maxHeight: '60vh' }}
+                  className="fixed w-72 backdrop-blur-xl rounded-[8px] z-[200] flex flex-col overflow-hidden"
+                  style={{ maxHeight: '60vh', top: inventoryPanelPos.top, left: inventoryPanelPos.left, border: `1px solid var(--border-default)`, background: 'color-mix(in srgb, var(--bg-elevated) 95%, transparent)' }}
                 >
-                  <div className="sticky top-0 bg-[#24282d]/90 backdrop-blur-md p-3 border-b border-[#444d5c] flex justify-between items-center z-10">
-                    <h3 className="text-[#444d5c] font-bold flex items-center text-sm"><Package className="w-4 h-4 mr-2" /> 裝備清單</h3>
-                    <button onClick={() => setIsInventoryOpen(false)} className="text-[var(--text3)] hover:text-[#fbf5e4] transition-colors p-1 rounded-full hover:bg-white/5">
+                  <div className="sticky top-0 backdrop-blur-md p-3 flex justify-between items-center z-10" style={{ background: 'color-mix(in srgb, var(--bg-elevated) 90%, transparent)', borderBottom: `1px solid rgba(0, 0, 0, 0.1)` }}>
+                    <h3 className="font-bold flex items-center text-sm" style={{ color: 'var(--bg-elevated)' }}><Package className="w-4 h-4 mr-2" /> 裝備清單</h3>
+                    <button onClick={() => setIsInventoryOpen(false)} className="text-[var(--text-muted)] hover:bg-white/5 transition-colors p-1 rounded-full" style={{ color: 'var(--text-muted)' }}>
                       <X className="w-4 h-4" />
                     </button>
                   </div>
                   <div className="p-3 space-y-2 overflow-y-auto custom-scrollbar flex-1">
                     {equipment.length > 0 ? equipment.map(item => (
-                      <div 
-                        key={item.id} 
-                        className={`bg2-[#303438]/50 p-2.5 rounded-[8px] border cursor-pointer transition-all ${selectedInventoryItem === item.id ? 'border-[#444d5c]/50 shadow-[0_0_10px_rgba(230,191,85,0.1)]' : 'border-[#444d5c]/50 hover:border-[#444d5c] hover:bg2-[#303438]'}`}
+                      <div
+                        key={item.id}
+                        className="p-2.5 rounded-[8px] border cursor-pointer transition-all"
+                        style={{ borderColor: `color-mix(in srgb, var(--bg-elevated) 50%, transparent)` }}
                         onClick={() => setSelectedInventoryItem(selectedInventoryItem === item.id ? null : item.id)}
                       >
                         <div className="flex justify-between items-center mb-1">
-                          <span className="text-sm font-medium text-[#fbf5e4]">{item.name}</span>
-                          <span className="text-xs font-mono bg-[#24282d] px-1.5 py-0.5 rounded-[8px] text-[#e8e8e9]">x{item.quantity}</span>
+                          <span className="text-sm font-medium" style={{ color: 'var(--text-title)' }}>{item.name}</span>
+                          <span className="text-sm font-mono px-1.5 py-0.5 rounded-[8px]" style={{ background: 'var(--bg-elevated)', color: 'var(--text-body)' }}>x{item.quantity}</span>
                         </div>
-                        <div className="text-xs text-[#e8e8e9]/80 leading-relaxed">{item.description}</div>
-                        
+                        <div className="text-sm leading-relaxed" style={{ color: 'color-mix(in srgb, var(--text-body) 80%, transparent)' }}>{item.description}</div>
+
                         <AnimatePresence>
                           {selectedInventoryItem === item.id && (
-                            <motion.div 
+                            <motion.div
                               initial={{ height: 0, opacity: 0 }}
                               animate={{ height: 'auto', opacity: 1 }}
                               exit={{ height: 0, opacity: 0 }}
-                              className="flex space-x-2 mt-2.5 pt-2.5 border-t border-[#444d5c]/50 overflow-hidden"
+                              className="flex space-x-2 mt-2.5 pt-2.5 overflow-hidden"
+                              style={{ borderTop: `1px solid color-mix(in srgb, var(--bg-elevated) 50%, transparent)` }}
                             >
-                              <button 
-                                className="flex-1 bg-[#444d5c]/30 hover:bg-[#444d5c]/60 text-xs py-1.5 rounded-[8px] transition text-[#fbf5e4] font-medium"
+                              <button
+                                className="flex-1 text-sm py-1.5 rounded-[8px] transition font-medium"
+                                style={{ background: 'color-mix(in srgb, var(--bg-elevated) 30%, transparent)', color: 'var(--text-title)' }}
+                                onMouseEnter={e => e.currentTarget.style.background = 'color-mix(in srgb, var(--bg-elevated) 60%, transparent)'}
+                                onMouseLeave={e => e.currentTarget.style.background = 'color-mix(in srgb, var(--bg-elevated) 30%, transparent)'}
                                 onClick={(e) => { e.stopPropagation(); showToast(`裝備了 ${item.name}`); setSelectedInventoryItem(null); }}
                               >
                                 裝備
                               </button>
-                              <button 
-                                className="flex-1 bg-[#444d5c]/30 hover:bg-[#444d5c]/60 text-xs py-1.5 rounded-[8px] transition text-[#fbf5e4] font-medium"
+                              <button
+                                className="flex-1 text-sm py-1.5 rounded-[8px] transition font-medium"
+                                style={{ background: 'color-mix(in srgb, var(--bg-elevated) 30%, transparent)', color: 'var(--text-title)' }}
+                                onMouseEnter={e => e.currentTarget.style.background = 'color-mix(in srgb, var(--bg-elevated) 60%, transparent)'}
+                                onMouseLeave={e => e.currentTarget.style.background = 'color-mix(in srgb, var(--bg-elevated) 30%, transparent)'}
                                 onClick={(e) => { e.stopPropagation(); showToast(`卸下了 ${item.name}`); setSelectedInventoryItem(null); }}
                               >
                                 卸下
                               </button>
                               <button
-                                className="flex-1 bg-rose-900/20 hover:bg-rose-900/40 text-rose-400 border border-rose-900/30 text-xs py-1.5 rounded-[8px] transition font-medium"
+                                className="flex-1 border text-sm py-1.5 rounded-[8px] transition font-medium"
+                                style={{ background: 'color-mix(in srgb, var(--color-rose) 10%, transparent)', color: 'var(--text-danger)', borderColor: 'color-mix(in srgb, var(--color-rose) 20%, transparent)' }}
+                                onMouseEnter={e => e.currentTarget.style.background = 'color-mix(in srgb, var(--color-rose) 20%, transparent)'}
+                                onMouseLeave={e => e.currentTarget.style.background = 'color-mix(in srgb, var(--color-rose) 10%, transparent)'}
                                 onClick={(e) => {
                                   e.stopPropagation();
                                   setEquipment(prev => prev.filter(i => i.id !== item.id));
@@ -1409,7 +1476,7 @@ Please respond as the DM.`;
                         </AnimatePresence>
                       </div>
                     )) : (
-                      <div className="text-center text-[var(--text3)] text-xs py-8 italic">背包空空如也...</div>
+                      <div className="text-center text-[var(--text-muted)] text-sm py-8 italic">背包空空如也...</div>
                     )}
                   </div>
                 </motion.div>
@@ -1418,62 +1485,74 @@ Please respond as the DM.`;
           </div>
 
           <div className="relative">
-            <div className="bg2-[#303438] rounded-[8px] transition-colors" style={{border: '0.5px solid #444d5c'}}
-              onMouseEnter={e => (e.currentTarget.style.borderColor = '#444d5c')}
-              onMouseLeave={e => (e.currentTarget.style.borderColor = '#444d5c')}>
+            <div className="transition-all">
               <button
+                ref={consumablesBtnRef}
                 onClick={() => {
+                  if (!isConsumablesOpen && consumablesBtnRef.current) {
+                    const rect = consumablesBtnRef.current.getBoundingClientRect();
+                    setConsumablesPanelPos({ top: rect.top, left: rect.right + 8 });
+                  }
                   setIsConsumablesOpen(!isConsumablesOpen);
                   if (isInventoryOpen) setIsInventoryOpen(false);
                 }}
-                className={`w-full p-3 flex items-center justify-between hover:bg2-[#303438] transition rounded-[8px] ${isConsumablesOpen ? 'bg2-[#303438]' : ''}`}
+                className="w-full px-4 py-3 flex items-center justify-between transition-all"
+                style={{ boxShadow: 'none' }}
+                onMouseEnter={e => { e.currentTarget.style.boxShadow = '0 5px 10px rgba(204, 173, 105, 0.6), 0 12px 40px rgba(65, 46, 109, 0.3)'; }}
+                onMouseLeave={e => { e.currentTarget.style.boxShadow = 'none'; }}
               >
-                <h3 className="flex items-center text-[#fbf5e4] font-bold">
+                <h3 className="flex items-center font-bold text-lg" style={{ color: 'var(--text-primary)' }}>
                   <Beaker className="w-4 h-4 mr-2" /> 消耗品 ({items.reduce((acc, item) => acc + item.quantity, 0)})
                 </h3>
-                <ChevronRight className={`w-4 h-4 text-[var(--text3)] transition-transform ${isConsumablesOpen ? 'rotate-90 text-[#444d5c]' : ''}`} />
+                <ChevronRight className="w-4 h-4 transition-transform" style={{ color: isConsumablesOpen ? 'var(--bg-elevated)' : 'var(--text-muted)', transform: isConsumablesOpen ? 'rotate(90deg)' : undefined }} />
               </button>
             </div>
             
             <AnimatePresence>
               {isConsumablesOpen && (
-                <motion.div 
+                <motion.div
+                  ref={consumablesPanelRef}
                   initial={{ opacity: 0, x: -10, scale: 0.95 }}
                   animate={{ opacity: 1, x: 0, scale: 1 }}
                   exit={{ opacity: 0, x: -10, scale: 0.95 }}
                   transition={{ duration: 0.2, ease: "easeOut" }}
-                  className="absolute left-[calc(100%+8px)] top-0 w-72 bg2-[#303438]/95 backdrop-blur-xl border border-[#444d5c] rounded-[8px] shadow-[0_8px_32px_rgba(0,0,0,0.5)] z-50 flex flex-col overflow-hidden"
-                  style={{ maxHeight: '60vh' }}
+                  className="fixed w-72 backdrop-blur-xl rounded-[8px] z-[200] flex flex-col overflow-hidden"
+                  style={{ maxHeight: '60vh', top: consumablesPanelPos.top, left: consumablesPanelPos.left, border: `1px solid var(--border-default)`, background: 'color-mix(in srgb, var(--bg-elevated) 95%, transparent)' }}
                 >
-                  <div className="sticky top-0 bg-[#24282d]/90 backdrop-blur-md p-3 border-b border-[#444d5c] flex justify-between items-center z-10">
-                    <h3 className="text-[#444d5c] font-bold flex items-center text-sm"><Beaker className="w-4 h-4 mr-2" /> 消耗品清單</h3>
-                    <button onClick={() => setIsConsumablesOpen(false)} className="text-[var(--text3)] hover:text-[#fbf5e4] transition-colors p-1 rounded-full hover:bg-white/5">
+                  <div className="sticky top-0 backdrop-blur-md p-3 flex justify-between items-center z-10" style={{ background: 'color-mix(in srgb, var(--bg-elevated) 90%, transparent)', borderBottom: `1px solid rgba(0, 0, 0, 0.1)` }}>
+                    <h3 className="font-bold flex items-center text-sm" style={{ color: 'var(--bg-elevated)' }}><Beaker className="w-4 h-4 mr-2" /> 消耗品清單</h3>
+                    <button onClick={() => setIsConsumablesOpen(false)} className="hover:bg-white/5 transition-colors p-1 rounded-full" style={{ color: 'var(--text-muted)' }}>
                       <X className="w-4 h-4" />
                     </button>
                   </div>
                   <div className="p-3 space-y-2 overflow-y-auto custom-scrollbar flex-1">
                     {items.length > 0 ? items.map(item => (
-                      <div 
-                        key={item.id} 
-                        className={`bg2-[#303438]/50 p-2.5 rounded-[8px] border cursor-pointer transition-all ${selectedConsumableItem === item.id ? 'border-[#444d5c]/50 shadow-[0_0_10px_rgba(230,191,85,0.1)]' : 'border-[#444d5c]/50 hover:border-[#444d5c] hover:bg2-[#303438]'}`}
+                      <div
+                        key={item.id}
+                        className="p-2.5 rounded-[8px] border cursor-pointer transition-all"
+                        style={{ borderColor: `color-mix(in srgb, var(--bg-elevated) 50%, transparent)` }}
                         onClick={() => setSelectedConsumableItem(selectedConsumableItem === item.id ? null : item.id)}
                       >
                         <div className="flex justify-between items-center mb-1">
-                          <span className="text-sm font-medium text-[#fbf5e4]">{item.name}</span>
-                          <span className="text-xs font-mono bg-[#24282d] px-1.5 py-0.5 rounded-[8px] text-[#e8e8e9]">x{item.quantity}</span>
+                          <span className="text-sm font-medium" style={{ color: 'var(--text-title)' }}>{item.name}</span>
+                          <span className="text-sm font-mono px-1.5 py-0.5 rounded-[8px]" style={{ background: 'var(--bg-elevated)', color: 'var(--text-body)' }}>x{item.quantity}</span>
                         </div>
-                        <div className="text-xs text-[#e8e8e9]/80 leading-relaxed">{item.description}</div>
-                        
+                        <div className="text-sm leading-relaxed" style={{ color: 'color-mix(in srgb, var(--text-body) 80%, transparent)' }}>{item.description}</div>
+
                         <AnimatePresence>
                           {selectedConsumableItem === item.id && (
-                            <motion.div 
+                            <motion.div
                               initial={{ height: 0, opacity: 0 }}
                               animate={{ height: 'auto', opacity: 1 }}
                               exit={{ height: 0, opacity: 0 }}
-                              className="flex space-x-2 mt-2.5 pt-2.5 border-t border-[#444d5c]/50 overflow-hidden"
+                              className="flex space-x-2 mt-2.5 pt-2.5 overflow-hidden"
+                              style={{ borderTop: `1px solid color-mix(in srgb, var(--bg-elevated) 50%, transparent)` }}
                             >
                               <button
-                                className="flex-1 bg-emerald-900/20 hover:bg-emerald-900/40 text-[#fb7185] border border-emerald-900/30 text-xs py-1.5 rounded-[8px] transition font-medium"
+                                className="flex-1 border text-sm py-1.5 rounded-[8px] transition font-medium"
+                                style={{ background: 'color-mix(in srgb, var(--color-emerald) 10%, transparent)', color: 'var(--color-emerald)', borderColor: 'color-mix(in srgb, var(--color-emerald) 20%, transparent)' }}
+                                onMouseEnter={e => e.currentTarget.style.background = 'color-mix(in srgb, var(--color-emerald) 20%, transparent)'}
+                                onMouseLeave={e => e.currentTarget.style.background = 'color-mix(in srgb, var(--color-emerald) 10%, transparent)'}
                                 onClick={(e) => {
                                   e.stopPropagation();
                                   useItem(item.name);
@@ -1483,10 +1562,13 @@ Please respond as the DM.`;
                               >
                                 使用
                               </button>
-                              <button 
-                                className="flex-1 bg-rose-900/20 hover:bg-rose-900/40 text-rose-400 border border-rose-900/30 text-xs py-1.5 rounded-[8px] transition font-medium"
-                                onClick={(e) => { 
-                                  e.stopPropagation(); 
+                              <button
+                                className="flex-1 border text-sm py-1.5 rounded-[8px] transition font-medium"
+                                style={{ background: 'color-mix(in srgb, var(--color-rose) 10%, transparent)', color: 'var(--text-danger)', borderColor: 'color-mix(in srgb, var(--color-rose) 20%, transparent)' }}
+                                onMouseEnter={e => e.currentTarget.style.background = 'color-mix(in srgb, var(--color-rose) 20%, transparent)'}
+                                onMouseLeave={e => e.currentTarget.style.background = 'color-mix(in srgb, var(--color-rose) 10%, transparent)'}
+                                onClick={(e) => {
+                                  e.stopPropagation();
                                   setItems(prev => prev.filter(i => i.id !== item.id));
                                   showToast(`丟棄了 ${item.name}`);
                                   setSelectedConsumableItem(null);
@@ -1499,7 +1581,7 @@ Please respond as the DM.`;
                         </AnimatePresence>
                       </div>
                     )) : (
-                      <div className="text-center text-[var(--text3)] text-xs py-8 italic">沒有任何消耗品...</div>
+                      <div className="text-center text-[var(--text-muted)] text-sm py-8 italic">沒有任何消耗品...</div>
                     )}
                   </div>
                 </motion.div>
@@ -1508,34 +1590,34 @@ Please respond as the DM.`;
           </div>
 
           <div
-            className="bg2-[#303438] p-3 rounded-[8px] cursor-pointer hover:bg2-[#303438] transition"
-            style={{border: '0.5px solid #444d5c'}}
-            onMouseEnter={e => (e.currentTarget.style.borderColor = '#444d5c')}
-            onMouseLeave={e => (e.currentTarget.style.borderColor = '#444d5c')}
+            className="px-4 py-3 cursor-pointer transition-all"
+            style={{ boxShadow: 'none' }}
+            onMouseEnter={e => { e.currentTarget.style.boxShadow = '0 5px 10px rgba(204, 173, 105, 0.6), 0 12px 40px rgba(65, 46, 109, 0.3)'; }}
+            onMouseLeave={e => { e.currentTarget.style.boxShadow = 'none'; }}
             onClick={() => setIsDiaryModalOpen(true)}
           >
-            <h3 className="flex items-center text-[#fbf5e4] font-bold"><Book className="w-4 h-4 mr-2" />日記</h3>
+            <h3 className="flex items-center font-bold text-lg" style={{ color: 'var(--text-primary)' }}><Book className="w-4 h-4 mr-2" />日記</h3>
           </div>
 
           {npcs.filter(n => n.isPinned).length > 0 && (
-            <div className="bg2-[#303438] rounded-[8px] overflow-hidden p-3" style={{border: '0.5px solid #444d5c'}}
-              onMouseEnter={e => (e.currentTarget.style.borderColor = '#444d5c')}
-              onMouseLeave={e => (e.currentTarget.style.borderColor = '#444d5c')}>
-              <h3 className="text-[#444d5c] font-bold mb-3">✦ 關注</h3>
+            <div className="overflow-hidden px-4 py-3 transition-all" style={{ boxShadow: 'none' }}
+            onMouseEnter={e => { e.currentTarget.style.boxShadow = '0 8px 20px rgba(99, 102, 241, 0.6), 0 12px 40px rgba(34, 211, 238, 0.3)'; }}
+            onMouseLeave={e => { e.currentTarget.style.boxShadow = 'none'; }}>
+              <h3 className="font-bold mb-3" style={{ color: 'var(--text-primary)' }}>✦ 關注</h3>
               <div className="space-y-2">
                 {npcs.filter(n => n.isPinned).map(npc => (
                   <div
                     key={npc.id}
-                    className="bg2-[#303438]/60 backdrop-blur-md p-3 rounded-[10px] flex justify-between items-center cursor-pointer hover:bg2-[#303438] transition-all duration-300 shadow-md border border-white/5 relative overflow-hidden group/pinned"
+                    className="backdrop-blur-md p-3 rounded-[10px] flex justify-between items-center cursor-pointer transition-all duration-300 shadow-md border border-white/5 relative overflow-hidden group/pinned"
                     onClick={() => setSelectedNpc(npc)}
                   >
-                    <div className="absolute top-0 left-0 w-1 h-full bg-[#444d5c] opacity-40"></div>
+                    <div className="absolute top-0 left-0 w-1 h-full opacity-40" style={{ background: 'var(--border-accent)' }}></div>
                     <div>
-                      <div className="text-sm font-bold text-[#fbf5e4] group-hover/pinned:text-[#444d5c] transition-colors">{npc.name}</div>
-                      <div className="text-xs text-[#e8e8e9] uppercase tracking-tighter">{npc.job}</div>
+                      <div className="text-sm font-bold" style={{ color: 'var(--text-title)' }}>{npc.name}</div>
+                      <div className="text-sm uppercase tracking-tighter" style={{ color: 'var(--text-body)' }}>{npc.job}</div>
                     </div>
                     <div className="flex flex-col items-end">
-                      <div className="text-xs flex items-center bg-black/20 px-2 py-0.5 rounded-full border border-white/10" style={{ color: affectionColor(npc.affection) }}>
+                      <div className="text-sm flex items-center bg-black/20 px-2 py-0.5 rounded-full border border-white/10" style={{ color: affectionColor(npc.affection) }}>
                         <Heart className="w-3 h-3 mr-1 fill-current" /> {npc.affection}
                       </div>
                     </div>
@@ -1547,22 +1629,22 @@ Please respond as the DM.`;
 
           <div className="flex-1"></div>
 
-          <div className="grid grid-cols-2 gap-2 mt-auto">
+          <div className="grid grid-cols-2 gap-2 mt-auto px-4">
             {[
-              { label: '個人資訊', icon: <User className="w-4 h-4 mr-2" />, action: () => setIsProfileModalOpen(true) },
-              { label: '設定集', icon: <BookOpen className="w-4 h-4 mr-2" />, action: () => setIsLorebookModalOpen(true) },
-              { label: '設定', icon: <Settings className="w-4 h-4 mr-2" />, action: () => setIsSettingsModalOpen(true) },
-              { label: 'Prompt', icon: <Brain className="w-4 h-4 mr-2" />, action: () => setIsSystemPromptModalOpen(true) },
+              { label: '個人資訊', action: () => setIsProfileModalOpen(true) },
+              { label: '故事集', action: () => setIsLorebookModalOpen(true) },
+              { label: '系統', icon: <Settings className="w-4 h-4 mr-2" />, action: () => setIsSettingsModalOpen(true) },
+              { label: 'Prompt', action: () => setIsSystemPromptModalOpen(true) },
             ].map(item => (
               <div
                 key={item.label}
-                className="bg2-[#303438] p-2 rounded-[8px] cursor-pointer hover:bg2-[#303438] transition flex items-center justify-center"
-                style={{border: '0.5px solid #444d5c'}}
-                onMouseEnter={e => (e.currentTarget.style.borderColor = '#444d5c')}
-                onMouseLeave={e => (e.currentTarget.style.borderColor = '#444d5c')}
+                className="p-2 rounded-[5px] cursor-pointer transition-all flex items-center justify-center"
+                style={{ boxShadow: '0 2px 8px rgba(0, 0, 0, 0.44)' }}
+                onMouseEnter={e => { e.currentTarget.style.boxShadow = '0 6px 10px rgba(204, 173, 105, 0.3), 0 12px 40px rgba(10, 10, 10, 0.71)'; }}
+                onMouseLeave={e => { e.currentTarget.style.boxShadow = '0 2px 8px rgba(0, 0, 0, 0.44)'; }}
                 onClick={item.action}
               >
-                <span className="flex items-center text-[#fbf5e4] font-bold text-sm">{item.icon}{item.label}</span>
+                <span className="flex items-center font-bold text-sm" style={{ color: 'var(--text-tab)' }}>{item.icon}{item.label}</span>
               </div>
             ))}
           </div>
@@ -1572,7 +1654,7 @@ Please respond as the DM.`;
             const timeStr = lastSavedAt.toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
             const dateStr = lastSavedAt.toLocaleDateString('zh-TW', { month: 'numeric', day: 'numeric' });
             return (
-              <p className="text-center text-xs text-[var(--text3)] mt-1.5">
+              <p className="text-center text-sm text-[var(--text-muted)] mt-1.5">
                 上次存檔 {isToday ? timeStr : `${dateStr} ${timeStr}`}
               </p>
             );
@@ -1582,11 +1664,14 @@ Please respond as the DM.`;
         {/* Center Panel */}
         <div className="flex-1 flex flex-col bg-transparent relative">
           {/* Scene Bar */}
-          <div className="bg-[#24282d]/40 backdrop-blur-md border-b border-white/5 shadow-[0_4px_24px_rgba(0,0,0,0.2)] p-3 flex items-center justify-end absolute top-0 w-full z-30">
+          <div className="backdrop-blur-md border-b border-white/5 shadow-[0_4px_24px_rgba(0,0,0,0.2)] p-3 flex items-center justify-end absolute top-0 w-full z-30" style={{ background: 'color-mix(in srgb, var(--bg-elevated) 40%, transparent)' }}>
             <div className="flex space-x-2">
-              <button 
+              <button
                 onClick={() => setIsMapOpen(true)}
-                className="px-3 py-1.5 rounded-[8px] text-xs font-medium transition bg-[#444d5c]/20 text-[#444d5c] hover:bg-[#444d5c]/40 border border-[#444d5c]/30 flex items-center"
+                className="px-5 py-1 rounded-[8px] text-base font-medium transition flex items-center"
+                style={{ background: 'color-mix(in srgb, var(--bg-elevated) 80%, transparent)', color: 'var(--text-primary)', border: `1px solid color-mix(in srgb, var(--border-default), transparent)` }}
+                onMouseEnter={e => e.currentTarget.style.background = 'color-mix(in srgb, var(--bg-elevated) 40%, transparent)'}
+                onMouseLeave={e => e.currentTarget.style.background = 'color-mix(in srgb, var(--bg-elevated) 20%, transparent)'}
               >
                 <MapIcon className="w-3.5 h-3.5 mr-1" />
                 世界地圖
@@ -1610,64 +1695,98 @@ Please respond as the DM.`;
               <div key={msg.id} className={`flex flex-col ${msg.role === 'user' ? 'items-end pl-5' : 'items-start pr-5'} max-w-3xl mx-auto w-full group relative ${activeMenuId === msg.id ? 'z-20' : 'z-0'}`}>
                 
                 <div className={`flex items-center space-x-2 mb-1 ${msg.role === 'user' ? 'mr-2 flex-row-reverse space-x-reverse' : 'ml-2'}`}>
-                  <span className="text-xs text-[var(--text3)] font-bold">
+                  <span className="text-sm text-[var(--text-muted)] font-bold">
                     {msg.role === 'user' ? profile.name : '異世界'}
                   </span>
                   <div className={`flex items-center space-x-1 opacity-0 group-hover:opacity-100 transition ${activeMenuId === msg.id ? 'opacity-100' : ''}`}>
                     {msg.role !== 'user' && (
-                      <button 
+                      <button
                         onClick={() => handleRegenerate(msg.id)}
                         disabled={isLoading}
-                        className="p-1 text-[var(--text3)] hover:text-[#e8e8e9] rounded-[8px] transition disabled:opacity-50 disabled:cursor-not-allowed" 
+                        className="p-1 text-[var(--text-muted)] rounded-[8px] transition disabled:opacity-50 disabled:cursor-not-allowed"
+                        style={{ '--hover-color': 'var(--text-body)' } as React.CSSProperties}
+                        onMouseEnter={e => (e.currentTarget as HTMLElement).style.color = 'var(--text-body)'}
+                        onMouseLeave={e => (e.currentTarget as HTMLElement).style.color = ''}
                         title="重新生成"
                       >
                         <RefreshCw className="w-3.5 h-3.5" />
                       </button>
                     )}
                     <div className="relative">
-                      <button 
+                      <button
                         onClick={(e) => {
                           e.stopPropagation();
                           setActiveMenuId(activeMenuId === msg.id ? null : msg.id);
                         }}
-                        className="p-1 text-[var(--text3)] hover:text-[#e8e8e9] rounded-[8px] transition"
+                        className="p-1 text-[var(--text-muted)] rounded-[8px] transition"
+                        onMouseEnter={e => (e.currentTarget as HTMLElement).style.color = 'var(--text-body)'}
+                        onMouseLeave={e => (e.currentTarget as HTMLElement).style.color = ''}
                         title="更多選項"
                       >
                         <MoreVertical className="w-3.5 h-3.5" />
                       </button>
-                      
+
                       {activeMenuId === msg.id && (
-                        <div className={`absolute top-full mt-1 w-24 bg2-[#303438]/90 backdrop-blur-md border border-white/10 rounded-[10px] shadow-[0_0_20px_rgba(0,0,0,0.3)] z-50 overflow-hidden flex flex-col ${msg.role === 'user' ? 'right-0' : 'left-0'}`}>
-                          <button 
-                            className="px-3 py-2 text-xs text-[#e8e8e9] hover:bg2-[#303438]/50 text-left transition"
-                            onClick={(e) => { 
-                              e.stopPropagation(); 
-                              navigator.clipboard.writeText(msg.text).then(() => showToast('已複製訊息')).catch(() => showToast('複製失敗'));
-                              setActiveMenuId(null); 
+                        <div className={`absolute bottom-full mb-1 w-24 backdrop-blur-md border border-white/10 rounded-[10px] shadow-[0_0_20px_rgba(0,0,0,0.3)] z-50 overflow-hidden flex flex-col ${msg.role === 'user' ? 'right-0' : 'left-0'}`} style={{ background: 'color-mix(in srgb, var(--bg-elevated) 90%, transparent)' }}>
+                          <button
+                            className="px-3 py-2 text-sm text-left transition"
+                            style={{ color: 'var(--text-body)' }}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              const copyText = (text: string) => {
+                                if (navigator.clipboard?.writeText) {
+                                  navigator.clipboard.writeText(text).then(() => showToast('已複製訊息')).catch(() => {
+                                    // fallback for non-secure contexts
+                                    const ta = document.createElement('textarea');
+                                    ta.value = text;
+                                    ta.style.position = 'fixed';
+                                    ta.style.opacity = '0';
+                                    document.body.appendChild(ta);
+                                    ta.select();
+                                    document.execCommand('copy');
+                                    document.body.removeChild(ta);
+                                    showToast('已複製訊息');
+                                  });
+                                } else {
+                                  const ta = document.createElement('textarea');
+                                  ta.value = text;
+                                  ta.style.position = 'fixed';
+                                  ta.style.opacity = '0';
+                                  document.body.appendChild(ta);
+                                  ta.select();
+                                  document.execCommand('copy');
+                                  document.body.removeChild(ta);
+                                  showToast('已複製訊息');
+                                }
+                              };
+                              copyText(msg.text);
+                              setActiveMenuId(null);
                             }}
                           >
                             複製
                           </button>
-                          <button 
-                            className="px-3 py-2 text-xs text-[#e8e8e9] hover:bg2-[#303438]/50 text-left transition"
-                            onClick={(e) => { 
-                              e.stopPropagation(); 
+                          <button
+                            className="px-3 py-2 text-sm text-left transition"
+                            style={{ color: 'var(--text-body)' }}
+                            onClick={(e) => {
+                              e.stopPropagation();
                               setEditingMessageId(msg.id);
                               setEditMessageText(msg.text);
-                              setActiveMenuId(null); 
+                              setActiveMenuId(null);
                             }}
                           >
                             編輯
                           </button>
-                          <button 
-                            className="px-3 py-2 text-xs text-rose-400 hover:bg2-[#303438]/50 text-left transition"
-                            onClick={(e) => { 
-                              e.stopPropagation(); 
+                          <button
+                            className="px-3 py-2 text-sm text-left transition"
+                            style={{ color: 'var(--text-danger)' }}
+                            onClick={(e) => {
+                              e.stopPropagation();
                               const newMessages = messages.filter(m => m.id !== msg.id);
                               setMessages(newMessages);
                               saveToStorage({ messages: newMessages });
                               showToast('已刪除訊息');
-                              setActiveMenuId(null); 
+                              setActiveMenuId(null);
                             }}
                           >
                             刪除
@@ -1678,28 +1797,27 @@ Please respond as the DM.`;
                   </div>
                 </div>
 
-                <div className={`p-4 text-left max-w-full ${
-                  editingMessageId === msg.id ? 'w-full' : 'w-fit'
-                } ${
-                  msg.role === 'user'
-                    ? 'bg-[#444d5c]/10 text-[#e8e8e9]'
-                    : 'bg2-[#303438] text-[#fbf5e4]'
-                }`} style={{
-                  borderRadius: msg.role === 'user' ? '8px' : '8px',
-                  border: msg.role === 'user' ? '0.5px solid rgba(201,168,76,0.3)' : '0.5px solid #444d5c'
+                <div className={`p-4 text-left max-w-full ${editingMessageId === msg.id ? 'w-full' : 'w-fit'}`} style={{
+                  color: msg.role === 'user' ? 'var(--text-dialog-main)' : 'var(--text-dialog-main)',
+                  background: msg.role === 'user' ? 'var(--bg-bubble-self)' : 'var(--bg-bubble-npc)',
+                  borderRadius: '8px',
+                  border: msg.role === 'user' ? '0.5px solid rgba(119, 93, 22, 0.3)' : '0.5px solid var(--border-default)'
                 }}>
                   {editingMessageId === msg.id ? (
                     <div className="flex flex-col w-full">
-                      <textarea 
-                        value={editMessageText} 
+                      <textarea
+                        value={editMessageText}
                         onChange={(e) => setEditMessageText(e.target.value)}
-                        className="w-full bg-[#24282d]/50 backdrop-blur-sm text-[#fbf5e4] p-3 rounded-[10px] border border-white/10 focus:border-[#444d5c]/50 focus:shadow-[0_0_15px_rgba(99,102,241,0.2)] outline-none resize-none text-sm min-h-[200px]"
+                        className="w-full backdrop-blur-sm p-3 rounded-[10px] border border-white/10 outline-none resize-none text-sm min-h-[200px]"
+                        style={{ background: 'color-mix(in srgb, var(--bg-elevated) 50%, transparent)', color: 'var(--text-dialog-muted)' }}
                         autoFocus
                       />
                       <div className="flex justify-end space-x-2 mt-2">
-                        <button 
-                          onClick={() => setEditingMessageId(null)} 
-                          className="text-xs text-[var(--text3)] hover:text-[#fbf5e4] px-2 py-1"
+                        <button
+                          onClick={() => setEditingMessageId(null)}
+                          className="text-sm text-[var(--text-muted)] px-2 py-1"
+                          onMouseEnter={e => (e.currentTarget as HTMLElement).style.color = 'var(--text-dialog-main)'}
+                          onMouseLeave={e => (e.currentTarget as HTMLElement).style.color = ''}
                         >
                           取消
                         </button>
@@ -1711,7 +1829,10 @@ Please respond as the DM.`;
                             setEditingMessageId(null);
                             showToast('已更新訊息');
                           }} 
-                          className="text-xs bg-[#1044ab] hover:bg-[#1a56db] active:bg-[#2563eb] backdrop-blur-sm text-[#fbf5e4] px-3 py-1 rounded-[8px] transition shadow-[0_4px_12px_rgba(16,68,171,0.2)]"
+                          className="text-sm backdrop-blur-sm px-3 py-1 rounded-[8px] transition shadow-[var(--shadow)]"
+                          style={{ background: 'var(--btn-primary)', color: 'var(--text-main)' }}
+                          onMouseEnter={e => e.currentTarget.style.background = 'var(--btn-primary-hover)'}
+                          onMouseLeave={e => e.currentTarget.style.background = 'var(--btn-primary)'}
                         >
                           儲存
                         </button>
@@ -1721,19 +1842,19 @@ Please respond as the DM.`;
                     <p className="leading-relaxed whitespace-pre-wrap">{msg.text}</p>
                   ) : msg.text === '' && isLoading && msg.id === messages[messages.length - 1]?.id ? (
                     <div className="flex items-center space-x-2 py-0.5 select-none">
-                      <span className="text-[#444d5c] text-sm">✦ 異世界正在回應</span>
+                      <span className="text-sm" style={{ color: 'var(--text-stat-label)' }}>✦ 異世界正在回應</span>
                       <span className="flex items-end space-x-0.5 pb-0.5">
                         {[0, 200, 400].map(delay => (
                           <span
                             key={delay}
-                            className="inline-block w-1 h-1 rounded-full bg-[#444d5c]"
-                            style={{ animation: `blink-dot 1.4s ease-in-out infinite`, animationDelay: `${delay}ms` }}
+                            className="inline-block w-1 h-1 rounded-full"
+                            style={{ background: 'var(--text-stat-label)', animation: `blink-dot 1.4s ease-in-out infinite`, animationDelay: `${delay}ms` }}
                           />
                         ))}
                       </span>
                     </div>
                   ) : (
-                    <div className="leading-relaxed">{renderMarkdown(msg.text)}</div>
+                    <div className="leading-relaxed">{renderMarkdown(stripBareCommands(msg.text))}</div>
                   )}
                 </div>
               </div>
@@ -1742,25 +1863,27 @@ Please respond as the DM.`;
           </div>
 
           {/* Input Area */}
-          <div className="absolute bottom-0 w-full pt-10 pb-4 px-6 flex flex-col items-center z-30">
-            <div className="absolute inset-0 bg-gradient-to-t from-[#171617]/90 via-[#171617]/60 to-transparent backdrop-blur-md [mask-image:linear-gradient(to_top,black_60%,transparent)] pointer-events-none -z-10"></div>
-            
+          <div className="absolute bottom-0 w-full pt-4 pb-4 px-6 flex flex-col items-center z-30">
+            <div className="absolute inset-0 backdrop-blur-md pointer-events-none -z-10" style={{ background: `linear-gradient(to top, color-mix(in srgb, var(--bg-base) 90%, transparent), color-mix(in srgb, var(--bg-base) 60%, transparent), transparent)` }}></div>
+
             <div className="w-full max-w-3xl">
               <div className="flex space-x-2 mb-3">
                 {quickOptions.map((option, idx) => (
-                  <button 
+                  <button
                     key={idx}
                     onClick={() => handleSendMessage(option)}
                     disabled={isLoading}
-                    className="px-3 py-1 bg2-[#303438]/60 backdrop-blur-sm hover:bg2-[#303438]/80 border border-white/10 rounded-full text-xs text-[#e8e8e9] transition shadow-[0_0_10px_rgba(0,0,0,0.2)] disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="px-3 py-1 bg-white/5 backdrop-blur-sm border border-white/20 rounded-full text-sm transition shadow-[0_0_10px_rgba(0,0,0,0.2)] disabled:opacity-50 disabled:cursor-not-allowed"
+                    style={{ color: 'var(--text-body)' }}
                   >
                     {option}
                   </button>
                 ))}
               </div>
-              <div className="flex items-end bg2-[#303438] overflow-hidden transition-all" style={{borderRadius: '8px', border: '0.5px solid #444d5c'}} onFocus={(e) => e.currentTarget.style.borderColor = '#444d5c'} onBlur={(e) => e.currentTarget.style.borderColor = '#444d5c'}>
-                <textarea 
-                  className="w-full bg-transparent text-[#fbf5e4] p-4 outline-none resize-none max-h-32 min-h-[56px] disabled:opacity-50" 
+              <div className="flex items-end overflow-hidden transition-all" style={{ borderRadius: '8px', border: `0.5px solid var(--border-default)` }}>
+                <textarea
+                  className="w-full bg-transparent pl-4 pr-2 outline-none resize-none max-h-32 disabled:opacity-50"
+                  style={{ color: 'var(--text-main)', lineHeight: '20px', paddingTop: '10px', paddingBottom: '10px' }}
                   placeholder={isLoading ? "AI 正在思考中..." : "輸入你的行動或對話..."}
                   rows={1}
                   value={inputText}
@@ -1773,12 +1896,16 @@ Please respond as the DM.`;
                     }
                   }}
                   onInput={(e) => {
-                    e.currentTarget.style.height = 'auto';
-                    e.currentTarget.style.height = Math.min(e.currentTarget.scrollHeight, 128) + 'px';
+                    const el = e.currentTarget;
+                    el.style.height = 'auto';
+                    el.style.height = Math.min(el.scrollHeight, 128) + 'px';
                   }}
                 ></textarea>
-                <button 
-                  className={`p-4 transition ${isLoading || !inputText.trim() ? 'text-[#444d5c] cursor-not-allowed' : 'text-[#444d5c] hover:text-[#e8e8e9]'}`}
+                <button
+                  className="px-3 transition"
+                  style={{ height: '40px', display: 'flex', alignItems: 'center', color: isLoading || !inputText.trim() ? 'var(--bg-elevated)' : 'var(--bg-elevated)', cursor: isLoading || !inputText.trim() ? 'not-allowed' : 'pointer' }}
+                  onMouseEnter={e => { if (!isLoading && inputText.trim()) e.currentTarget.style.color = 'var(--text-body)'; }}
+                  onMouseLeave={e => e.currentTarget.style.color = 'var(--bg-elevated)'}
                   onClick={handleSendMessage}
                   disabled={isLoading || !inputText.trim()}
                 >
@@ -1787,7 +1914,7 @@ Please respond as the DM.`;
               </div>
 
               {/* Status Bar */}
-              <div className="mt-3 flex items-center justify-between text-xs text-[#e6d6bf] font-mono px-2">
+              <div className="mt-3 flex items-center justify-between text-sm font-mono px-2" style={{ color: 'var(--text-stat-label)' }}>
                 <div className="flex items-center space-x-4">
                   <span className="flex items-center" title={`${currentMonthData.name}：${currentMonthData.elegant}`}>
                     <Calendar className="w-3.5 h-3.5 mr-1.5" /> 
@@ -1803,10 +1930,10 @@ Please respond as the DM.`;
                   <span className="flex items-center"><MapPin className="w-3.5 h-3.5 mr-1.5" /> {currentLocation}</span>
                 </div>
                 <div className="flex items-center space-x-4">
-                  <span className="flex items-center text-[#e6d6bf]"><Heart className="w-3.5 h-3.5 mr-1.5 fill-current text-rose-400" /> HP {profile.hp}</span>
-                  <span className="flex items-center text-[#e6d6bf]"><Zap className="w-3.5 h-3.5 mr-1.5 fill-current text-blue-400" /> MP {profile.mp}</span>
-                  <span className="flex items-center text-[#e6d6bf]"><Shield className="w-3.5 h-3.5 mr-1.5 text-[#e8e8e9]" /> {profile.job}</span>
-                  <span className="flex items-center text-[#444d5c]"><Coins className="w-3.5 h-3.5 mr-1.5" /> {(profile.gold ?? 0).toLocaleString()} G</span>
+                  <span className="flex items-center" style={{ color: 'var(--text-stat-label)' }}><Heart className="w-3.5 h-3.5 mr-1.5 fill-current" style={{ color: 'var(--color-rose)' }} /> HP {profile.hp}</span>
+                  <span className="flex items-center" style={{ color: 'var(--text-stat-label)' }}><Zap className="w-3.5 h-3.5 mr-1.5 fill-current" style={{ color: 'var(--color-blue)' }} /> MP {profile.mp}</span>
+                  <span className="flex items-center" style={{ color: 'var(--text-stat-label)' }}><Shield className="w-3.5 h-3.5 mr-1.5" style={{ color: 'var(--text-body)' }} /> {profile.job}</span>
+                  <span className="flex items-center" style={{ color: 'var(--text-stat-label)' }}><Coins className="w-3.5 h-3.5 mr-1.5" /> {(profile.gold ?? 0).toLocaleString()} G</span>
                 </div>
               </div>
             </div>
@@ -1814,10 +1941,10 @@ Please respond as the DM.`;
         </div>
 
         {/* Right Panel */}
-        <div className="w-64 bg-[#24282d] flex flex-col p-4 space-y-6 overflow-y-auto z-10" style={{borderLeft: '0.5px solid #444d5c'}}>
+        <div className="w-64 flex flex-col p-4 space-y-6 overflow-y-auto z-10" style={{ background: 'var(--bg-elevated)', borderLeft: `0.5px solid var(--bg-elevated)` }}>
 
           <div>
-            <h3 className="text-[#fbf5e4] font-bold mb-3 pb-2" style={{borderBottom: '0.5px solid #444d5c'}}>✦ 當前場景人物</h3>
+            <h3 className="font-bold mb-3 pb-2" style={{ color: 'var(--text-primary)', borderBottom: `0.5px solid var(--bg-elevated)` }}>✦ 當前場景人物</h3>
             <div className="space-y-2">
               {npcs.filter(n => n.location === currentLocation && !n.isPinned).length > 0 ? (
                 npcs.filter(n => n.location === currentLocation && !n.isPinned).map(npc => {
@@ -1827,15 +1954,15 @@ Please respond as the DM.`;
                   return (
                   <div
                     key={npc.id}
-                    className="bg2-[#303438]/60 backdrop-blur-md border border-white/5 p-3 rounded-[10px] flex justify-between items-center cursor-pointer hover:bg2-[#303438]/80 transition-all duration-300 shadow-lg group/npc overflow-hidden relative"
+                    className="backdrop-blur-md border border-white/5 p-3 rounded-[10px] flex justify-between items-center cursor-pointer transition-all duration-300 shadow-lg group/npc overflow-hidden relative"
                     onClick={() => setSelectedNpc(npc)}
                   >
-                    <div className="absolute top-0 left-0 w-1 h-full bg-gradient-to-b from-[#444d5c]/0 via-[#444d5c]/40 to-[#444d5c]/0 opacity-0 group-hover/npc:opacity-100 transition-opacity"></div>
+                    <div className="absolute top-0 left-0 w-1 h-full opacity-0 group-hover/npc:opacity-40 transition-opacity" style={{ background: `linear-gradient(to bottom, transparent, var(--bg-elevated), transparent)` }}></div>
                     <div className="flex flex-col">
-                      <span className="text-sm font-medium text-[#fbf5e4] group-hover/npc:text-[#444d5c] transition-colors">{npc.name}</span>
-                      <span className="text-xs text-[#e8e8e9] uppercase tracking-tighter">{displayGender ? `${displayGender}・${displayJob}` : displayJob}</span>
+                      <span className="text-sm font-medium" style={{ color: 'var(--text-title)' }}>{npc.name}</span>
+                      <span className="text-sm uppercase tracking-tighter" style={{ color: 'var(--text-body)' }}>{displayGender ? `${displayGender}・${displayJob}` : displayJob}</span>
                     </div>
-                    <div className="text-xs flex items-center px-2 py-1 rounded-full bg-black/20 border border-white/5" style={{ color: affectionColor(npc.affection) }}>
+                    <div className="text-sm flex items-center px-2 py-1 rounded-full bg-black/20 border border-white/5" style={{ color: affectionColor(npc.affection) }}>
                       <Heart className="w-3 h-3 mr-1 fill-current" />
                       <span className="font-mono">{npc.affection}</span>
                     </div>
@@ -1843,44 +1970,44 @@ Please respond as the DM.`;
                   );
                 })
               ) : (
-                <div className="text-xs text-[var(--text3)] italic py-2">此處目前沒有人...</div>
+                <div className="text-sm ml-4 text-[var(--text-muted)] italic">此處目前沒有人...</div>
               )}
             </div>
           </div>
 
           <div>
-            <h3 className="text-[#fbf5e4] font-bold mb-3 pb-2" style={{borderBottom: '0.5px solid #444d5c'}}>✦ 當前場景記憶</h3>
+            <h3 className="font-bold mb-3 pb-2" style={{ color: 'var(--text-primary)', borderBottom: `0.5px solid var(--bg-elevated)` }}>✦ 當前場景記憶</h3>
             
             <div className="mb-4">
-              <h4 className="text-xs mb-2 uppercase tracking-wider text-[#fbf5e4] flex items-center">✦ 世界記憶</h4>
+              <h4 className="text-base mb-2 uppercase tracking-wider flex items-center" style={{ color: 'var(--text-tab)' }}>✦ 世界記憶</h4>
               <div className="space-y-2">
-                <div className="bg-gradient-to-br from-[#1e1477] to-[#24282d] px-5 py-[10px] mb-2 rounded-[10px] border border-white/10 shadow-[0_8px_32px_rgba(0,0,0,0.3)] backdrop-blur-md relative overflow-hidden group">
+                <div className="px-5 py-[10px] mb-2 rounded-[10px] border border-white/10 shadow-[0_8px_32px_rgba(0,0,0,0.3)] backdrop-blur-md relative overflow-hidden group" style={{ background: `linear-gradient(135deg, #1e1477, var(--bg-elevated))` }}>
                   <div className="absolute -right-6 -bottom-6 opacity-10 group-hover:opacity-20 transition-all duration-700 rotate-12 group-hover:scale-110">
-                    <Sparkles className="w-[80px] h-[80px] text-[#444d5c]" />
+                    <Sparkles className="w-[80px] h-[80px]" style={{ color: 'white' }} />
                   </div>
-                  <div className="absolute top-0 left-0 w-full h-[1px] bg-gradient-to-r from-transparent via-[#444d5c]/40 to-transparent"></div>
-                  
+                  <div className="absolute top-0 left-0 w-full h-[1px]" style={{ background: `linear-gradient(to right, transparent, rgba(255,255,255,0.15), transparent)` }}></div>
+
                   <div className="flex items-center space-x-2.5 mb-2 relative z-10">
                     <div className="p-1.5 rounded-[8px] bg-white/5 border border-white/10 shadow-inner">
-                      <Calendar className="w-3.5 h-3.5 text-[#444d5c]" />
+                      <Calendar className="w-3.5 h-3.5" style={{ color: 'var(--text-muted)' }} />
                     </div>
-                    <span className="text-sm font-bold text-[#fbf5e4] tracking-[0.15em] uppercase">{currentMonthData.elegant}</span>
+                    <span className="text-sm font-bold tracking-[0.15em] uppercase" style={{ color: 'var(--text-body)' }}>{currentMonthData.elegant}</span>
                   </div>
-                  <p className="text-xs text-[#fbf5e4]/90 leading-relaxed relative z-10 font-light italic pl-1 border-l border-[#444d5c]/20 mb-2">
+                  <p className="text-sm leading-relaxed relative z-10 font-light italic pl-1 mb-2" style={{ color: 'color-mix(in srgb, var(--text-body) 90%, transparent)', borderLeft: `1px solid rgba(255,255,255,0.15)` }}>
                     {currentMonthData.desc}
                   </p>
                 </div>
 
                 {memories.filter(m => m.type === 'world' && m.isActive).map(mem => (
-                  <div key={mem.id} className="memory-card bg2-[#303438]/60 backdrop-blur-sm p-3 text-xs text-[var(--text3)] border-l-2 border-[#444d5c] hover:bg2-[#303438]/80 transition-all duration-300 shadow-sm group/mem">
+                  <div key={mem.id} className="memory-card backdrop-blur-sm p-3 text-sm text-[var(--text-muted)] transition-all duration-300 shadow-sm group/mem" style={{ borderLeft: `2px solid var(--border-default)` }}>
                     <div className="flex items-start gap-2">
-                      {mem.importance === 'critical' && <Sparkles className="w-3 h-3 text-[#444d5c] mt-0.5 shrink-0" />}
+                      {mem.importance === 'critical' && <Sparkles className="w-3 h-3 mt-0.5 shrink-0" style={{ color: 'var(--color-amber)' }} />}
                       <div className="flex-1">
                         <span className="leading-relaxed">{mem.content}</span>
                         {mem.tags?.factions?.length > 0 && (
                           <div className="mt-1.5 flex flex-wrap gap-1">
                             {mem.tags.factions.map((f: string) => (
-                              <span key={f} className="text-[9px] px-1.5 py-0.5 rounded-[8px] bg-[#444d5c]/10 text-[#444d5c]/70 border border-[#444d5c]/20 uppercase tracking-tighter font-bold">
+                              <span key={f} className="text-[9px] px-1.5 py-0.5 rounded-[8px] uppercase tracking-tighter font-bold" style={{ background: 'color-mix(in srgb, var(--bg-elevated) 10%, transparent)', color: 'color-mix(in srgb, var(--bg-elevated) 70%, transparent)', border: `1px solid color-mix(in srgb, var(--bg-elevated) 20%, transparent)` }}>
                                 {f}
                               </span>
                             ))}
@@ -1891,27 +2018,29 @@ Please respond as the DM.`;
                   </div>
                 ))}
                 {memories.filter(m => m.type === 'world').length === 0 && (
-                  <div className="text-xs text-[var(--text3)] italic">尚無世界記憶</div>
+                  <div className="text-sm ml-4 text-[var(--text-muted)] italic">尚無世界記憶</div>
                 )}
               </div>
             </div>
 
             {(() => {
-              const regionMems = memories.filter(m =>
-                m.type === 'region' && m.isActive &&
-                (m.tags?.locations || []).some((l: string) => l === currentLocation || currentLocation.includes(l) || l.includes(currentLocation))
-              );
+              const regionMems = memories.filter(m => {
+                if (m.type !== 'region' || !m.isActive) return false;
+                const locs = m.tags?.locations || [];
+                if (locs.length === 0) return true;
+                return locs.some((l: string) => currentLocation.includes(l) || l.includes(currentLocation));
+              });
               return regionMems.length > 0 ? (
                 <div className="mb-4">
-                  <h4 className="text-xs mb-2 uppercase tracking-wider flex items-center gap-1 text-[#fbf5e4]">
+                  <h4 className="text-sm mb-2 uppercase tracking-wider flex items-center gap-1" style={{ color: 'var(--text-tab)' }}>
                     ✦ 區域記憶
                   </h4>
                   <div className="space-y-1">
                     {regionMems.map(mem => (
-                      <div key={mem.id} className="memory-card bg2-[#303438]/60 backdrop-blur-sm p-3 text-xs text-[var(--text3)] border-l-2 border-[#444d5c] hover:bg2-[#303438]/80 transition-all duration-300 shadow-sm">
+                      <div key={mem.id} className="memory-card backdrop-blur-sm p-3 text-sm text-[var(--text-muted)] transition-all duration-300 shadow-sm" style={{ borderLeft: `2px solid var(--bg-elevated)` }}>
                         <div className="leading-relaxed">
                           {mem.content}
-                          {mem.expiresAt && <span className="text-[#444d5c]/60 ml-1.5 italic">（至 {mem.expiresAt}）</span>}
+                          {mem.expiresAt && <span className="ml-1.5 italic" style={{ color: 'color-mix(in srgb, var(--bg-elevated) 60%, transparent)' }}>（至 {mem.expiresAt}）</span>}
                         </div>
                       </div>
                     ))}
@@ -1927,22 +2056,22 @@ Please respond as the DM.`;
               );
               return (
                 <div className="mb-4">
-                  <h4 className="text-xs mb-2 uppercase tracking-wider flex items-center gap-1 text-[#fbf5e4]">
+                  <h4 className="text-sm mb-2 uppercase tracking-wider flex items-center gap-1" style={{ color: 'var(--text-tab)' }}>
                     ✦ 場景記憶
                   </h4>
                     {sceneMems.length > 0 ? (
                       <div className="space-y-1">
                         {sceneMems.map(mem => (
-                          <div key={mem.id} className="memory-card bg2-[#303438]/60 backdrop-blur-sm p-3 text-xs text-[var(--text3)] border-l-2 border-[#444d5c] hover:bg2-[#303438]/80 transition-all duration-300 shadow-sm">
+                          <div key={mem.id} className="memory-card backdrop-blur-sm p-3 text-sm text-[var(--text-muted)] transition-all duration-300 shadow-sm" style={{ borderLeft: `2px solid var(--bg-elevated)` }}>
                             <div className="leading-relaxed">
                               {mem.content}
-                              {mem.source === 'ai_generated' && <span className="text-[#444d5c]/40 ml-1.5 text-[9px] uppercase tracking-tighter font-bold">（AI）</span>}
+                              {mem.source === 'ai_generated' && <span className="ml-1.5 text-[9px] uppercase tracking-tighter font-bold" style={{ color: 'color-mix(in srgb, var(--bg-elevated) 40%, transparent)' }}>（AI）</span>}
                             </div>
                           </div>
                         ))}
                       </div>
                     ) : (
-                    <div className="text-xs text-[var(--text3)] italic">此場景尚無記憶...</div>
+                    <div className="text-sm ml-4 text-[var(--text-muted)] italic">此場景尚無記憶...</div>
                   )}
                 </div>
               );
@@ -1952,15 +2081,15 @@ Please respond as the DM.`;
               const npcMems = memories.filter(m => m.type === 'npc' && m.isActive);
               return npcMems.length > 0 ? (
                 <div>
-                  <h4 className="text-xs mb-2 uppercase tracking-wider flex items-center gap-1 text-[#444d5c]">
+                  <h4 className="text-sm mb-2 uppercase tracking-wider flex items-center gap-1" style={{ color: 'var(--bg-elevated)' }}>
                     ✦ NPC 記憶
                   </h4>
                   <div className="space-y-1">
                     {npcMems.map(mem => (
-                      <div key={mem.id} className="memory-card bg2-[#303438]/60 backdrop-blur-sm p-3 text-xs text-[var(--text3)] border-l-2 border-[#444d5c] hover:bg2-[#303438]/80 transition-all duration-300 shadow-sm">
+                      <div key={mem.id} className="memory-card backdrop-blur-sm p-3 text-sm text-[var(--text-muted)] transition-all duration-300 shadow-sm" style={{ borderLeft: `2px solid var(--bg-elevated)` }}>
                         <div className="leading-relaxed">
                           {mem.tags?.npcs?.length > 0 && (
-                            <span className="text-[#444d5c] font-bold mr-1.5">
+                            <span className="font-bold mr-1.5" style={{ color: 'var(--bg-elevated)' }}>
                               [{mem.tags.npcs.join(',')}]
                             </span>
                           )}
@@ -2016,6 +2145,7 @@ Please respond as the DM.`;
         lorebookEntries={lorebookEntries}
         npcs={npcs}
         onAddLorebook={handleAddLorebook}
+        onAddNpc={handleAddNpc}
         onUpdateLorebook={handleUpdateLorebook}
         onDeleteLorebook={handleDeleteLorebook}
         onLorebookKeywordAdd={handleLorebookKeywordAdd}
@@ -2037,6 +2167,7 @@ Please respond as the DM.`;
         onUpdateLorebook={handleUpdateLorebook}
         onDeleteNpc={handleDeleteNpc}
         onClearNewMemories={handleClearNewMemories}
+        onUpdateNpcName={handleUpdateNpcName}
       />
 
       {/* System Prompt Modal Overlay */}
@@ -2075,8 +2206,8 @@ Please respond as the DM.`;
 
       {/* Toast Notification */}
       {toastMessage && (
-        <div className="fixed top-4 left-1/2 transform -translate-x-1/2 bg2-[#303438]/80 backdrop-blur-md border border-[#303438]/10 text-[#fbf5e4] px-6 py-3 rounded-full shadow-[0_0_30px_rgba(0,0,0,0.5)] z-[100] flex items-center animate-in fade-in slide-in-from-top-4 duration-300">
-          <CheckSquare className="w-4 h-4 mr-2 text-[#fb7185]" />
+        <div className="fixed top-4 left-1/2 transform -translate-x-1/2 backdrop-blur-md px-6 py-3 rounded-full shadow-[0_0_30px_rgba(0,0,0,0.5)] z-[100] flex items-center animate-in fade-in slide-in-from-top-4 duration-300" style={{ background: 'color-mix(in srgb, var(--bg-elevated) 80%, transparent)', border: `1px solid color-mix(in srgb, var(--bg-elevated) 10%, transparent)`, color: 'var(--text-title)' }}>
+          <CheckSquare className="w-4 h-4 mr-2" style={{ color: 'var(--color-emerald)' }} />
           {toastMessage}
         </div>
       )}

@@ -65,6 +65,7 @@ export interface Npc {
   personality: string;
   gender?: string;
   race?: string;
+  age?: string;
   backstory?: string;
   other?: string;
   relationship?: string;
@@ -86,6 +87,7 @@ export interface LorebookEntry {
   isActive: boolean;
   gender?: string;
   race?: string;
+  age?: string;
   backstory?: string;
   job?: string;
   appearance?: string;

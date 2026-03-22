@@ -1,43 +1,129 @@
 @import "tailwindcss";
 
-:root {
-  --bg0:     #171617;
-  --bg1:     #24282d;
-  --bg2:     #272a2e;
-  --bg3:     #132540;
-  --border:  #283b57;
-  --text1:   #fbf5e4;
-  --text2:   #e8e8e9;
-  --text3:   #b7b4ae;
-  --accent:  #fde68a;
-  --accent2: #fde68a;
-  --text4:   #e6d6bf;
-  --danger:  #ff8866;
+/* ============================================================
+   色票系統 v2.0  |  深色主題  |  2026-03-22
+   規則：
+   - 所有顏色只能用 CSS Variables
+   - Tailwind class 只用於排版、間距、字體、圓角
+   - 顏色禁止硬編碼、禁止 Tailwind color class（如 bg-gray-900）
+   ============================================================ */
 
-  /* 好感度顏色（固定語意色，不隨主題變動） */
-  --affection-max:     #fb7185;
-  --affection-high:    rgba(251,113,133,0.80);
-  --affection-mid:     rgba(251,113,133,0.60);
-  --affection-low:     #a0a0a0;
-  --affection-hostile: #505050;
+:root {
+
+  /* ── 背景層次 ──────────────────────────────────────────── */
+  --bg-base:         #0c0d0d;   /* 最外層背景 */
+  --bg-elevated:     #282929;   /* 左右側欄、Modal 底色 */
+  --bg-ui-card:      #353434;   /* Modal 內部二次容器（讓 A/B 區塊易於區別） */
+  --bg-overlay:      rgba(0, 0, 0, 0.2);
+  --bg-mark:         #ff637e;   /* 新日記亮點「通知」 */
+
+  /* ── 邊框 ───────────────────────────────────────────────── */
+  --border-default:  #4e4e4e;   /* 所有邊框 */
+  --border-width:    0.5px;
+  --border-accent:   #7e7c72;   /* 選中狀態邊框 */
+
+  /* ── 文字 ───────────────────────────────────────────────── */
+  --text-primary:    #e9d69e;   /* 左右欄功能名稱、Modal 名稱（暖黃） */
+  --text-title:      #ff11d7;   /* 欄位名稱、地名 */
+  --text-tab:        #fff7e2;   /* 分頁標題（如：人物、怪物） */
+  --text-body:       #fffaf1;   /* 地點介紹、一般段落 */
+  --text-main:       #e8e8e9;   /* 輸入文字 */
+  --text-muted:      #acacac;   /* 提示文字、時間戳、placeholder */
+  --text-stat-label: #bdb394;   /* 狀態名稱（HP、MP、金幣等標籤） */
+  --text-stat-value: #fafafa;   /* 狀態數值（HP、MP、金幣等數字） */
+  --text-danger:     #ff5757;   /* 危險動作文字（刪除、重置） */
+
+  /* ── 分頁 ───────────────────────────────────────────────── */
+  --tab-active:      #0069a8;   /* 選中分頁標籤底色 */
+  --tab-inactive:    #282929;   /* 未選中分頁標籤底色 */
+
+  /* ── 按鈕：Primary（新增、儲存）───────────────────────── */
+  --btn--text:           #ffffff;   /* 預設 */
+  --btn-primary:         #00598a;   /* 預設 */
+  --btn-primary-hover:   #006aa3;   /* 懸停 */
+  --btn-primary-active:  #007dbe;   /* 按下 */
+
+  /* ── 按鈕：Secondary（取消）────────────────────────────── */
+  --btn-secondary:         #a0a0a1;   /* 預設 */
+  --btn-secondary-hover:   #7d8694;   /* 懸停 */
+  --btn-secondary-active:  #a1a1a1;   /* 按下 */
+
+  /* ── 陰影 ───────────────────────────────────────────────── */
+  --shadow:          0 4px 12px rgba(16, 68, 171, 0.2);
+
+  /* ── 表單 ───────────────────────────────────────────────── */
+  --bg-sys-field:    #454545;   /* 輸入框底色 */
+  --bg-sys-tag:      #0092cc;   /* 關鍵字膠囊底色 */
+
+  /* ── 對話視窗 ───────────────────────────────────────────── */
+  --bg-bubble-self:    rgba(117, 117, 117, 0.15);  /* 玩家對話泡泡 */
+  --bg-bubble-npc:     rgba(68, 68, 68, 0.45);    /* NPC 對話泡泡 */
+  --bg-dialog-input:   #282929;                 /* 玩家輸入框 */
+  --text-dialog-main:  #fafafa;                 /* 對話台詞 */
+  --text-dialog-muted: #d1d1d1;                 /* 敘述描寫 */
+
+  /* ── 語意色（Tailwind 對應，取代 @theme 覆寫） ─────────── */
+  --color-rose:    #ff2222;   /* 刪除／危險動作 */
+  --color-emerald: #fb7185;   /* 好感度愛心（粉紅） */
+  --color-amber:   #ffd037;   /* 警告／稀有 */
+  --color-blue:    #5f93d3;   /* 連結／資訊 */
+  --color-violet:  #7008e7;   /* 魔法／特殊 */
+  --color-success: #4ade80;   /* 成功／進行中 */
+  --color-sky:     #30b1d8;   /* 已完成 */  
+  --color-taupe:   #ac9f9a;   /* 失敗／負面 */
+
+  /* ── 好感度顏色（固定語意色，不隨主題變動） ────────────── */
+  --affection-max:     #ff2d2d;   /* ≥ 100 */
+  --affection-high:    #ff7967;   /* ≥ 80  */
+  --affection-mid:     #ffaa83;   /* ≥ 50  */
+  --affection-low:     #acacac;   /* ≥ 0   */
+  --affection-hostile: #928366;   /* < 0（敵對） */
+
+  /* ── 任務卡片背景 ─────────────────────────────────────── */
+  --bg-quest-active:      rgba(22, 101, 52, 0.12);
+  --border-quest-active:  rgba(34, 197, 94, 0.30);
+  --bg-quest-pending:     rgba(120, 53, 15, 0.12);
+  --border-quest-pending: rgba(245, 158, 11, 0.40);
+  --bg-quest-failed:      rgba(69, 10, 10, 0.10);
+  --border-quest-failed:  rgba(153, 27, 27, 0.30);
+
 }
 
+/* ── Scrollbar ──────────────────────────────────────────── */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(160, 160, 160, 0.25) transparent;
+}
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(160, 160, 160, 0.25);
+  border-radius: 99px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(160, 160, 160, 0.45);
+}
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* ── @theme：只保留字體，移除所有顏色覆寫 ──────────────── */
 @theme {
   --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
-
-  --color-rose-400:    #b0b0b0;
-  --color-emerald-400: #fb7185;
-  --color-amber-400:   #e8a88c;
-  --color-blue-400:    #5f93d3;
-  --color-violet-400:  #a78bfa;
 }
 
-/* ─── 遊戲字體 ─────────────────────────────────────────────────── */
+/* ── 遊戲字體 ───────────────────────────────────────────── */
 .font-game-sans  { font-family: 'Noto Sans TC', sans-serif; }
 .font-game-serif { font-family: 'Noto Serif TC', serif; line-height: 1.9; letter-spacing: 0.02em; }
 .font-game-spell { font-family: 'Yuji Syuku', serif; line-height: 2; letter-spacing: 0.05em; }
 
+/* ── 動畫 ───────────────────────────────────────────────── */
 @keyframes blink-dot {
   0%, 80%, 100% { opacity: 0.2; transform: translateY(0); }
   40%           { opacity: 1;   transform: translateY(-4px); }
