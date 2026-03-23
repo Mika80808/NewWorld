@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { GoogleGenAI } from "@google/genai";
 import { DiaryModal } from './components/DiaryModal';
 import { LorebookModal } from './components/LorebookModal';
-import { Npc, LorebookEntry, Message, NpcMemory, EquipmentItem, ItemEntry, GMConfig, SubGMConfig } from './types';
+import { Npc, LorebookEntry, MemoryEntry, Message, NpcMemory, EquipmentItem, ItemEntry, GMConfig, SubGMConfig } from './types';
 import { NpcModal, affectionColor } from './components/NpcModal';
 import { QuestModal } from './components/QuestModal';
 import { ProfileModal } from './components/ProfileModal';
@@ -138,11 +138,21 @@ export default function App() {
   const [inventoryPanelPos, setInventoryPanelPos] = useState({ top: 0, left: 0 });
   const [consumablesPanelPos, setConsumablesPanelPos] = useState({ top: 0, left: 0 });
   const [isUpdatingLog, setIsUpdatingLog] = useState(false);
+  const [hasNewDiary, setHasNewDiary] = useState(false);
+  // Sub GM 節流：每 3 回合最多觸發一次（不存檔，session 內計數）
+  const subGMRoundsRef = useRef(0);
+  // diary_worthy 冷卻：5 次 Sub GM 呼叫後才可再次自動生成（init=5 表示初始可觸發）
+  const diaryWorthyRoundsRef = useRef(5);
 
   // 背景處理：整理冒險日誌與目標（使用 callAI 封裝層，不綁定特定 API）
-
-const updateAdventureState = async (history: Message[], newItems: string[] = []) => {
+  const updateAdventureState = async (history: Message[], newItems: string[] = [], hasKeyEvent = false) => {
     if (history.length < 2) return;
+
+    // 節流：每 3 回合最多觸發一次；關鍵事件（任務/移動/世界記憶）可跳過冷卻
+    subGMRoundsRef.current += 1;
+    if (subGMRoundsRef.current < 3 && !hasKeyEvent) return;
+    subGMRoundsRef.current = 0;
+
     setIsUpdatingLog(true);
     try {
       const lastMessages = history.slice(-6).map(m => `${m.role}: ${m.text}`).join('\n');
@@ -155,8 +165,11 @@ const updateAdventureState = async (history: Message[], newItems: string[] = [])
 請根據以下最近的對話，輸出固定 JSON 格式，只輸出 JSON，不要任何說明：
 {
   "summary": "一句話總結剛發生的事",
-  "goals": ["短期目標1", "短期目標2"]${newItems.length > 0 ? `,\n  "item_types": { "道具名": "equipment 或 item" }` : ''}
+  "goals": ["短期目標1", "短期目標2"],
+  "diary_worthy": false${newItems.length > 0 ? `,\n  "item_types": { "道具名": "equipment 或 item" }` : ''}
 }
+
+diary_worthy 判斷標準：本輪是否發生值得記錄的重大事件（任務接取/完成、重要人物相遇、地點移動、重大衝突）。
 ${itemClassifySection}
 
 對話內容：
@@ -178,16 +191,22 @@ ${lastMessages}`;
           .map(([k]) => k);
         if (toEquip.length > 0) {
           const moving = items.filter(i => toEquip.includes(i.name));
-          const newItems = items.filter(i => !toEquip.includes(i.name));
+          const remainingItems = items.filter(i => !toEquip.includes(i.name));
           const newEquipment = [...equipment];
           moving.forEach(item => {
             if (!newEquipment.some(e => e.name === item.name)) {
               newEquipment.push({ id: item.id, name: item.name, description: item.description, isEquipped: false });
             }
           });
-          setItems(newItems);
+          setItems(remainingItems);
           setEquipment(newEquipment);
         }
+      }
+      // diary_worthy：達到冷卻後自動後台生成日記，只亮點提示，不彈 toast
+      diaryWorthyRoundsRef.current += 1;
+      if (data.diary_worthy === true && diaryWorthyRoundsRef.current >= 5) {
+        diaryWorthyRoundsRef.current = 0;
+        handleGenerateDiary(true);
       }
     } catch (error) {
       console.error("Failed to update adventure state:", error);
@@ -525,8 +544,8 @@ ${lastMessages}`;
   };
 
   // ─── 🔮 魔法日記：AI 自動生成 ────────────────────────────────────────────
-  const handleGenerateDiary = async () => {
-    if (!mainGMConfig.apiKey.trim()) { showToast('❌ 請先設定 API Key'); return; }
+  const handleGenerateDiary = async (silent = false) => {
+    if (!mainGMConfig.apiKey.trim()) { if (!silent) showToast('❌ 請先設定 API Key'); return; }
     try {
       const recentChat = messages.slice(-20).map(m =>
         `${m.role === 'user' ? 'Player' : 'DM'}: ${m.text}`
@@ -564,7 +583,7 @@ ${recentChat}
 請直接輸出日記內容，不要加任何前綴說明。`;
 
       const text = await callAI(prompt, { role: 'main' });
-      if (!text) { showToast('❌ 生成失敗，請稍後再試'); return; }
+      if (!text) { if (!silent) showToast('❌ 生成失敗，請稍後再試'); return; }
       const newId = Date.now();
       setDiaryEntries(prev => [{
         id: newId,
@@ -573,9 +592,13 @@ ${recentChat}
         keywords: [],
         source: 'ai_generated',
       }, ...prev]);
-      showToast('🔮 魔法日記已生成');
+      if (silent) {
+        setHasNewDiary(true);
+      } else {
+        showToast('🔮 魔法日記已生成');
+      }
     } catch (e) {
-      showToast('❌ 生成失敗，請稍後再試');
+      if (!silent) showToast('❌ 生成失敗，請稍後再試');
     }
   };
 
@@ -917,17 +940,21 @@ ${recentChat}
       .sort((a, b) => (a.insertionOrder ?? 100) - (b.insertionOrder ?? 100));
 
     const triggeredMemories = memories.filter(m => isMemoryTriggered(m, userInput, currentLocation));
-    
+
+    // 依重要度截斷；normal/flavor 按最新優先（id 含時間戳）
+    const sortByNewest = (mems: MemoryEntry[]) =>
+      [...mems].sort((a, b) => parseInt(b.id.split('_')[1] || '0') - parseInt(a.id.split('_')[1] || '0'));
+
     const filterByImportance = (mems: MemoryEntry[], maxNormal: number, maxFlavor: number) => {
       const critical = mems.filter(m => m.importance === 'critical');
-      const normal = mems.filter(m => m.importance === 'normal').slice(0, maxNormal);
-      const flavor = mems.filter(m => m.importance === 'flavor').slice(0, maxFlavor);
+      const normal = sortByNewest(mems.filter(m => m.importance === 'normal')).slice(0, maxNormal);
+      const flavor = sortByNewest(mems.filter(m => m.importance === 'flavor')).slice(0, maxFlavor);
       return [...critical, ...normal, ...flavor];
     };
 
-    const worldMems    = filterByImportance(triggeredMemories.filter(m => m.type === 'world'), 8, 3);
-    const regionMems   = filterByImportance(triggeredMemories.filter(m => m.type === 'region'), 5, 2);
-    const sceneMems    = filterByImportance(triggeredMemories.filter(m => m.type === 'scene'), 5, 2);
+    const worldMems  = filterByImportance(triggeredMemories.filter(m => m.type === 'world'), 8, 3);
+    const regionMems = filterByImportance(triggeredMemories.filter(m => m.type === 'region'), 5, 2);
+    const sceneMems  = filterByImportance(triggeredMemories.filter(m => m.type === 'scene'), 5, 2);
     const relevantLorebookNpcTitles = new Set(
       relevantLorebook.filter(e => e.category === 'NPC').map(e => e.title)
     );
@@ -935,13 +962,29 @@ ${recentChat}
       n => n.isPinned && !relevantLorebookNpcTitles.has(n.name)
     );
 
-    const npcMems      = triggeredMemories.filter(m => {
+    // 出場 NPC：全量（依重要度截斷）
+    const appearingNpcMems = filterByImportance(
+      triggeredMemories.filter(m => {
+        if (m.type !== 'npc') return false;
+        return (m.tags?.npcs || []).some(n => appearingNpcs.includes(n));
+      }), 5, 2
+    );
+    // 未出場但 pinned/高好感 NPC：只保留 critical，最多 2 條
+    const specialNpcMems = triggeredMemories.filter(m => {
       if (m.type !== 'npc') return false;
-     const npcTags = m.tags?.npcs || [];
-      return npcTags.some(npcName => 
-        appearingNpcs.includes(npcName) || pinnedNpcs.some(p => p.name === npcName)
+      if ((m.tags?.npcs || []).some(n => appearingNpcs.includes(n))) return false;
+      return (m.tags?.npcs || []).some(n =>
+        npcs.some(npc => npc.name === n && (npc.isPinned || npc.affection >= 60))
       );
-    });
+    }).filter(m => m.importance === 'critical').slice(0, 2);
+    const npcMems = [...appearingNpcMems, ...specialNpcMems];
+
+    // 降級策略：記憶總數超過 20 時，只保留 critical
+    const totalMemCount = worldMems.length + regionMems.length + sceneMems.length + npcMems.length;
+    const [finalWorldMems, finalRegionMems, finalSceneMems, finalNpcMems] =
+      totalMemCount > 20
+        ? [worldMems, regionMems, sceneMems, npcMems].map(arr => arr.filter(m => m.importance === 'critical'))
+        : [worldMems, regionMems, sceneMems, npcMems];
 
     const recentMessages = currentMessages.slice(-SLIDING_WINDOW);
 
@@ -964,7 +1007,17 @@ HP: ${profile.hp} | MP: ${profile.mp} | Gold: ${profile.gold}
 
 [Inventory]
 ${equipment.length > 0 ? equipment.map(e => `- [裝備] ${e.name}${e.isEquipped ? '（裝備中）' : ''}: ${e.description}`).join('\n') : '（無裝備）'}
-${items.length > 0 ? items.map(i => `- ${i.name} x${i.quantity}: ${i.description}`).join('\n') : ''}
+${(() => {
+  if (items.length === 0) return '';
+  const hasEffect = (desc: string) => /HP|MP|回復|治療|效果|使用後|傷害|攻擊|防禦|強化|解毒|能量/i.test(desc);
+  // 超過 15 件時，只有最近新增的 5 件才保留完整說明
+  const recentIds = [...items].sort((a, b) => b.id - a.id).slice(0, 5).map(i => i.id);
+  const overLimit = items.length > 15;
+  return items.map(i => {
+    const showFull = (i.quantity > 1 || hasEffect(i.description)) && (!overLimit || recentIds.includes(i.id));
+    return showFull ? `- ${i.name} x${i.quantity}: ${i.description}` : `- ${i.name} x${i.quantity}`;
+  }).join('\n');
+})()}
 
 [進行中任務]
 ${(() => {
@@ -984,16 +1037,16 @@ ${(() => {
 
 ---
 [🌍 World Memory]
-${worldMems.length > 0 ? worldMems.map(m => `- ${m.content}${m.tags?.factions?.length ? ' ['+m.tags.factions.join(',')+']' : ''}`).join('\n') : '（無）'}
+${finalWorldMems.length > 0 ? finalWorldMems.map(m => `- ${m.content}${m.tags?.factions?.length ? ' ['+m.tags.factions.join(',')+']' : ''}`).join('\n') : '（無）'}
 
 [🗺️ Region Memory]
-${regionMems.length > 0 ? regionMems.map(m => `- ${m.content}${m.tags?.locations?.length ? ' ['+m.tags.locations.join(',')+']' : ''}`).join('\n') : '（無）'}
+${finalRegionMems.length > 0 ? finalRegionMems.map(m => `- ${m.content}${m.tags?.locations?.length ? ' ['+m.tags.locations.join(',')+']' : ''}`).join('\n') : '（無）'}
 
 [🏠 Scene Memory: ${currentLocation}]
-${sceneMems.length > 0 ? sceneMems.map(m => `- ${m.content}`).join('\n') : '（無）'}
+${finalSceneMems.length > 0 ? finalSceneMems.map(m => `- ${m.content}`).join('\n') : '（無）'}
 
 [👤 NPC Memory]
-${npcMems.length > 0 ? npcMems.map(m => `- ${m.content}${m.tags?.npcs?.length ? ' ['+m.tags.npcs.join(',')+']' : ''}`).join('\n') : '（無）'}
+${finalNpcMems.length > 0 ? finalNpcMems.map(m => `- ${m.content}${m.tags?.npcs?.length ? ' ['+m.tags.npcs.join(',')+']' : ''}`).join('\n') : '（無）'}
 
 ---
 [當前場景可能出現的角色]
@@ -1100,87 +1153,64 @@ Player: ${userInput}
 
 ---
 [COMMAND FORMAT]
-當劇情發生數值變化時，在回應最前面輸出指令區塊，格式如下：
+數值或狀態有變化時，在回應最前面輸出指令區塊：
 <<COMMANDS>>
 HP:-15
 GOLD:+200
 AFFINITY:角色名:+10
 LOCATION:新地點名稱
 TIME:+1h
-ITEM_ADD:道具名:1:說明文字
-- ITEM_ADD：當玩家獲得道具時輸出，格式 ITEM_ADD:名稱:數量:說明文字。說明文字請描述外觀與用途。
-- ITEM_USE：當玩家明確使用某道具時輸出，前端會扣除數量，AI 根據道具說明接續描述效果。
-QUEST_ADD:任務名稱:委託人NPC:目標描述:獎勵金幣:獎勵道具(逗號分隔可留空):期限天數(可留空=無期限)
-QUEST_GOAL_MET:任務名稱
-QUEST_COMPLETE:任務名稱
-NPC_THOUGHT:角色名:一句話內心想法
-NPC_RELATIONSHIP:角色名:與玩家的關係描述
-NPC_NEW:姓名:種族:性別:年齡:職業:外貌一句話:個性一句話:背景故事（50字以內，選填）
-NPC_HOME:姓名:地點名稱
-NPC_LOCATION:姓名:地點名稱
-LOCATION_DISCOVER:地點名稱:x座標:y座標
-MEMORY_ADD:region:normal:迷霧森林昨日大火，黑牙氏族前往支援:locations=迷霧森林:factions=黑牙氏族:keywords=大火,火災:sticky=3
+ITEM_ADD:道具名:數量:說明（外觀與效果）
+ITEM_REMOVE:道具名:數量
+ITEM_USE:道具名
+QUEST_ADD:任務名:委託人:目標描述:獎勵金幣:獎勵道具(逗號分隔可留空):期限天數(可留空)
+QUEST_GOAL_MET:任務名
+QUEST_COMPLETE:任務名
+NPC_NEW:姓名:種族:性別:年齡:職業:外貌:個性:背景(選填)
+NPC_HOME:姓名:地點
+NPC_LOCATION:姓名:地點
+NPC_THOUGHT:角色名:第一人稱內心想法
+NPC_RELATIONSHIP:角色名:關係描述
+LOCATION_DISCOVER:地點名稱:x:y
+MEMORY_ADD:region:normal:迷霧森林昨日大火:locations=迷霧森林:factions=黑牙氏族:keywords=大火,火災:sticky=3
 MEMORY_ADD:scene:normal:酒館因打架暫時關閉:locations=酒館
 MEMORY_ADD:npc:normal:芬里爾透露停火協議內容:npcs=芬里爾:keywords=停火,協議
 MEMORY_ADD:world:critical:魔王宣布向月湖鎮宣戰:keywords=魔王,宣戰
 <</COMMANDS>>
 
-並在敘事內文開頭輸出出場標記（非 COMMANDS 區塊）：
-[出場:姓名1,姓名2]
+敘事開頭輸出出場標記（非 COMMANDS 區塊，每回應必須）：
+[出場:姓名1,姓名2]（從候選名單選誰實際在場；無人可輸出 [出場:]；可加候選外新角色）
 
-【AI 何時應輸出 NPC_THOUGHT】
-當 NPC 有明顯情緒變化、做出重要決定、或對玩家產生新看法時，以第一人稱輸出一句話內心想法。
+【各指令觸發時機】
+- ITEM_ADD：玩家獲得道具時。說明需詳細描述外觀與效果（玩家使用時 AI 依此生成劇情）。
+- ITEM_USE：玩家主動使用道具時（前端扣數量）。ITEM_REMOVE：道具消耗/丟失。
+- QUEST_ADD：NPC 正式委託或玩家接布告欄任務時。後四欄可留空。
+- QUEST_GOAL_MET：玩家已完成目標但未回報時靜默輸出（前端標記「待回報」）。
+- QUEST_COMPLETE：玩家向委託人回報結案時。名稱需與 QUEST_ADD 完全一致。
+- NPC_NEW：新角色首次出場時建檔（一次性）。NPC_HOME 同步輸出其主場地點。
+- NPC_LOCATION：NPC 出現於非主場地點時記錄足跡。
+- NPC_THOUGHT：NPC 有明顯情緒變化、做出重要決定、或對玩家產生新看法時，第一人稱。
+- NPC_RELATIONSHIP：玩家與 NPC 初次確立明確關係，或關係發生重大轉變時輸出。
+- LOCATION_DISCOVER：玩家路過/聽說未知地點時（heard 狀態加入地圖）。x/y 為整數，月湖鎮=0,0。
 
-【AI 何時應輸出 NPC_RELATIONSHIP】
-當玩家與 NPC 初次建立明確關係（如：成為顧客、僱主、同行者、對手），或關係發生重大轉變時（如：從陌生人變成盟友、從朋友變成仇人），輸出一句簡短的關係描述（例如「偶爾光顧的旅行者」「被委託的冒險者」「礙眼的外來者」）。
-
-【AI 何時應輸出 ITEM_ADD / ITEM_USE】
-- ITEM_ADD：當玩家獲得任何道具時輸出，格式 ITEM_ADD:名稱:數量:說明文字。說明文字請詳細描述外觀與效果，玩家使用時 AI 根據說明生成劇情。
-- ITEM_USE：當玩家明確使用某道具時輸出，前端會扣除數量並送訊息給 AI 接續描述。
-
-【AI 何時應輸出 QUEST_ADD】
-當 NPC 正式委託玩家任務、或玩家從布告欄接取任務時輸出。格式：QUEST_ADD:任務名:委託人:目標描述:獎勵金幣(數字):獎勵道具(逗號分隔,可留空):期限天數(數字,可留空)。任務名稱之後的欄位均可留空。
-
-【AI 何時應輸出 QUEST_GOAL_MET】
-當 AI 判斷玩家已實際完成任務目標（例如：找到了物品、擊敗了目標、完成了交涉），但玩家尚未回到委託人處回報時，靜默輸出此指令。前端會標記任務為「待回報」狀態並提示玩家。
-
-【AI 何時應輸出 QUEST_COMPLETE】
-當玩家親自向委託人回報、且 AI 確認任務結案時輸出。必須使用與 QUEST_ADD 完全相同的任務名稱。若任務已標記 isGoalMet，此指令將自動發放獎勵並關閉任務。
-
-【AI 何時應輸出 NPC_NEW / NPC_HOME / NPC_LOCATION】
-- NPC_NEW：創造有名有姓、會在世界中固定出現的新角色時輸出（一次性建檔）
-- NPC_HOME：新 NPC 第一次登場時，同步輸出其主要活動地點
-- NPC_LOCATION：NPC 出現在非主場地點時，記錄其出沒足跡
-
-【AI 何時輸出 [出場:] 標記】
-每個場景或回合開頭，從「當前場景可能出現的角色」候選名單中選擇誰真正在場；也可不選任何人（輸出 [出場:]），或加入候選名單以外的新角色。每次回應都應輸出此標記讓前端追蹤。
-
-【AI 何時應輸出 LOCATION_DISCOVER】
-當玩家在旅途中路過、聽說或間接發現某個尚未記錄的地點（如路牌、旅人提及、地圖殘片等），輸出 LOCATION_DISCOVER:地點名稱:x:y，前端會以 heard 狀態將其加入世界地圖（虛線圓圈）。x/y 為地圖相對座標（整數，月湖鎮為 0,0），必須同時提供。
+【MEMORY_ADD 觸發情境（以下情況必須輸出）】
+1. world/critical：影響整個世界的重大事件（魔王宣戰、天象異變）
+2. region/normal：特定區域動態（森林大火、城鎮慶典）。回應中出現 [ ] 格式布告欄必定觸發。
+3. scene/normal：當前地點物理或狀態改變（酒館被砸毀、橋樑斷裂）
+4. npc/normal：NPC 透露的關鍵秘密、身世或重要決定
+5. world/region/npc：玩家重大成就、關鍵選擇、NPC 關係重大突破
 
 【字體標記（可選）】
-敘事中若有特殊文體段落，可用以下標記包裹，前端會自動套用對應字體：
-- [FONT:serif]...[/FONT]：信件、公告、書信、正式文書（明朝體）
-- [FONT:spell]...[/FONT]：咒語、魔法陣文字、古文、神諭（書法體）
-- [FONT:sans]...[/FONT]：現代感、系統提示、數據（黑體，預設可省略）
-標記可與 markdown 混用，例如在 serif 區塊內使用 **粗體** 或 > 引用。
+[FONT:serif]...[/FONT] 信件/公告/正式文書（明朝體）
+[FONT:spell]...[/FONT] 咒語/古文/神諭（書法體）
 
-【AI 何時應輸出 MEMORY_ADD】
-當發生以下五種情境時，請務必使用 MEMORY_ADD 記錄：
-1. 世界事件 (world)：影響整個世界的重大變故（如：魔王宣戰、天象異變）。
-2. 區域事件 (region)：特定區域的動態變化（如：森林大火、城鎮慶典）。
-   * 特別規則：若你的回應裡出現 [ ] 格式的布告欄內容或公告時，必定觸發 MEMORY_ADD:region 將其記錄下來。
-3. 場景狀態改變 (scene)：當前地點的物理或狀態改變（如：酒館被砸毀、橋樑斷裂）。
-4. NPC 情報 (npc)：NPC 透露的關鍵秘密、身世或重要決定。
-5. 玩家重要事件 (world/region/npc)：玩家達成的重大成就、做出的關鍵選擇，或與 NPC 關係的重大突破。
-
-若需要提供玩家行動建議，請在回應最後面輸出選項區塊，格式如下（請不要加上數字編號，限制在10字以內，以簡單動作為主）：
+【行動建議（可選）】
 <<OPTIONS>>
-選項一
-選項二
-選項三
+動作一（10字內）
+動作二
 <</OPTIONS>>
-指令區塊之後才是給玩家看的敘事內容。若無數值變化則省略指令區塊。
+
+指令區塊在敘事之前。無數值變化則省略指令區塊。
 
 Please respond as the DM.`;
   };
@@ -1263,10 +1293,16 @@ Please respond as the DM.`;
         .map(m => m.id);
       tickMemoryCounters(triggeredIds);
 
-      // 觸發背景整理
+      // 觸發背景整理（Sub GM）
+      // 關鍵事件：任務新增、地點移動、世界記憶寫入 → 強制跳過節流
+      const hasKeyEvent =
+        fullText.includes('QUEST_ADD:') ||
+        /\nLOCATION:[^\n]+/.test(fullText) ||
+        fullText.includes('MEMORY_ADD:world');
       updateAdventureState(
         [...newMessages, { id: aiMessageId, role: 'assistant', text: narrative }],
         newItems,
+        hasKeyEvent,
       );
     } catch (error) {
       console.error('Error calling Gemini API:', error);
@@ -1594,9 +1630,12 @@ Please respond as the DM.`;
             style={{ boxShadow: 'none' }}
             onMouseEnter={e => { e.currentTarget.style.boxShadow = '0 5px 10px rgba(204, 173, 105, 0.6), 0 12px 40px rgba(65, 46, 109, 0.3)'; }}
             onMouseLeave={e => { e.currentTarget.style.boxShadow = 'none'; }}
-            onClick={() => setIsDiaryModalOpen(true)}
+            onClick={() => { setIsDiaryModalOpen(true); setHasNewDiary(false); }}
           >
-            <h3 className="flex items-center font-bold text-lg" style={{ color: 'var(--text-primary)' }}><Book className="w-4 h-4 mr-2" />日記</h3>
+            <h3 className="flex items-center font-bold text-lg" style={{ color: 'var(--text-primary)' }}>
+              <Book className="w-4 h-4 mr-2" />日記
+              {hasNewDiary && <span className="ml-2 text-xs font-bold" style={{ color: 'var(--bg-mark)' }}>【新日記】</span>}
+            </h3>
           </div>
 
           {npcs.filter(n => n.isPinned).length > 0 && (

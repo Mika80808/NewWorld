@@ -105,6 +105,7 @@ export interface LorebookEntry {
   mapStatus?: 'heard' | 'known';
   adjacentTo?: string[];
   locationType?: 'town' | 'wilderness' | 'building';
+  aliases?: string[];        // 地點別名，供記憶精確比對用（e.g. 「月湖鎮酒館」→ aliases: ["酒館"]）
 }
 
 export interface SystemPrompt {
