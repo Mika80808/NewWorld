@@ -1386,17 +1386,21 @@ Please respond as the DM.`;
   };
 
   return (
-    <div className="flex flex-col h-screen font-sans overflow-hidden" style={{ backgroundImage: `url('/background.jpg')`, backgroundSize: 'cover', backgroundPosition: 'center', color: 'var(--text-title)' }}>
+    <div className="flex flex-col h-screen font-sans overflow-hidden" style={{ color: 'var(--text-title)' }}>
+      {/* Background image - fixed full screen */}
+      <div className="fixed inset-0 pointer-events-none z-0" style={{ backgroundImage: `url('/background.jpg')`, backgroundSize: 'cover', backgroundPosition: 'center' }} />
       {/* Sky gradient overlay */}
       <div className="fixed inset-0 pointer-events-none z-0" style={{ background: getSkyGradient(timeState.hour, timeState.weather), opacity: 0.55, transition: 'background 2s ease' }} />
+      {/* Left/Right panel glass overlays - fixed at root level so they don't create containing blocks for child fixed elements */}
+      <div className="fixed inset-y-0 left-0 pointer-events-none" style={{ width: '12.5em', background: 'var(--bg-glass-left)', zIndex: 5 }} />
+      <div className="fixed inset-y-0 right-0 pointer-events-none" style={{ width: '15rem', background: 'var(--bg-glass-right)', backdropFilter: 'blur(20px) saturate(150%)', WebkitBackdropFilter: 'blur(20px) saturate(150%)', zIndex: 5 }} />
       {/* Main Content */}
-      <div className="flex flex-1 overflow-hidden">
+      <div className="flex flex-1 overflow-hidden relative z-10">
 
         {/* Left Panel */}
-        <div 
-        className="w-55 flex flex-col px-0 py-4 space-y-4 overflow-y-auto" 
-        style={{ background: 'rgba(63, 63, 63, 0.35)', backdropFilter: 'blur(12px)',
-        boxShadow: 'inset -1px 0 8px rgba(0, 0, 0, 0.2)' }}>
+        <div
+        className="w-50 flex flex-col px-0 py-4 space-y-4 overflow-y-auto"
+        style={{ borderRight: '2px solid var(--border-default)', boxShadow: '4px 0 24px rgba(0, 0, 0, 0.3)', zIndex: 20 }}>
           {/* Adventure Log & Goals */}
           <div className="px-4 py-3 transition-all" style={{ boxShadow: 'none' }}
             onMouseEnter={e => { e.currentTarget.style.boxShadow = '0 5px 10px rgba(204, 173, 105, 0.6), 0 12px 40px rgba(65, 46, 109, 0.3)'; }}
@@ -1722,11 +1726,11 @@ Please respond as the DM.`;
 
           <div className="flex-1"></div>
 
-          <div className="grid grid-cols-2 gap-2 mt-auto px-4">
+          <div className="grid grid-cols-2 gap-2 mt-auto px-3">
             {[
               { label: '個人資訊', action: () => setIsProfileModalOpen(true) },
               { label: '故事集', action: () => setIsLorebookModalOpen(true) },
-              { label: '系統', icon: <Settings className="w-4 h-4 mr-2" />, action: () => setIsSettingsModalOpen(true) },
+              { label: '系統', action: () => setIsSettingsModalOpen(true) },
               { label: 'Prompt', action: () => setIsSystemPromptModalOpen(true) },
             ].map(item => (
               <div
@@ -1737,7 +1741,7 @@ Please respond as the DM.`;
                 onMouseLeave={e => { e.currentTarget.style.boxShadow = '0 2px 8px rgba(0, 0, 0, 0.44)'; }}
                 onClick={item.action}
               >
-                <span className="flex items-center font-bold text-sm" style={{ color: 'var(--text-tab)' }}>{item.icon}{item.label}</span>
+                <span className="flex items-center text-sm" style={{ color: 'var(--text-main)' }}>{item.icon}{item.label}</span>
               </div>
             ))}
           </div>
@@ -1747,7 +1751,7 @@ Please respond as the DM.`;
             const timeStr = lastSavedAt.toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
             const dateStr = lastSavedAt.toLocaleDateString('zh-TW', { month: 'numeric', day: 'numeric' });
             return (
-              <p className="text-center text-sm text-[var(--text-muted)] mt-1.5">
+              <p className="text-center text-xs text-[var(--text-muted)] mt-1.5">
                 上次存檔 {isToday ? timeStr : `${dateStr} ${timeStr}`}
               </p>
             );
@@ -1761,8 +1765,8 @@ Please respond as the DM.`;
             <div className="flex space-x-2">
               <button
                 onClick={() => setIsMapOpen(true)}
-                className="px-5 py-1 rounded-[8px] text-base font-medium transition flex items-center"
-                style={{ background: 'color-mix(in srgb, var(--bg-elevated) 80%, transparent)', color: 'var(--text-primary)', border: `1px solid color-mix(in srgb, var(--border-default), transparent)` }}
+                className="px-5 py-1 mr-3 rounded-[8px] text-base font-medium transition flex items-center"
+                style={{ background: 'color-mix(in srgb, var(--bg-elevated) 80%, transparent)', color: 'var(--text-primary)', border: `2px solid color-mix(in srgb, var(--border-default), transparent)` }}
                 onMouseEnter={e => e.currentTarget.style.background = 'color-mix(in srgb, var(--bg-elevated) 40%, transparent)'}
                 onMouseLeave={e => e.currentTarget.style.background = 'color-mix(in srgb, var(--bg-elevated) 20%, transparent)'}
               >
@@ -2034,12 +2038,11 @@ Please respond as the DM.`;
         </div>
 
         {/* Right Panel */}
-        <div 
+        <div
              className="w-60 flex flex-col p-4 space-y-6 overflow-y-auto z-10"
               style={{
-               background: 'rgba(18, 18, 18, 0.85)',
-               backdropFilter: 'blur(12px)',
-               borderLeft: '1px solid var(--glass-border)'
+               borderLeft: '2px solid var(--border-default)',
+               boxShadow: '-4px 0 24px rgba(0, 0, 0, 0.3)'
      }}
    >
           <div>

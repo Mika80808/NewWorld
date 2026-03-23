@@ -6,7 +6,10 @@
       "mcp__Claude_Preview__preview_start",
       "Bash(where npm:*)",
       "Bash(where node:*)",
-      "Bash(ls F:AINew-world*.md F:AINew-world*.txt F:AINew-world*.json)"
+      "Bash(ls F:AINew-world*.md F:AINew-world*.txt F:AINew-world*.json)",
+      "Bash(where.exe node:*)",
+      "Read(//c/Program Files/**)",
+      "Read(//c/Users/Mika/AppData/Roaming/**)"
     ]
   }
 }

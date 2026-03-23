@@ -13,21 +13,21 @@
   /* ── 背景層次 ──────────────────────────────────────────── */
   --bg-base:         #121212;   /* 最外層背景 */
   --bg-elevated:     #1b1b1b;   /* 右側欄、Modal 底色 */
-  --bg-left-elevated:#42413b;   /* 左側欄、Modal 底色 */
-
   --bg-ui-card:      #2b2a2a;   /* Modal 內部二次容器（讓 A/B 區塊易於區別） */
   --bg-overlay:      rgba(0, 0, 0, 0.2);
+  --bg-glass-left:   rgba(20, 18, 10, 0.45);  /* 左欄淡金玻璃底色 */
+  --bg-glass-right:  rgba(20, 18, 10, 0.45);    /* 右欄深色玻璃底色 */
   --bg-mark:         #ff637e;   /* 新日記亮點「通知」 */
 
   /* ── 邊框 ───────────────────────────────────────────────── */
-  --border-default:  #2C2C2C;   /* 所有邊框 */
+  --border-default:  #7e7c7360;   /* 所有邊框 */
   --border-width:    0.5px;
   --border-accent:   #C0A060;   /* 選中狀態邊框 */
 
   /* ── 文字 ───────────────────────────────────────────────── */
-  --text-primary:    #D4AF37;   /* 左右欄功能名稱、Modal 名稱（暖黃） */
+  --text-primary:    #e2d198;   /* 左右欄功能名稱、Modal 名稱（暖黃） */
   --text-title:      #ff11d7;   /* 欄位名稱、地名 */
-  --text-tab:        #fff7e2;   /* 分頁標題（如：人物、怪物） */
+  --text-tab:        #e7d7ac;   /* 分頁標題（如：人物、怪物） */
   --text-body:       #F0F0EE;   /* 地點介紹、一般段落 */
   --text-main:       #e8e8e9;   /* 輸入文字 */
   --text-muted:      #acacac;   /* 提示文字、時間戳、placeholder */
@@ -58,8 +58,8 @@
   --bg-sys-tag:      #0092cc;   /* 關鍵字膠囊底色 */
 
   /* ── 對話視窗 ───────────────────────────────────────────── */
-  --bg-bubble-self:    rgba(117, 117, 117, 0.15);  /* 玩家對話泡泡 */
-  --bg-bubble-npc:     rgba(68, 68, 68, 0.45);    /* NPC 對話泡泡 */
+  --bg-bubble-self:    rgba(20, 20, 20, 0.699);  /* 玩家對話泡泡 */
+  --bg-bubble-npc:     rgba(0, 0, 0, 0.541);    /* NPC 對話泡泡 */
   --bg-dialog-input:   #161616;                 /* 玩家輸入框 */
   --text-dialog-main:  #fafafa;                 /* 對話台詞 */
   --text-dialog-muted: #d1d1d1;                 /* 敘述描寫 */

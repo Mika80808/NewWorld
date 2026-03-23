@@ -10,13 +10,14 @@ const CLUSTER_THRESHOLD = 20; // 地圖單位，小於此距離的地點合併�
 const MAP_PALETTE = {
   paper: '#f4ecdc',
   paperDeep: '#e6d6bf',
-  ink: '#6b5a4c',
-  inkSoft: '#8b7b6b',
-  accent: '#c89d5a',
-  accentStrong: '#c77a5a',
+  know: '#886847',
+  ink: '#ddd8d4',
+  inkSoft: '#685c57',
+  accent: '#376baf',
+  accentStrong: '#776c61',
   water: '#9bb6c8',
   pine: '#7a8e7a',
-  glow: 'rgba(200,157,90,0.35)',
+  glow: 'rgba(84, 73, 122, 0.35)',
 };
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -245,30 +246,30 @@ export const MapModal: React.FC<MapModalProps> = ({
     <div className="fixed inset-0 bg-black/85 backdrop-blur-sm z-50 flex items-center justify-center p-4">
       <div
         className="w-full max-w-5xl rounded-[10px] shadow-[0_0_80px_rgba(0,0,0,0.8)] flex flex-col overflow-hidden h-[87vh]"
-        style={{ background: '#24282d', border: '0.5px solid #283b57', borderTop: '1.5px solid #fde68a' }}
+        style={{ background: 'var(--bg-elevated)', border: '0.5px solid var(--border-default)', borderTop: '1.5px solid #fde68a' }}
       >
         {/* ── Header ──────────────────────────────────────────────────────── */}
-        <div className="px-5 py-3 flex items-center gap-3 shrink-0" style={{ borderBottom: '0.5px solid #283b57' }}>
-          <h2 className="text-base font-bold tracking-widest shrink-0" style={{ color: '#fde68a', fontFamily: 'Georgia, serif' }}>
+        <div className="px-5 py-3 flex items-center gap-3 shrink-0" style={{ borderBottom: '0.5px solid var(--border-default)' }}>
+          <h2 className="text-base font-bold tracking-widest shrink-0" style={{ color: '#fde68a', fontFamily: "'Noto Sans TC', sans-serif" }}>
             ✦ 世界地圖
           </h2>
           <div className="flex-1 relative">
-            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5" style={{ color: '#4a7ac9' }} />
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5" style={{ color: 'var(--text-muted)' }} />
             <input
               type="text"
               placeholder="搜尋地點..."
               value={searchQuery}
               onChange={e => setSearchQuery(e.target.value)}
               className="w-full pl-8 pr-3 py-1.5 text-sm rounded-none outline-none bg-transparent"
-              style={{ borderBottom: '1px solid #283b57', color: 'var(--text-tab)', fontFamily: 'Georgia, serif' }}
+              style={{ borderBottom: '1px solid var(--border-default)', color: 'var(--text-tab)', fontFamily: "'Noto Sans TC', sans-serif" }}
             />
           </div>
           <button
             onClick={onClose}
             className="w-7 h-7 flex items-center justify-center rounded-full shrink-0 transition"
-            style={{ background: '#171617', border: '0.5px solid #283b57', color: '#4a7ac9' }}
+            style={{ background: 'var(--bg-elevated)', border: '0.5px solid var(--border-default)', color: '#4a7ac9' }}
             onMouseEnter={e => (e.currentTarget.style.color = '#fde68a')}
-            onMouseLeave={e => (e.currentTarget.style.color = '#4a7ac9')}
+            onMouseLeave={e => (e.currentTarget.style.color = 'var(--text-muted)')}
           >
             <X className="w-3.5 h-3.5" />
           </button>
@@ -325,7 +326,7 @@ export const MapModal: React.FC<MapModalProps> = ({
 
               {/* Bezier 曲線 */}
               {bezierPath && (
-                <path d={bezierPath} fill="none" stroke={MAP_PALETTE.accent} strokeWidth="2" strokeDasharray="6 4" opacity={0.8} />
+                <path d={bezierPath} fill="none" stroke={MAP_PALETTE.accentStrong} strokeWidth="2" strokeDasharray="6 4" opacity={0.8} />
               )}
 
               {/* 節點（只渲染各群的 primary） */}
@@ -350,7 +351,7 @@ export const MapModal: React.FC<MapModalProps> = ({
                     {!isKnown && (
                       <>
                         {isSelected && (
-                          <circle cx={cx} cy={cy} r={18} fill="rgba(153, 61, 22, 0.18)"
+                          <circle cx={cx} cy={cy} r={18} fill="rgba(235, 235, 235, 0.18)"
                             stroke={MAP_PALETTE.accentStrong} strokeWidth="0" filter="url(#glow-red)" />
                         )}
                         <circle
@@ -367,15 +368,15 @@ export const MapModal: React.FC<MapModalProps> = ({
                           style={{ pointerEvents: 'none' }}>?</text>
                         <text x={cx} y={cy + 20} textAnchor="middle" fontSize="10"
                           fill={isSelected ? MAP_PALETTE.accentStrong : MAP_PALETTE.inkSoft}
-                          style={{ pointerEvents: 'none', fontFamily: 'Georgia, serif' }}>???</text>
+                          style={{ pointerEvents: 'none', fontFamily: "'Noto Sans TC', sans-serif" }}>???</text>
                       </>
                     )}
 
                     {/* ── Known: 圓形地標與定位針 ── */}
                     {isKnown && (() => {
                       const baseRadius = 6;
-                      const starColor = isCurrent ? MAP_PALETTE.accent : isSelected ? MAP_PALETTE.accentStrong : MAP_PALETTE.ink;
-                      const centerColor = isCurrent ? '#f9e7b4' : isSelected ? '#f2b59a' : MAP_PALETTE.water;
+                      const starColor = isCurrent ? MAP_PALETTE.accent : isSelected ? MAP_PALETTE.accentStrong : MAP_PALETTE.know;
+                      const centerColor = isCurrent ? '#f9e7b4' : isSelected ? '#dfd5cf' : MAP_PALETTE.water;
 
                       return (
                         <>
@@ -416,8 +417,8 @@ export const MapModal: React.FC<MapModalProps> = ({
                             textAnchor="middle"
                             fontSize={isCurrent || isSelected ? '12' : '11'}
                             fontWeight={isCurrent || isSelected ? '700' : '500'}
-                            fill={isCurrent ? MAP_PALETTE.accent : isSelected ? MAP_PALETTE.accentStrong : MAP_PALETTE.ink}
-                            style={{ pointerEvents: 'none', fontFamily: 'Georgia, serif', textShadow: '0 1px 3px rgba(107,90,76,0.3)' }}
+                            fill={isCurrent ? MAP_PALETTE.accent : isSelected ? MAP_PALETTE.accentStrong : MAP_PALETTE.know}
+                            style={{ pointerEvents: 'none', fontFamily: "'Noto Sans TC', sans-serif", textShadow: '0 1px 3px rgba(255, 255, 255, 0.66)' }}
                           >
                             {isKnown ? loc.title : '???'}
                             {isMulti && isKnown && ' ◆'}
@@ -443,17 +444,17 @@ export const MapModal: React.FC<MapModalProps> = ({
                             <rect
                               x={cx + offsetX - 38} y={cy + offsetY - 11}
                               width={76} height={20} rx={4}
-                              fill={isActiveSub ? MAP_PALETTE.accent : MAP_PALETTE.paperDeep}
-                              stroke={isActiveSub ? '#f3d998' : MAP_PALETTE.accent}
+                              fill={isActiveSub ? MAP_PALETTE.accentStrong : MAP_PALETTE.paperDeep}
+                              stroke={isActiveSub ? '#a39369' : MAP_PALETTE.accentStrong}
                               strokeWidth="0.8"
                               opacity={0.95}
                             />
                             <text
                               x={cx + offsetX} y={cy + offsetY + 3}
-                              textAnchor="middle" fontSize="12"
+                              textAnchor="middle" fontSize="10"
                               fontWeight={isActiveSub ? '700' : '500'}
                               fill={isActiveSub ? MAP_PALETTE.ink : MAP_PALETTE.inkSoft}
-                              style={{ pointerEvents: 'none', fontFamily: 'Georgia, serif' }}
+                              style={{ pointerEvents: 'none', fontFamily: "'Noto Sans TC', sans-serif" }}
                             >
                               {member.title}
                             </text>
@@ -477,7 +478,7 @@ export const MapModal: React.FC<MapModalProps> = ({
                 border: 'none', 
                 padding: 0, 
                 cursor: 'pointer',
-                filter: 'drop-shadow(0 4px 12px rgba(107, 90, 76, 0.62))'
+                filter: 'drop-shadow(0 4px 12px rgb(107, 90, 76))'
               }}
               onClick={handleCompassClick}
               title="重置視角"
@@ -491,13 +492,13 @@ export const MapModal: React.FC<MapModalProps> = ({
                 <polygon points="54,30 40,26 40,34" fill={MAP_PALETTE.inkSoft} opacity="0.8" />
                 <circle cx="30" cy="30" r="5" fill={MAP_PALETTE.paper} stroke={MAP_PALETTE.accent} strokeWidth="1" />
                 <circle cx="30" cy="30" r="2.5" fill="#f3d998" />
-                <text x="30" y="5" textAnchor="middle" fontSize="8" fill={MAP_PALETTE.accent} fontWeight="900" style={{ fontFamily: 'Georgia, serif' }}>N</text>
+                <text x="30" y="5" textAnchor="middle" fontSize="8" fill={MAP_PALETTE.accent} fontWeight="900" style={{ fontFamily: "'Noto Sans TC', sans-serif" }}>N</text>
               </svg>
             </button>
 
             {resetHint && (
               <div className="absolute bottom-[100px] left-[30px] text-[11px] px-2 py-1 rounded-[8px]"
-                style={{ background: '#24282d', border: '0.5px solid #fde68a', color: '#fde68a' }}>
+                style={{ background: 'var(--bg-elevated)', border: '0.5px solid #e7b900', color: '#fde68a' }}>
                 視角已重置
               </div>
             )}
@@ -506,7 +507,7 @@ export const MapModal: React.FC<MapModalProps> = ({
           {/* ── Right Panel ─────────────────────────────────────────────── */}
           <div
             className="w-64 flex flex-col overflow-hidden shrink-0"
-            style={{ background: '#24282d', borderLeft: '0.5px solid #283b57' }}
+            style={{ background: 'var(--bg-glass-right)', borderLeft: '0.5px solid var(--border-default)' }}
           >
             {selectedNode ? (
               <>
@@ -515,22 +516,12 @@ export const MapModal: React.FC<MapModalProps> = ({
 
                   {/* 地點名稱 */}
                   <div>
-                    <div className="flex items-start justify-between gap-2">
-                      <h3 className="font-bold text-base leading-snug"
-                        style={{ color: '#fde68a', fontFamily: 'Georgia, serif' }}>
-                        ✦ 【{selectedNode.title}】
+                    <div className="flex items-center justify-center gap-1.5 mt-2 mb-5">
+                      <h3 className="font-bold leading-snug"
+                        style={{ color: 'var(--text-tab)', fontFamily: "'Noto Sans TC', sans-serif" }}>
+                        ✦【{selectedNode.title}】
                       </h3>
-                      {isAtSelected ? (
-                        <span className="shrink-0 text-xs px-1.5 py-0.5 rounded-[8px] mt-0.5"
-                          style={{ background: 'var(--btn-primary)', border: '0.5px solid var(--btn-primary)', color: 'var(--text-tab)' }}>
-                          所在地
-                        </span>
-                      ) : (
-                        <span className="shrink-0 text-xs px-1.5 py-0.5 rounded-[8px] mt-0.5"
-                          style={{ background: 'var(--btn-primary)', border: '0.5px solid var(--btn-primary)', color: 'var(--text-tab)' }}>
-                          目標
-                        </span>
-                      )}
+                 
                     </div>
                     {/* 菱形分隔線 */}
                     <div className="flex items-center gap-1.5 mt-2 mb-5">
@@ -541,8 +532,8 @@ export const MapModal: React.FC<MapModalProps> = ({
                   </div>
 
                   {/* 描述 */}
-                  <p className="text-sm leading-relaxed"
-                    style={{ color: 'var(--text-body)', fontFamily: 'Georgia, serif' }}>
+                  <p className="text-sm leading-relaxed "
+                    style={{ color: 'var(--text-body)', fontFamily: "'Noto Sans TC', sans-serif" }}>
                     {selectedNode.content || '這個地方充滿了未知的故事，等待著探索。'}
                   </p>
 
@@ -551,7 +542,7 @@ export const MapModal: React.FC<MapModalProps> = ({
                     <div className="flex items-center gap-1.5 mb-2">
                       <div className="flex-1 h-px mt-5" style={{ background: 'var(--text-tab)' }} />
                       <h4 className="mt-5 text-base font-bold uppercase tracking-wider"
-                        style={{ color: 'var(--text-tab)', fontFamily: 'Georgia, serif', flexShrink: 0 }}>
+                        style={{ color: 'var(--text-tab)', fontFamily: "'Noto Sans TC', sans-serif", flexShrink: 0 }}>
                         ✦ 區域記憶
                       </h4>
                       <div className="flex-1 h-px mt-5" style={{ background: 'var(--text-tab)' }} />
@@ -564,7 +555,7 @@ export const MapModal: React.FC<MapModalProps> = ({
                               color: 'var(--text-tab)',
                               borderLeft: '2px solid #fde68a',
                               background: 'rgba(74,122,201,0.06)',
-                              fontFamily: 'Georgia, serif',
+                              fontFamily: "'Noto Sans TC', sans-serif",
                               lineHeight: 1.5,
                             }}>
                             {m.content}
@@ -573,7 +564,7 @@ export const MapModal: React.FC<MapModalProps> = ({
                       </div>
                     ) : (
                       <p className="text-sm text-center py-2"
-                        style={{ color: 'var(--text-muted)', fontFamily: 'Georgia, serif' }}>
+                        style={{ color: 'var(--text-muted)', fontFamily: "'Noto Sans TC', sans-serif" }}>
                         暫無區域記憶
                       </p>
                     )}
@@ -584,7 +575,7 @@ export const MapModal: React.FC<MapModalProps> = ({
                 {!isAtSelected && (
                   <div className="shrink-0 p-4 space-y-2" style={{ borderTop: '0.5px solid var(--border-default)' }}>
                     <h4 className="text-sm font-bold uppercase tracking-wider"
-                      style={{ color: 'var(--text-tab)', fontFamily: 'Georgia, serif' }}>
+                      style={{ color: 'var(--text-tab)', fontFamily: "'Noto Sans TC', sans-serif" }}>
                       前往方式
                     </h4>
                     <div className="flex gap-2">
@@ -596,7 +587,7 @@ export const MapModal: React.FC<MapModalProps> = ({
                           border: `1px solid ${travelMode === 'walk' ? 'var(--text-tab)' : 'var(--border-default)'}`,
                           color: travelMode === 'walk' ? '#fff' : 'var(--text-tab)',
                           background: travelMode === 'walk' ? 'rgba(74,122,201,0.25)' : 'transparent',
-                          fontFamily: 'Georgia, serif',
+                          fontFamily: "'Noto Sans TC', sans-serif",
                         }}
                       >
                         🚶 徒步
@@ -610,7 +601,7 @@ export const MapModal: React.FC<MapModalProps> = ({
                             border: `1px solid ${travelMode === 'carriage' ? '#fde68a' : '#4a4a2a'}`,
                             color: travelMode === 'carriage' ? '#fde68a' : '#fde68a',
                             background: travelMode === 'carriage' ? 'rgba(201,168,76,0.2)' : 'transparent',
-                            fontFamily: 'Georgia, serif',
+                            fontFamily: "'Noto Sans TC', sans-serif",
                           }}
                         >
                           🐴 {selectedNode.cartFare}G
@@ -624,7 +615,7 @@ export const MapModal: React.FC<MapModalProps> = ({
                       <button
                         onClick={handleDepart}
                         className="w-full py-2 text-sm font-bold rounded-[8px] tracking-widest transition"
-                        style={{ background: '#fde68a', color: '#171617', fontFamily: 'Georgia, serif' }}
+                        style={{ background: '#fde68a', color: 'var(--bg-elevated)', fontFamily: "'Noto Sans TC', sans-serif" }}
                         onMouseEnter={e => (e.currentTarget.style.background = '#e0bc62')}
                         onMouseLeave={e => (e.currentTarget.style.background = '#fde68a')}
                       >
@@ -639,7 +630,7 @@ export const MapModal: React.FC<MapModalProps> = ({
               <div className="flex-1 flex flex-col overflow-hidden">
                 <div className="px-4 pt-4 pb-2 shrink-0">
                   <h4 className="text-base font-bold uppercase tracking-wider"
-                    style={{ color: 'var(--text-tab)', fontFamily: 'Georgia, serif' }}>
+                    style={{ color: 'var(--text-tab)', fontFamily: "'Noto Sans TC', sans-serif" }}>
                     已知地點
                   </h4>
                 </div>
@@ -653,7 +644,7 @@ export const MapModal: React.FC<MapModalProps> = ({
                         style={{
                           background: loc.title === currentLocation ? 'rgba(201,168,76,0.1)' : 'transparent',
                           color: loc.title === currentLocation ? '#fde68a' : 'var(--text-tab)',
-                          fontFamily: 'Georgia, serif',
+                          fontFamily: "'Noto Sans TC', sans-serif",
                         }}
                         onMouseEnter={e => (e.currentTarget.style.background = 'rgba(89, 147, 241, 0.36)')}
                         onMouseLeave={e => (e.currentTarget.style.background = loc.title === currentLocation ? 'rgba(201,168,76,0.1)' : 'transparent')}
@@ -666,9 +657,9 @@ export const MapModal: React.FC<MapModalProps> = ({
                     .filter(e => e.mapStatus !== 'known' && e.title !== currentLocation).length > 0 && (
                     <>
                       <div className="flex items-center gap-1.5 py-1">
-                        <div className="flex-1 h-px " style={{ background: 'var(--text-body)' }} />
-                        <span style={{ color: 'ver(--text-tab)'}}>未踏足</span>
-                        <div className="flex-1 h-px text-sm" style={{ background: 'var(--text-body)' }} />
+                        <div className="flex-1 h-px " style={{ background: 'var(--text-muted)' }} />
+                        <span style={{ color: 'var(--text-muted)'}}>未踏足</span>
+                        <div className="flex-1 h-px text-sm" style={{ background: 'var(--text-muted)' }} />
                       </div>
                       {(searchQuery.trim() ? filteredNodes : mapNodes)
                         .filter(e => e.mapStatus !== 'known' && e.title !== currentLocation)
@@ -676,9 +667,9 @@ export const MapModal: React.FC<MapModalProps> = ({
                           <button key={loc.id}
                             onClick={() => { setSelectedTitle(loc.title); setTravelMode(null); setGoldWarning(false); }}
                             className="w-full text-left px-2.5 py-2 rounded-[8px] text-sm transition"
-                            style={{ background: 'transparent', color: 'ver(--text-muted)', fontFamily: 'Georgia, serif' }}
-                            onMouseEnter={e => (e.currentTarget.style.color = 'ver(--text-body)' )}
-                            onMouseLeave={e => (e.currentTarget.style.color = 'ver(--text-muted)' )}
+                            style={{ background: 'transparent', color: 'var(--text-muted)', fontFamily: "'Noto Sans TC', sans-serif" }}
+                            onMouseEnter={e => (e.currentTarget.style.color = 'var(--text-muted)' )}
+                            onMouseLeave={e => (e.currentTarget.style.color = 'var(--text-muted)' )}
                           >
                             ? {loc.title}
                           </button>

@@ -12,7 +12,7 @@
 <div className="flex h-screen">
   {/* 左欄 */}
   <aside className="w-52">  {/* 208px */}
-    {/* 當前目標、冒險擷要、功能按鈕 */}
+    {/* 當前目標、冒險摘要、功能按鈕 */}
   </aside>
 
   {/* 中間對話區 */}
@@ -181,8 +181,8 @@
 </h4>
 
 // 記憶卡片內文 ⚠️ 重點改動
-<p className="text-base leading-relaxed" style={{ color: 'var(--text-body)' }}>
-  {/* 原本可能是 text-sm 或 text-xs，統一改為 text-base */}
+<p className="text-sm leading-relaxed" style={{ color: 'var(--text-body)' }}>
+  {/* 原本是 text-xs，統一改為 text-sm */}
   月光特別明亮，彷彿被天一般...
 </p>
 ```
@@ -190,7 +190,7 @@
 #### **Modal**
 ```tsx
 // Modal 標題
-<h2 className="text-2xl font-bold">世界地圖</h2>
+<h2 className="text-lg font-bold">世界地圖</h2>
 
 // Modal 內文
 <p className="text-base leading-relaxed">...</p>
@@ -239,7 +239,7 @@
 
 | Class | 尺寸 | 使用情境 |
 |-------|------|----------|
-| `rounded-[10px]` | 10px | Modal 外框、大卡片 |
+| `rounded-[10px]` | 8px | Modal 外框、大卡片 |
 | `rounded-[8px]` | 8px | 按鈕、輸入框、一般卡片 ⭐ 預設 |
 | `rounded-[5px]` | 5px | 小標籤、徽章 |
 | `rounded-full` | 全圓 | 圓形按鈕、頭像 |
@@ -410,7 +410,7 @@
             📅 雙月之月
           </h5>
         </div>
-        <p className="text-base leading-relaxed" style={{ color: 'var(--text-body)' }}>
+        <p className="text-sm leading-relaxed" style={{ color: 'var(--text-body)' }}>
           月光特別明亮，彷彿被天一般...
         </p>
       </div>
