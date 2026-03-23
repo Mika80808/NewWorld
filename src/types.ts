@@ -116,6 +116,7 @@ export interface SystemPrompt {
 
 export interface DiaryEntry {
   id: number;
+  title?: string;        // 日記標題（選填，AI 生成時自動解析）
   text: string;
   isActive: boolean;
   keywords: string[];

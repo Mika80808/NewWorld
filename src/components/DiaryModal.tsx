@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Book, CheckSquare, Square, Trash2, ChevronDown, ChevronRight, Search } from 'lucide-react';
+import { Book, CheckSquare, Square, Trash2, ChevronDown, ChevronRight, Search, Pencil } from 'lucide-react';
 
 import { DiaryEntry } from '../types';
 
@@ -12,10 +12,33 @@ interface DiaryModalProps {
   onMergeDiary: (selectedIds: number[]) => Promise<void>;
   onToggleDiary: (id: number) => void;
   onDiaryChange: (id: number, text: string) => void;
+  onDiaryTitleChange: (id: number, title: string) => void;
   onDiaryKeywordAdd: (id: number, keyword: string) => void;
   onDiaryKeywordRemove: (id: number, keyword: string) => void;
   onDeleteDiary: (id: number) => void;
   scanKeywords: (keywords: string[]) => boolean;
+}
+
+// 取得日記標題（title 欄位優先；fallback 解析 text 第一行 ## ...）
+function getDiaryTitle(entry: DiaryEntry): string {
+  if (entry.title !== undefined && entry.title !== '') return entry.title;
+  const firstLine = (entry.text || '').split('\n')[0].trim();
+  if (firstLine.startsWith('## ')) return firstLine.slice(3).trim();
+  if (firstLine.startsWith('[') && firstLine.endsWith(']')) return firstLine.slice(1, -1).trim();
+  return '';
+}
+
+// 取得日記正文（排除 title 行，如果 title 是從 text 解析出來的）
+function getDiaryBody(entry: DiaryEntry): string {
+  // 若有獨立 title 欄位，text 本身就是純內文
+  if (entry.title !== undefined) return entry.text || '';
+  // fallback：從 text 去掉第一行（舊格式）
+  const lines = (entry.text || '').split('\n');
+  const firstLine = lines[0].trim();
+  if (firstLine.startsWith('## ') || (firstLine.startsWith('[') && firstLine.endsWith(']'))) {
+    return lines.slice(1).join('\n').replace(/^\n+/, '');
+  }
+  return entry.text || '';
 }
 
 export const DiaryModal: React.FC<DiaryModalProps> = ({
@@ -27,12 +50,14 @@ export const DiaryModal: React.FC<DiaryModalProps> = ({
   onMergeDiary,
   onToggleDiary,
   onDiaryChange,
+  onDiaryTitleChange,
   onDiaryKeywordAdd,
   onDiaryKeywordRemove,
   onDeleteDiary,
   scanKeywords,
 }) => {
   const [editingDiaryId, setEditingDiaryId] = useState<number | null>(null);
+  const [expandedIds, setExpandedIds] = useState<number[]>([]);
   const [isDiaryMergeMode, setIsDiaryMergeMode] = useState(false);
   const [diaryMergeSelection, setDiaryMergeSelection] = useState<number[]>([]);
   const [isDiaryGenerating, setIsDiaryGenerating] = useState(false);
@@ -44,6 +69,7 @@ export const DiaryModal: React.FC<DiaryModalProps> = ({
   const handleAddClick = () => {
     const newId = onAddDiary();
     setEditingDiaryId(newId);
+    setExpandedIds(prev => [...prev, newId]);
   };
 
   const handleGenerateClick = async () => {
@@ -61,15 +87,32 @@ export const DiaryModal: React.FC<DiaryModalProps> = ({
     setIsDiaryGenerating(false);
   };
 
+  const toggleExpand = (id: number) => {
+    setExpandedIds(prev =>
+      prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]
+    );
+  };
+
   const panelBg = 'color-mix(in srgb, var(--bg-elevated) 70%, transparent)';
   const panelBgLight = 'color-mix(in srgb, var(--bg-elevated) 50%, transparent)';
   const panelBgDim = 'color-mix(in srgb, var(--bg-elevated) 30%, transparent)';
+
+  const filteredEntries = diaryEntries.filter(entry => !entry.isMerged).filter(entry => {
+    if (!diarySearch.trim()) return true;
+    const q = diarySearch.toLowerCase();
+    const title = getDiaryTitle(entry).toLowerCase();
+    return (
+      title.includes(q) ||
+      entry.text?.toLowerCase().includes(q) ||
+      entry.keywords?.some(k => k.toLowerCase().includes(q))
+    );
+  });
 
   return (
     <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
       <div
         className="backdrop-blur-xl w-full max-w-2xl rounded-[8px] shadow-[0_0_40px_rgba(0,0,0,0.5)] flex flex-col overflow-hidden border border-white/10 relative h-[80vh]"
-        style={{ background: panelBg, color: 'var(--text-body' }}
+        style={{ background: panelBg, color: 'var(--text-body)' }}
       >
         {/* ── Header ── */}
         <div
@@ -85,7 +128,6 @@ export const DiaryModal: React.FC<DiaryModalProps> = ({
             </span>
           </div>
           <div className="flex items-center gap-2">
-            {/* 搜尋欄 */}
             <div className="relative">
               <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" style={{ color: 'var(--text-muted)' }} />
               <input
@@ -109,27 +151,22 @@ export const DiaryModal: React.FC<DiaryModalProps> = ({
           </div>
         </div>
 
-        {/* ── Action buttons（分頁樣式，同 LorebookModal） ── */}
-        <div
-          className="px-4 pt-3 pb-0 border-b border-white/5"
-          style={{ background: panelBgLight }}
-        >
+        {/* ── Action buttons ── */}
+        <div className="px-4 pt-3 pb-0 border-b border-white/5" style={{ background: panelBgLight }}>
           <div
             className="flex border border-white/10 rounded-t-[8px] overflow-hidden"
             style={{ background: 'color-mix(in srgb, var(--bg-elevated) 50%, transparent)' }}
           >
-            {/* 新增日記 */}
             <button
               onClick={handleAddClick}
               className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 text-sm font-bold transition"
-              style={{ background: 'transparent', color: 'var(--text-tab)', boxShadow: 'none' }}
+              style={{ background: 'transparent', color: 'var(--text-tab)' }}
               onMouseEnter={e => { e.currentTarget.style.background = 'var(--btn-primary-hover)'; }}
               onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}
             >
               <span>新增日記</span>
             </button>
 
-            {/* 魔法日記 */}
             <button
               onClick={handleGenerateClick}
               disabled={isDiaryGenerating}
@@ -139,7 +176,6 @@ export const DiaryModal: React.FC<DiaryModalProps> = ({
                 color: 'var(--text-tab)',
                 cursor: isDiaryGenerating ? 'not-allowed' : 'pointer',
                 opacity: isDiaryGenerating ? 0.6 : 1,
-                boxShadow: isDiaryGenerating ? 'var(--shadow)' : 'none',
               }}
               onMouseEnter={e => { if (!isDiaryGenerating) e.currentTarget.style.background = 'var(--btn-primary-hover)'; }}
               onMouseLeave={e => { if (!isDiaryGenerating) e.currentTarget.style.background = 'transparent'; }}
@@ -148,15 +184,10 @@ export const DiaryModal: React.FC<DiaryModalProps> = ({
               <span>魔法日記</span>
             </button>
 
-            {/* 融合日記 */}
             <button
               onClick={() => {
-                if (isDiaryMergeMode) {
-                  setIsDiaryMergeMode(false);
-                  setDiaryMergeSelection([]);
-                } else {
-                  setIsDiaryMergeMode(true);
-                }
+                if (isDiaryMergeMode) { setIsDiaryMergeMode(false); setDiaryMergeSelection([]); }
+                else setIsDiaryMergeMode(true);
               }}
               className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 text-sm font-bold transition"
               style={{
@@ -198,18 +229,8 @@ export const DiaryModal: React.FC<DiaryModalProps> = ({
                 className="text-xs px-3 py-1.5 rounded-xl transition"
                 style={
                   diaryMergeSelection.length >= 2
-                    ? {
-                        background: 'var(--color-violet)',
-                        color: 'var(--text-tab)',
-                        boxShadow: '0 0 15px rgba(167,139,250,0.4)',
-                        cursor: 'pointer',
-                      }
-                    : {
-                        background: 'color-mix(in srgb, var(--bg-elevated) 40%, transparent)',
-                        color: 'var(--border-default)',
-                        cursor: 'not-allowed',
-                        border: '1px solid rgba(255,255,255,0.05)',
-                      }
+                    ? { background: 'var(--color-violet)', color: 'var(--text-tab)', boxShadow: '0 0 15px rgba(167,139,250,0.4)', cursor: 'pointer' }
+                    : { background: 'color-mix(in srgb, var(--bg-elevated) 40%, transparent)', color: 'var(--border-default)', cursor: 'not-allowed', border: '1px solid rgba(255,255,255,0.05)' }
                 }
                 onMouseEnter={e => { if (diaryMergeSelection.length >= 2) e.currentTarget.style.background = 'color-mix(in srgb, var(--color-violet) 80%, white)'; }}
                 onMouseLeave={e => { if (diaryMergeSelection.length >= 2) e.currentTarget.style.background = 'var(--color-violet)'; }}
@@ -221,17 +242,14 @@ export const DiaryModal: React.FC<DiaryModalProps> = ({
         )}
 
         {/* ── 日記列表 ── */}
-        <div className="flex-1 overflow-y-auto p-4 space-y-3">
-          {diaryEntries.filter(entry => !entry.isMerged).filter(entry => {
-            if (!diarySearch.trim()) return true;
-            const q = diarySearch.toLowerCase();
-            return (
-              entry.content?.toLowerCase().includes(q) ||
-              entry.keywords?.some(k => k.toLowerCase().includes(q))
-            );
-          }).map(entry => {
+        <div className="flex-1 overflow-y-auto p-4 space-y-2">
+          {filteredEntries.map(entry => {
+            const title = getDiaryTitle(entry);
+            const body  = getDiaryBody(entry);
+            const isExpanded = expandedIds.includes(entry.id);
+            const isEditing  = editingDiaryId === entry.id;
             const isMergedEntry = entry.source === 'merged' && entry.mergedFrom && entry.mergedFrom.length > 0;
-            const isExpanded = expandedMergedIds.includes(entry.id);
+            const isMergedExpanded = expandedMergedIds.includes(entry.id);
             const sourceDiaries = isMergedEntry
               ? diaryEntries.filter(e => entry.mergedFrom?.includes(e.id))
               : [];
@@ -239,35 +257,46 @@ export const DiaryModal: React.FC<DiaryModalProps> = ({
             return (
               <React.Fragment key={entry.id}>
                 <div
-                  className="backdrop-blur-sm border rounded-[8px] p-4 flex flex-col transition-colors relative"
+                  className="border rounded-[8px] transition-colors"
                   style={{
                     background: panelBgLight,
-                    borderColor: editingDiaryId === entry.id ? 'var(--border-accent)' : 'var(--border-default)',
+                    borderColor: isEditing ? 'var(--border-accent)' : 'var(--border-default)',
                   }}
-                  onMouseEnter={e => { if (editingDiaryId !== entry.id) e.currentTarget.style.borderColor = 'var(--border-accent)'; }}
-                  onMouseLeave={e => { if (editingDiaryId !== entry.id) e.currentTarget.style.borderColor = 'var(--border-default)'; }}
+                  onMouseEnter={e => { if (!isEditing) (e.currentTarget as HTMLElement).style.borderColor = 'var(--border-accent)'; }}
+                  onMouseLeave={e => { if (!isEditing) (e.currentTarget as HTMLElement).style.borderColor = 'var(--border-default)'; }}
                 >
-                  {editingDiaryId === entry.id ? (
+                  {isEditing ? (
                     /* ── 編輯模式 ── */
-                    <div className="flex flex-col gap-3">
+                    <div className="p-4 flex flex-col gap-3">
+                      {/* 標題輸入 */}
+                      <input
+                        type="text"
+                        value={entry.title ?? ''}
+                        onChange={e => onDiaryTitleChange(entry.id, e.target.value)}
+                        placeholder="日記標題..."
+                        className="w-full outline-none text-sm font-bold px-2.5 py-1.5 rounded-[8px] border transition"
+                        style={{
+                          background: 'color-mix(in srgb, var(--bg-elevated) 50%, transparent)',
+                          borderColor: 'var(--border-accent)',
+                          color: 'var(--text-primary)',
+                        }}
+                        autoFocus
+                      />
+                      {/* 內文輸入 */}
                       <textarea
-                        value={entry.text}
-                        onChange={(e) => onDiaryChange(entry.id, e.target.value)}
+                        value={body}
+                        onChange={e => onDiaryChange(entry.id, e.target.value)}
                         placeholder="寫下你想讓 AI 記住的事件或設定..."
-                        className="w-full outline-none text-sm min-h-[80px] p-2.5 rounded-[8px] border transition resize-y"
+                        className="w-full outline-none text-sm min-h-[100px] p-2.5 rounded-[8px] border transition resize-y"
                         style={{
                           background: 'color-mix(in srgb, var(--bg-elevated) 50%, transparent)',
                           borderColor: 'var(--border-accent)',
                           color: 'var(--text-main)',
                         }}
-                        autoFocus
                       />
 
                       {/* 關鍵字區塊 */}
-                      <div
-                        className="rounded-[8px] p-3 border"
-                        style={{ background: panelBgLight, borderColor: 'var(--border-default)' }}
-                      >
+                      <div className="rounded-[8px] p-3 border" style={{ background: panelBgLight, borderColor: 'var(--border-default)' }}>
                         <div className="text-xs mb-2 uppercase tracking-wider" style={{ color: 'var(--text-tab)' }}>
                           觸發關鍵字 <span className="normal-case">（空白 = 勾選後永遠注入）</span>
                         </div>
@@ -297,11 +326,8 @@ export const DiaryModal: React.FC<DiaryModalProps> = ({
                           type="text"
                           placeholder="輸入關鍵字後按 Enter..."
                           className="w-full border border-white/10 rounded-[8px] px-3 py-1.5 text-xs outline-none transition"
-                          style={{
-                            background: 'color-mix(in srgb, var(--bg-elevated) 50%, transparent)',
-                            color: 'var(--text-main)',
-                          }}
-                          onKeyDown={(e) => {
+                          style={{ background: 'color-mix(in srgb, var(--bg-elevated) 50%, transparent)', color: 'var(--text-main)' }}
+                          onKeyDown={e => {
                             if (e.key === 'Enter' && e.currentTarget.value.trim()) {
                               onDiaryKeywordAdd(entry.id, e.currentTarget.value.trim());
                               e.currentTarget.value = '';
@@ -310,7 +336,7 @@ export const DiaryModal: React.FC<DiaryModalProps> = ({
                         />
                       </div>
 
-                      {/* 底部按鈕列：刪除 ｜ 完成 */}
+                      {/* 底部按鈕 */}
                       <div className="flex justify-between items-center pt-1">
                         <button
                           onClick={() => { onDeleteDiary(entry.id); setEditingDiaryId(null); }}
@@ -333,104 +359,171 @@ export const DiaryModal: React.FC<DiaryModalProps> = ({
                       </div>
                     </div>
                   ) : (
-                    /* ── 閱覽模式 ── */
-                    <>
-                      {/* 右上角：融合選取 or AI 勾選框 */}
-                      {isDiaryMergeMode ? (
-                        <button
-                          className="absolute top-3 right-3 shrink-0 transition"
-                          onClick={() => setDiaryMergeSelection(prev =>
-                            prev.includes(entry.id) ? prev.filter(id => id !== entry.id) : [...prev, entry.id]
-                          )}
-                          title="選取以融合"
-                          style={{ color: diaryMergeSelection.includes(entry.id) ? 'var(--color-violet)' : 'var(--text-muted)' }}
-                        >
-                          {diaryMergeSelection.includes(entry.id) ? <CheckSquare className="w-4 h-4" /> : <Square className="w-4 h-4" />}
-                        </button>
-                      ) : (
-                        <button
-                          className="absolute top-3 right-3 shrink-0 transition"
-                          onClick={() => onToggleDiary(entry.id)}
-                          title={entry.isActive ? 'AI 將會讀取此記憶' : 'AI 不會讀取此記憶'}
-                          style={{ color: entry.isActive ? 'var(--text-primary)' : 'var(--text-muted)' }}
-                        >
-                          {entry.isActive ? <CheckSquare className="w-4 h-4" /> : <Square className="w-4 h-4" />}
-                        </button>
-                      )}
-
-                      {/* 內容區（pr-8 確保文字不蓋到右上角按鈕） */}
+                    /* ── 閱覽模式（卡片） ── */
+                    <div>
+                      {/* 卡片 Header：標題 + 右側按鈕群 */}
                       <div
-                        className="pr-8 cursor-text"
-                        onDoubleClick={() => setEditingDiaryId(entry.id)}
-                        title="雙擊以編輯"
+                        className="flex items-center gap-2 px-4 py-3 cursor-pointer select-none"
+                        onClick={() => !isDiaryMergeMode && toggleExpand(entry.id)}
                       >
-                        {/* 關鍵字標籤 */}
-                        {(entry.keywords || []).length > 0 && (
-                          <div className="flex flex-wrap gap-1 mb-2">
-                            {(entry.keywords || []).map((kw: string) => (
-                              <span
-                                key={kw}
-                                className="text-xs px-1.5 py-0.5 rounded-full border flex-shrink-0"
-                                style={
-                                  scanKeywords([kw])
-                                    ? {
-                                        background: 'color-mix(in srgb, var(--bg-sys-tag) 60%, transparent)',
-                                        borderColor: 'color-mix(in srgb, var(--text-primary) 50%, transparent)',
-                                        color: 'var(--text-body)',
-                                      }
-                                    : {
-                                        background: 'color-mix(in srgb, var(--bg-elevated) 60%, transparent)',
-                                        borderColor: 'color-mix(in srgb, var(--border-default) 40%, transparent)',
-                                        color: 'var(--text-body)',
-                                      }
-                                }
-                              >
-                                {kw}
-                              </span>
-                            ))}
-                          </div>
+                        {/* 展開箭頭 */}
+                        {!isDiaryMergeMode && (
+                          <span style={{ color: 'var(--text-muted)', flexShrink: 0 }}>
+                            {isExpanded
+                              ? <ChevronDown className="w-3.5 h-3.5" />
+                              : <ChevronRight className="w-3.5 h-3.5" />
+                            }
+                          </span>
                         )}
 
-                        {/* 日記內容 */}
-                        <div className="text-sm whitespace-pre-wrap" style={{ color: 'var(--text-body)' }}>
-                          {entry.text || (
-                            <span className="italic" style={{ color: 'var(--text-muted)' }}>雙擊以新增內容...</span>
-                          )}
-                        </div>
+                        {/* 標題 */}
+                        <span
+                          className="flex-1 text-sm font-bold truncate"
+                          style={{ color: title ? 'var(--text-primary)' : 'var(--text-muted)' }}
+                        >
+                          {title || '（未命名日記）'}
+                        </span>
+
+                        {/* 右側：融合勾選 or AI 勾選框 */}
+                        {isDiaryMergeMode ? (
+                          <button
+                            className="shrink-0 transition"
+                            onClick={e => {
+                              e.stopPropagation();
+                              setDiaryMergeSelection(prev =>
+                                prev.includes(entry.id) ? prev.filter(id => id !== entry.id) : [...prev, entry.id]
+                              );
+                            }}
+                            title="選取以融合"
+                            style={{ color: diaryMergeSelection.includes(entry.id) ? 'var(--color-violet)' : 'var(--text-muted)' }}
+                          >
+                            {diaryMergeSelection.includes(entry.id) ? <CheckSquare className="w-4 h-4" /> : <Square className="w-4 h-4" />}
+                          </button>
+                        ) : (
+                          <button
+                            className="shrink-0 transition"
+                            onClick={e => { e.stopPropagation(); onToggleDiary(entry.id); }}
+                            title={entry.isActive ? 'AI 將會讀取此記憶' : 'AI 不會讀取此記憶'}
+                            style={{ color: entry.isActive ? 'var(--text-primary)' : 'var(--text-muted)' }}
+                          >
+                            {entry.isActive ? <CheckSquare className="w-4 h-4" /> : <Square className="w-4 h-4" />}
+                          </button>
+                        )}
                       </div>
 
-                      {/* 融合來源展開按鈕 */}
-                      {isMergedEntry && (
-                        <button
-                          onClick={() => setExpandedMergedIds(prev =>
-                            prev.includes(entry.id) ? prev.filter(id => id !== entry.id) : [...prev, entry.id]
-                          )}
-                          className="flex items-center text-xs mt-2 transition"
-                          style={{ color: 'var(--text-muted)' }}
-                          onMouseEnter={e => { e.currentTarget.style.color = 'var(--text-body)'; }}
-                          onMouseLeave={e => { e.currentTarget.style.color = 'var(--text-muted)'; }}
+                      {/* 內文預覽（摺疊時顯示 2 行） */}
+                      {!isExpanded && body && (
+                        <div
+                          className="px-4 pb-3 text-xs cursor-pointer"
+                          style={{
+                            color: 'var(--text-muted)',
+                            display: '-webkit-box',
+                            WebkitLineClamp: 2,
+                            WebkitBoxOrient: 'vertical',
+                            overflow: 'hidden',
+                          }}
+                          onClick={() => toggleExpand(entry.id)}
                         >
-                          {isExpanded ? <ChevronDown className="w-3 h-3 mr-1" /> : <ChevronRight className="w-3 h-3 mr-1" />}
-                          {isExpanded ? '收起來源' : '檢視來源'}
-                        </button>
+                          {body}
+                        </div>
                       )}
-                    </>
+
+                      {/* 關鍵字標籤（摺疊時也顯示） */}
+                      {(entry.keywords || []).length > 0 && !isExpanded && (
+                        <div className="px-4 pb-3 flex flex-wrap gap-1">
+                          {(entry.keywords || []).map((kw: string) => (
+                            <span
+                              key={kw}
+                              className="text-xs px-1.5 py-0.5 rounded-full border flex-shrink-0"
+                              style={
+                                scanKeywords([kw])
+                                  ? { background: 'color-mix(in srgb, var(--bg-sys-tag) 60%, transparent)', borderColor: 'color-mix(in srgb, var(--text-primary) 50%, transparent)', color: 'var(--text-body)' }
+                                  : { background: 'color-mix(in srgb, var(--bg-elevated) 60%, transparent)', borderColor: 'color-mix(in srgb, var(--border-default) 40%, transparent)', color: 'var(--text-muted)' }
+                              }
+                            >
+                              {kw}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+
+                      {/* 展開後完整內容 */}
+                      {isExpanded && (
+                        <div className="px-4 pb-4 flex flex-col gap-3">
+                          {/* 關鍵字 */}
+                          {(entry.keywords || []).length > 0 && (
+                            <div className="flex flex-wrap gap-1">
+                              {(entry.keywords || []).map((kw: string) => (
+                                <span
+                                  key={kw}
+                                  className="text-xs px-1.5 py-0.5 rounded-full border flex-shrink-0"
+                                  style={
+                                    scanKeywords([kw])
+                                      ? { background: 'color-mix(in srgb, var(--bg-sys-tag) 60%, transparent)', borderColor: 'color-mix(in srgb, var(--text-primary) 50%, transparent)', color: 'var(--text-body)' }
+                                      : { background: 'color-mix(in srgb, var(--bg-elevated) 60%, transparent)', borderColor: 'color-mix(in srgb, var(--border-default) 40%, transparent)', color: 'var(--text-muted)' }
+                                  }
+                                >
+                                  {kw}
+                                </span>
+                              ))}
+                            </div>
+                          )}
+
+                          {/* 完整內文 */}
+                          <div className="text-sm whitespace-pre-wrap leading-relaxed" style={{ color: 'var(--text-body)' }}>
+                            {body || <span className="italic" style={{ color: 'var(--text-muted)' }}>尚無內容...</span>}
+                          </div>
+
+                          {/* 底部列：融合來源 + 編輯按鈕 */}
+                          <div className="flex items-center justify-between pt-1">
+                            <div>
+                              {isMergedEntry && (
+                                <button
+                                  onClick={() => setExpandedMergedIds(prev =>
+                                    prev.includes(entry.id) ? prev.filter(id => id !== entry.id) : [...prev, entry.id]
+                                  )}
+                                  className="flex items-center text-xs transition"
+                                  style={{ color: 'var(--text-muted)' }}
+                                  onMouseEnter={e => { e.currentTarget.style.color = 'var(--text-body)'; }}
+                                  onMouseLeave={e => { e.currentTarget.style.color = 'var(--text-muted)'; }}
+                                >
+                                  {isMergedExpanded ? <ChevronDown className="w-3 h-3 mr-1" /> : <ChevronRight className="w-3 h-3 mr-1" />}
+                                  {isMergedExpanded ? '收起來源' : '檢視來源'}
+                                </button>
+                              )}
+                            </div>
+                            <button
+                              onClick={() => setEditingDiaryId(entry.id)}
+                              className="flex items-center gap-1 text-xs px-2.5 py-1 rounded-[8px] border transition"
+                              style={{ color: 'var(--text-muted)', borderColor: 'var(--border-default)' }}
+                              onMouseEnter={e => { e.currentTarget.style.color = 'var(--text-body)'; e.currentTarget.style.borderColor = 'var(--border-accent)'; }}
+                              onMouseLeave={e => { e.currentTarget.style.color = 'var(--text-muted)'; e.currentTarget.style.borderColor = 'var(--border-default)'; }}
+                            >
+                              <Pencil className="w-3 h-3" /> 編輯
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
                   )}
                 </div>
 
-                {isMergedEntry && isExpanded && sourceDiaries.length > 0 && (
-                  <div
-                    className="ml-8 pl-4 border-l-2 space-y-2"
-                    style={{ borderLeftColor: 'var(--border-accent)' }}
-                  >
+                {/* 融合來源展開 */}
+                {isMergedEntry && isMergedExpanded && sourceDiaries.length > 0 && (
+                  <div className="ml-8 pl-4 border-l-2 space-y-2" style={{ borderLeftColor: 'var(--border-accent)' }}>
                     {sourceDiaries.map(sourceEntry => (
                       <div
                         key={`source-${sourceEntry.id}`}
                         className="rounded-xl p-3 border border-white/5 opacity-60"
                         style={{ background: panelBgDim }}
                       >
+                        {getDiaryTitle(sourceEntry) && (
+                          <div className="text-xs font-bold mb-1" style={{ color: 'var(--text-primary)' }}>
+                            {getDiaryTitle(sourceEntry)}
+                          </div>
+                        )}
                         <div className="text-xs whitespace-pre-wrap" style={{ color: 'var(--text-body)' }}>
-                          {sourceEntry.text}
+                          {getDiaryBody(sourceEntry)}
                         </div>
                       </div>
                     ))}
@@ -439,16 +532,13 @@ export const DiaryModal: React.FC<DiaryModalProps> = ({
               </React.Fragment>
             );
           })}
+
           {diaryEntries.length === 0 && (
             <div className="text-center py-10 italic" style={{ color: 'var(--text-muted)' }}>
-              目前沒有任何日記。<br/>點擊上方按鈕新增，或使用水晶球自動生成。
+              目前沒有任何日記。<br />點擊上方按鈕新增，或使用水晶球自動生成。
             </div>
           )}
-          {diaryEntries.length > 0 && diarySearch.trim() !== '' &&
-            diaryEntries.filter(e => !e.isMerged).filter(e => {
-              const q = diarySearch.toLowerCase();
-              return e.content?.toLowerCase().includes(q) || e.keywords?.some(k => k.toLowerCase().includes(q));
-            }).length === 0 && (
+          {diaryEntries.length > 0 && diarySearch.trim() !== '' && filteredEntries.length === 0 && (
             <div className="text-center py-10 italic" style={{ color: 'var(--text-muted)' }}>
               找不到符合「{diarySearch}」的日記。
             </div>

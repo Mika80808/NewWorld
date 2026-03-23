@@ -2,17 +2,6 @@
 
 > 這份文件供 Claude Code 自動讀取。
 > 詳細開發歷史請見 CHANGELOG.md，待做任務請見 TODO.md。
-
----
-
-## 開始工作前的強制步驟
-
-```
-git pull origin main
-```
-
-**每次開始任何任務前都必須先執行。** Gemini 會推送檔案到 GitHub，不 pull 就動手會造成衝突。
-
 ---
 
 ## 專案簡介

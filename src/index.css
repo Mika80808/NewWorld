@@ -11,22 +11,22 @@
 :root {
 
   /* ── 背景層次 ──────────────────────────────────────────── */
-  --bg-base:         #0c0d0d;   /* 最外層背景 */
-  --bg-elevated:     #282929;   /* 左右側欄、Modal 底色 */
-  --bg-ui-card:      #353434;   /* Modal 內部二次容器（讓 A/B 區塊易於區別） */
+  --bg-base:         #121212;   /* 最外層背景 */
+  --bg-elevated:     #1b1b1b;   /* 左右側欄、Modal 底色 */
+  --bg-ui-card:      #2b2a2a;   /* Modal 內部二次容器（讓 A/B 區塊易於區別） */
   --bg-overlay:      rgba(0, 0, 0, 0.2);
   --bg-mark:         #ff637e;   /* 新日記亮點「通知」 */
 
   /* ── 邊框 ───────────────────────────────────────────────── */
-  --border-default:  #4e4e4e;   /* 所有邊框 */
+  --border-default:  #2C2C2C;   /* 所有邊框 */
   --border-width:    0.5px;
-  --border-accent:   #7e7c72;   /* 選中狀態邊框 */
+  --border-accent:   #C0A060;   /* 選中狀態邊框 */
 
   /* ── 文字 ───────────────────────────────────────────────── */
-  --text-primary:    #e9d69e;   /* 左右欄功能名稱、Modal 名稱（暖黃） */
+  --text-primary:    #D4AF37;   /* 左右欄功能名稱、Modal 名稱（暖黃） */
   --text-title:      #ff11d7;   /* 欄位名稱、地名 */
   --text-tab:        #fff7e2;   /* 分頁標題（如：人物、怪物） */
-  --text-body:       #fffaf1;   /* 地點介紹、一般段落 */
+  --text-body:       #F0F0EE;   /* 地點介紹、一般段落 */
   --text-main:       #e8e8e9;   /* 輸入文字 */
   --text-muted:      #acacac;   /* 提示文字、時間戳、placeholder */
   --text-stat-label: #bdb394;   /* 狀態名稱（HP、MP、金幣等標籤） */
@@ -78,6 +78,14 @@
   --affection-mid:     #ffaa83;   /* ≥ 50  */
   --affection-low:     #acacac;   /* ≥ 0   */
   --affection-hostile: #928366;   /* < 0（敵對） */
+
+  /* ── 毛玻璃效果 ──────────────────────────────────────── */
+  --glass-sidebar-bg:    rgba(12, 13, 13, 0.75);    /* 左右欄半透明底 */
+  --glass-sidebar-blur:  blur(16px);                /* 毛玻璃模糊度 */
+  --glass-border:        rgba(255, 255, 255, 0.08); /* 玻璃邊框 */
+  --glass-bubble-self:   rgba(20, 20, 20, 0.6);     /* 玩家對話泡泡 */
+  --glass-bubble-npc:    rgba(40, 40, 40, 0.7);     /* NPC 對話泡泡 */
+  --glass-bubble-blur:   blur(8px);                 /* 對話泡泡模糊度 */
 
   /* ── 任務卡片背景 ─────────────────────────────────────── */
   --bg-quest-active:      rgba(22, 101, 52, 0.12);

@@ -162,9 +162,9 @@ export default function App() {
 新增道具：${newItems.join('、')}`
         : '';
       const prompt = `你是一個 RPG 後台資料整理員，不負責說故事。
-請根據以下最近的對話，輸出固定 JSON 格式，只輸出 JSON，不要任何說明：
+請根據以下最新一則的對話，輸出固定 JSON 格式，只輸出 JSON，不要任何說明：
 {
-  "summary": "一句話總結剛發生的事",
+  "summary": "一句話總結剛發生的事，重點是主角的行動、重要 NPC 的反應、以及對冒險目標的影響",
   "goals": ["短期目標1", "短期目標2"],
   "diary_worthy": false${newItems.length > 0 ? `,\n  "item_types": { "道具名": "equipment 或 item" }` : ''}
 }
@@ -349,6 +349,26 @@ ${lastMessages}`;
       default: return <Sun className="w-3.5 h-3.5 mr-1.5" style={{ color: 'var(--color-amber)' }} />;
     }
   };
+  const getSkyGradient = (hour: number, weather: string): string => {
+    let top: string, btm: string;
+    if (hour < 5)       { top = '#010409'; btm = '#0a0d14'; }
+    else if (hour < 7)  { top = '#0d0d2b'; btm = '#1a0a2e'; }
+    else if (hour < 9)  { top = '#2d1b4e'; btm = '#c2703a'; }
+    else if (hour < 17) { top = '#1a3a5c'; btm = '#2e5f8a'; }
+    else if (hour < 19) { top = '#6b2d3e'; btm = '#c4602a'; }
+    else if (hour < 21) { top = '#1a1535'; btm = '#2a1f4a'; }
+    else                { top = '#05070f'; btm = '#0e1220'; }
+    const base = `linear-gradient(to bottom, ${top}, ${btm})`;
+    const overlayMap: Record<string, string> = {
+      '陰天': 'rgba(80,80,80,0.25)',
+      '下雨': 'rgba(30,50,80,0.35)',
+      '下雪': 'rgba(200,220,240,0.15)',
+      '起霧': 'rgba(150,150,150,0.30)',
+    };
+    const overlay = overlayMap[weather];
+    return overlay ? `linear-gradient(to bottom, ${overlay}, ${overlay}), ${base}` : base;
+  };
+
   const getCelestialIcon = () => {
     if (timeState.month === 4) {
       return (
@@ -478,10 +498,10 @@ ${lastMessages}`;
     ));
     // Send message to AI
     const msg = byCarriage
-      ? `你決定搭馬車前往${destName}。`
-      : `你決定徒步前往${destName}。`;
+      ? `搭馬車前往${destName}。`
+      : `徒步前往${destName}。`;
     setIsMapOpen(false);
-    handleSendMessage(msg);
+    handleSendMessage(msg, undefined, destName);
   };
 
   useEffect(() => {
@@ -511,8 +531,12 @@ ${lastMessages}`;
 
   const handleAddDiary = () => {
     const newId = Date.now();
-    setDiaryEntries([{ id: newId, text: '', isActive: true, keywords: [] }, ...diaryEntries]);
+    setDiaryEntries([{ id: newId, title: '', text: '', isActive: true, keywords: [] }, ...diaryEntries]);
     return newId;
+  };
+
+  const handleDiaryTitleChange = (id: number, title: string) => {
+    setDiaryEntries(prev => prev.map(e => e.id === id ? { ...e, title } : e));
   };
 
   const handleDiaryKeywordAdd = (id: number, keyword: string) => {
@@ -585,9 +609,21 @@ ${recentChat}
       const text = await callAI(prompt, { role: 'main' });
       if (!text) { if (!silent) showToast('❌ 生成失敗，請稍後再試'); return; }
       const newId = Date.now();
+      // 解析標題（第一行 ## ... 或 [...] 格式）
+      const lines = text.trim().split('\n');
+      const firstLine = lines[0].trim();
+      const parsedTitle = firstLine.startsWith('## ')
+        ? firstLine.slice(3).trim()
+        : firstLine.startsWith('[') && firstLine.endsWith(']')
+        ? firstLine.slice(1, -1).trim()
+        : '';
+      const bodyText = parsedTitle
+        ? lines.slice(1).join('\n').replace(/^\n+/, '').trim()
+        : text.trim();
       setDiaryEntries(prev => [{
         id: newId,
-        text: text.trim(),
+        title: parsedTitle,
+        text: bodyText,
         isActive: false,
         keywords: [],
         source: 'ai_generated',
@@ -607,17 +643,23 @@ ${recentChat}
     if (selectedIds.length < 2) { showToast('請勾選至少 2 條日記'); return; }
     if (!mainGMConfig.apiKey.trim()) { showToast('❌ 請先設定 API Key'); return; }
     const selected = diaryEntries.filter(e => selectedIds.includes(e.id));
-    const combined = selected.map((e, i) => `[日記 ${i + 1}]\n${e.text}`).join('\n\n---\n\n');
+    const combined = selected.map((e, i) => `[日記 ${i + 1}]\n${e.title ? `## ${e.title}\n` : ''}${e.text}`).join('\n\n---\n\n');
     try {
-      const prompt = `請將以下多則日記合併成一則，保留所有關鍵資訊，讓日記脈絡合理，去除重複內容，使用繁體中文，第三人稱，標題前加上 💫。格式與原始日記相同。\n\n${combined}`;
+      const prompt = `請將以下多則日記合併成一則，保留所有關鍵資訊，讓日記脈絡合理，去除重複內容，使用繁體中文，第三人稱，標題前加上 💫。輸出格式：第一行為 ## 標題，之後換行接內容。\n\n${combined}`;
       const text = await callAI(prompt, { role: 'main' });
       if (!text) { showToast('❌ 融合失敗，請稍後再試'); return; }
       const newId = Date.now();
       const sourceIds = selectedIds.slice();
+      // 解析融合後的標題
+      const mLines = text.trim().split('\n');
+      const mFirst = mLines[0].trim();
+      const mTitle = mFirst.startsWith('## ') ? mFirst.slice(3).trim() : '';
+      const mBody = mTitle ? mLines.slice(1).join('\n').replace(/^\n+/, '').trim() : text.trim();
       setDiaryEntries(prev => [
         {
           id: newId,
-          text: text.trim(),
+          title: mTitle,
+          text: mBody,
           isActive: false,
           keywords: [],
           source: 'merged',
@@ -872,7 +914,8 @@ ${recentChat}
   };
 
   // ─── Prompt 組裝 ─────────────────────────────────────────────────────────────
-  const buildPrompt = (userInput: string, currentMessages: Message[]): string => {
+  const buildPrompt = (userInput: string, currentMessages: Message[], locationOverride?: string): string => {
+    const loc = locationOverride ?? currentLocation;
     const SLIDING_WINDOW = 20;
 
     const lorebookScanText = currentMessages.slice(-5).map(m => m.text).join(' ') + ' ' + userInput;
@@ -894,24 +937,27 @@ ${recentChat}
     // Phase 1：依地點篩選候選 NPC（輕量名單）
     // 城鎮類（locationType === 'town'）上限 8，野外 / 建築 / 未設定 上限 3
     const currentLocEntry = lorebookEntries.find(
-      e => e.category === '地點' && e.title === currentLocation
+      e => e.category === '地點' && e.title === loc
     );
     const candidateLimit = currentLocEntry?.locationType === 'town' ? 8 : 3;
 
     const npcCandidates = lorebookEntries
       .filter(e => e.category === 'NPC' && e.isActive && (
-        e.homeLocation === currentLocation ||
-        (e.roamLocations || []).includes(currentLocation)
+        e.homeLocation === loc ||
+        (e.roamLocations || []).includes(loc)
       ))
       .sort((a, b) => {
         const score = (e: LorebookEntry) => {
-          if (e.homeLocation === currentLocation) return 0;
+          if (e.homeLocation === loc) return 0;
           if (npcs.some(n => n.name === e.title && n.isPinned)) return 1;
           return 2;
         };
         return score(a) - score(b);
       })
       .slice(0, candidateLimit);
+
+    // 相鄰地點清單（讓 AI 知道玩家可以去哪裡）
+    const adjacentLocTitles = new Set(currentLocEntry?.adjacentTo ?? []);
 
     const relevantLorebook = lorebookEntries
       .filter(e => {
@@ -931,15 +977,18 @@ ${recentChat}
           return lorebookHitsKeywords(e);
         }
         if (e.category === '地點') {
-          const locationMatch = currentLocation.includes(e.title) || e.title.includes(currentLocation);
-          if (!locationMatch) return false;
-          return lorebookHitsKeywords(e);
+          // 當前地點：強制注入（不受關鍵字限制，AI 必須知道所在位置的完整資料）
+          if (e.title === loc) return true;
+          // 相鄰地點：強制注入（讓 AI 知道玩家可以前往哪裡）
+          if (adjacentLocTitles.has(e.title)) return true;
+          // 其他地點：不注入（避免 prompt 膨脹）
+          return false;
         }
         return lorebookHitsKeywords(e);
       })
       .sort((a, b) => (a.insertionOrder ?? 100) - (b.insertionOrder ?? 100));
 
-    const triggeredMemories = memories.filter(m => isMemoryTriggered(m, userInput, currentLocation));
+    const triggeredMemories = memories.filter(m => isMemoryTriggered(m, userInput, loc));
 
     // 依重要度截斷；normal/flavor 按最新優先（id 含時間戳）
     const sortByNewest = (mems: MemoryEntry[]) =>
@@ -1001,7 +1050,7 @@ Personality: ${profile.personality}
 ${profile.other ? `Other: ${profile.other}` : ''}
 
 [Current State]
-Location: ${currentLocation}
+Location: ${loc}
 Time: ${timeState.year}年${timeState.month}月${timeState.day}日 ${String(timeState.hour).padStart(2,'0')}:${String(timeState.minute).padStart(2,'0')} | Weather: ${timeState.weather}
 HP: ${profile.hp} | MP: ${profile.mp} | Gold: ${profile.gold}
 
@@ -1042,7 +1091,7 @@ ${finalWorldMems.length > 0 ? finalWorldMems.map(m => `- ${m.content}${m.tags?.f
 [🗺️ Region Memory]
 ${finalRegionMems.length > 0 ? finalRegionMems.map(m => `- ${m.content}${m.tags?.locations?.length ? ' ['+m.tags.locations.join(',')+']' : ''}`).join('\n') : '（無）'}
 
-[🏠 Scene Memory: ${currentLocation}]
+[🏠 Scene Memory: ${loc}]
 ${finalSceneMems.length > 0 ? finalSceneMems.map(m => `- ${m.content}`).join('\n') : '（無）'}
 
 [👤 NPC Memory]
@@ -1215,7 +1264,7 @@ MEMORY_ADD:world:critical:魔王宣布向月湖鎮宣戰:keywords=魔王,宣戰
 Please respond as the DM.`;
   };
 
-  const handleSendMessage = async (textToUse?: string | React.MouseEvent | React.KeyboardEvent, historyToUse?: any[]) => {
+  const handleSendMessage = async (textToUse?: string | React.MouseEvent | React.KeyboardEvent, historyToUse?: any[], locationOverride?: string) => {
     const text = typeof textToUse === 'string' ? textToUse : inputText;
     if (!text.trim() || isLoading) return;
 
@@ -1233,7 +1282,7 @@ Please respond as the DM.`;
         setIsLoading(false);
         return;
       }
-      const prompt = buildPrompt(text, historyToUse || messages);
+      const prompt = buildPrompt(text, historyToUse || messages, locationOverride);
 
       aiMessageId = Date.now() + 1;
       setMessages(prev => [...prev, { id: aiMessageId!, role: 'assistant', text: '' }]);
@@ -1701,7 +1750,7 @@ Please respond as the DM.`;
         </div>
 
         {/* Center Panel */}
-        <div className="flex-1 flex flex-col bg-transparent relative">
+        <div className="flex-1 flex flex-col relative" style={{ background: getSkyGradient(timeState.hour, timeState.weather), transition: 'background 2s ease' }}>
           {/* Scene Bar */}
           <div className="backdrop-blur-md border-b border-white/5 shadow-[0_4px_24px_rgba(0,0,0,0.2)] p-3 flex items-center justify-end absolute top-0 w-full z-30" style={{ background: 'color-mix(in srgb, var(--bg-elevated) 40%, transparent)' }}>
             <div className="flex space-x-2">
@@ -1957,7 +2006,7 @@ Please respond as the DM.`;
                 <div className="flex items-center space-x-4">
                   <span className="flex items-center" title={`${currentMonthData.name}：${currentMonthData.elegant}`}>
                     <Calendar className="w-3.5 h-3.5 mr-1.5" /> 
-                    帝國曆 {timeState.year}年 {timeState.month}月 {timeState.day}日
+                    {timeState.year}年 {timeState.month}月 {timeState.day}日
                   </span>
                   <span className="flex items-center">
                     {getWeatherIcon()} {timeState.weather}
@@ -2067,7 +2116,7 @@ Please respond as the DM.`;
                 if (m.type !== 'region' || !m.isActive) return false;
                 const locs = m.tags?.locations || [];
                 if (locs.length === 0) return true;
-                return locs.some((l: string) => currentLocation.includes(l) || l.includes(currentLocation));
+                return locs.some((l: string) => l === currentLocation);
               });
               return regionMems.length > 0 ? (
                 <div className="mb-4">
@@ -2091,7 +2140,7 @@ Please respond as the DM.`;
             {(() => {
               const sceneMems = memories.filter(m =>
                 m.type === 'scene' && m.isActive &&
-                (m.tags?.locations || []).some((l: string) => l === currentLocation || currentLocation.includes(l) || l.includes(currentLocation))
+                (m.tags?.locations || []).some((l: string) => l === currentLocation)
               );
               return (
                 <div className="mb-4">
@@ -2171,6 +2220,7 @@ Please respond as the DM.`;
         onMergeDiary={handleMergeDiary}
         onToggleDiary={handleToggleDiary}
         onDiaryChange={handleDiaryChange}
+        onDiaryTitleChange={handleDiaryTitleChange}
         onDiaryKeywordAdd={handleDiaryKeywordAdd}
         onDiaryKeywordRemove={handleDiaryKeywordRemove}
         onDeleteDiary={handleDeleteDiary}
