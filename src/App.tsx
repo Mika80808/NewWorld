@@ -164,7 +164,7 @@ export default function App() {
       const prompt = `你是一個 RPG 後台資料整理員，不負責說故事。
 請根據以下最新一則的對話，輸出固定 JSON 格式，只輸出 JSON，不要任何說明：
 {
-  "summary": "一句話總結剛發生的事，重點是主角的行動、重要 NPC 的反應、以及對冒險目標的影響",
+  "summary": "50個字以內總結剛發生的事，重點是主角的行動、重要 NPC 的反應、以及對冒險目標的影響",
   "goals": ["短期目標1", "短期目標2"],
   "diary_worthy": false${newItems.length > 0 ? `,\n  "item_types": { "道具名": "equipment 或 item" }` : ''}
 }
@@ -1386,12 +1386,17 @@ Please respond as the DM.`;
   };
 
   return (
-    <div className="flex flex-col h-screen font-sans overflow-hidden" style={{ background: 'var(--bg-base)', color: 'var(--text-title)', backgroundImage: 'radial-gradient(ellipse at top right, var(--bg-elevated), #303438, var(--bg-base))' }}>
+    <div className="flex flex-col h-screen font-sans overflow-hidden" style={{ backgroundImage: `url('/background.jpg')`, backgroundSize: 'cover', backgroundPosition: 'center', color: 'var(--text-title)' }}>
+      {/* Sky gradient overlay */}
+      <div className="fixed inset-0 pointer-events-none z-0" style={{ background: getSkyGradient(timeState.hour, timeState.weather), opacity: 0.55, transition: 'background 2s ease' }} />
       {/* Main Content */}
       <div className="flex flex-1 overflow-hidden">
 
         {/* Left Panel */}
-        <div className="w-64 flex flex-col px-0 py-4 space-y-4 overflow-y-auto" style={{ background: 'var(--bg-elevated)', boxShadow: 'inset -1px 0 8px rgba(0, 0, 0, 0.2)' }}>
+        <div 
+        className="w-55 flex flex-col px-0 py-4 space-y-4 overflow-y-auto" 
+        style={{ background: 'rgba(63, 63, 63, 0.35)', backdropFilter: 'blur(12px)',
+        boxShadow: 'inset -1px 0 8px rgba(0, 0, 0, 0.2)' }}>
           {/* Adventure Log & Goals */}
           <div className="px-4 py-3 transition-all" style={{ boxShadow: 'none' }}
             onMouseEnter={e => { e.currentTarget.style.boxShadow = '0 5px 10px rgba(204, 173, 105, 0.6), 0 12px 40px rgba(65, 46, 109, 0.3)'; }}
@@ -1750,9 +1755,9 @@ Please respond as the DM.`;
         </div>
 
         {/* Center Panel */}
-        <div className="flex-1 flex flex-col relative" style={{ background: getSkyGradient(timeState.hour, timeState.weather), transition: 'background 2s ease' }}>
+        <div className="flex-1 flex flex-col relative">
           {/* Scene Bar */}
-          <div className="backdrop-blur-md border-b border-white/5 shadow-[0_4px_24px_rgba(0,0,0,0.2)] p-3 flex items-center justify-end absolute top-0 w-full z-30" style={{ background: 'color-mix(in srgb, var(--bg-elevated) 40%, transparent)' }}>
+          <div className="p-3 flex items-center justify-end absolute top-0 w-full z-30">
             <div className="flex space-x-2">
               <button
                 onClick={() => setIsMapOpen(true)}
@@ -1952,7 +1957,7 @@ Please respond as the DM.`;
 
           {/* Input Area */}
           <div className="absolute bottom-0 w-full pt-4 pb-4 px-6 flex flex-col items-center z-30">
-            <div className="absolute inset-0 backdrop-blur-md pointer-events-none -z-10" style={{ background: `linear-gradient(to top, color-mix(in srgb, var(--bg-base) 90%, transparent), color-mix(in srgb, var(--bg-base) 60%, transparent), transparent)` }}></div>
+            <div className="absolute inset-0 pointer-events-none -z-10" style={{ height: '200%', top: '-100%', background: 'linear-gradient(to top, #182a3a 20%, transparent 60%)' }} />
 
             <div className="w-full max-w-3xl">
               <div className="flex space-x-2 mb-3">
@@ -1961,16 +1966,16 @@ Please respond as the DM.`;
                     key={idx}
                     onClick={() => handleSendMessage(option)}
                     disabled={isLoading}
-                    className="px-3 py-1 bg-white/5 backdrop-blur-sm border border-white/20 rounded-full text-sm transition shadow-[0_0_10px_rgba(0,0,0,0.2)] disabled:opacity-50 disabled:cursor-not-allowed"
-                    style={{ color: 'var(--text-body)' }}
+                    className="px-3 py-1 rounded-full text-sm transition disabled:opacity-50 disabled:cursor-not-allowed"
+                    style={{ color: 'var(--text-body)', border: '0.5px solid var(--border-default)', background: 'var(--bg-elevated)' }}
                   >
                     {option}
                   </button>
                 ))}
               </div>
-              <div className="flex items-end overflow-hidden transition-all" style={{ borderRadius: '8px', border: `0.5px solid var(--border-default)` }}>
+              <div className="flex items-end overflow-hidden transition-all" style={{ borderRadius: '8px', border: `0.5px solid var(--border-default)`, background: 'var(--bg-dialog-input)' }}>
                 <textarea
-                  className="w-full bg-transparent pl-4 pr-2 outline-none resize-none max-h-32 disabled:opacity-50"
+                  className="w-full bg-transparent pl-4 pr-2 outline-none resize-none max-h-32 disabled:opacity-80"
                   style={{ color: 'var(--text-main)', lineHeight: '20px', paddingTop: '10px', paddingBottom: '10px' }}
                   placeholder={isLoading ? "AI 正在思考中..." : "輸入你的行動或對話..."}
                   rows={1}
@@ -2029,8 +2034,14 @@ Please respond as the DM.`;
         </div>
 
         {/* Right Panel */}
-        <div className="w-64 flex flex-col p-4 space-y-6 overflow-y-auto z-10" style={{ background: 'var(--bg-elevated)', borderLeft: `0.5px solid var(--bg-elevated)` }}>
-
+        <div 
+             className="w-60 flex flex-col p-4 space-y-6 overflow-y-auto z-10"
+              style={{
+               background: 'rgba(18, 18, 18, 0.85)',
+               backdropFilter: 'blur(12px)',
+               borderLeft: '1px solid var(--glass-border)'
+     }}
+   >
           <div>
             <h3 className="font-bold mb-3 pb-2" style={{ color: 'var(--text-primary)', borderBottom: `0.5px solid var(--bg-elevated)` }}>✦ 當前場景人物</h3>
             <div className="space-y-2">

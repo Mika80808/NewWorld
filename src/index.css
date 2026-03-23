@@ -12,7 +12,9 @@
 
   /* ── 背景層次 ──────────────────────────────────────────── */
   --bg-base:         #121212;   /* 最外層背景 */
-  --bg-elevated:     #1b1b1b;   /* 左右側欄、Modal 底色 */
+  --bg-elevated:     #1b1b1b;   /* 右側欄、Modal 底色 */
+  --bg-left-elevated:#42413b;   /* 左側欄、Modal 底色 */
+
   --bg-ui-card:      #2b2a2a;   /* Modal 內部二次容器（讓 A/B 區塊易於區別） */
   --bg-overlay:      rgba(0, 0, 0, 0.2);
   --bg-mark:         #ff637e;   /* 新日記亮點「通知」 */
@@ -58,7 +60,7 @@
   /* ── 對話視窗 ───────────────────────────────────────────── */
   --bg-bubble-self:    rgba(117, 117, 117, 0.15);  /* 玩家對話泡泡 */
   --bg-bubble-npc:     rgba(68, 68, 68, 0.45);    /* NPC 對話泡泡 */
-  --bg-dialog-input:   #282929;                 /* 玩家輸入框 */
+  --bg-dialog-input:   #161616;                 /* 玩家輸入框 */
   --text-dialog-main:  #fafafa;                 /* 對話台詞 */
   --text-dialog-muted: #d1d1d1;                 /* 敘述描寫 */
 
@@ -125,6 +127,7 @@
   --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
 }
+
 
 /* ── 遊戲字體 ───────────────────────────────────────────── */
 .font-game-sans  { font-family: 'Noto Sans TC', sans-serif; }
