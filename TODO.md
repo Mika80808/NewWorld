@@ -19,76 +19,39 @@
 ## 群組 A｜Prompt 品質
 > 直接影響每次 AI 回應，改動風險低，優先處理。
 
-- [ ] Prompt 效率優化 / COMMAND FORMAT 壓縮
+- [x] Prompt 效率優化 / COMMAND FORMAT 壓縮
   - COMMAND FORMAT 區塊永遠硬寫在 `buildPrompt` 函數結尾，與玩家可編輯的 `systemPrompt` 完全隔離，玩家看不到也改不了。
   - 壓縮目標：縮短這段硬寫內容的字數，不是移動位置。
+  2026-03-23 [Claude Sonnet 4.6]: App.tsx buildPrompt COMMAND FORMAT 區塊 83行→58行（-30%）；移除行內重複說明、合併各觸發時機為緊湊清單、壓縮字體/選項區塊說明
 
-- [ ] Prompt 記憶寫入規則（再次確認）
+- [x] Prompt 記憶寫入規則（再次確認）
   - 在 `buildPrompt` 的 COMMAND FORMAT 說明裡，加入「AI 何時應輸出 MEMORY_ADD」的規則。
   - 包含五種情境：世界事件 / 區域事件 / 場景狀態改變 / NPC 情報 / 玩家重要事件。
   - 特別規則：AI 回應裡出現 `[ ]` 布告欄內容時，必定觸發 `MEMORY_ADD:region`。
+  2026-03-23 [Claude Sonnet 4.6]: 已由 Gemini 在遠端實作完成（ceb2248），五種情境與布告欄特別規則均已存在於 buildPrompt
 
-- [ ] 記憶系統分層（注入條件精確化）
-
-  記憶分為四層，每層的注入條件不同：
-
-  **world（世界記憶）**
-  - 目前只要 `isActive` 就全部注入，建議加入 `importance` 加權截斷：`critical` 無上限，`normal` 最多 8 條，`flavor` 最多 3 條。
-  - 【防呆】同一回合 world 類型寫入數量硬上限 2 條，避免 AI 一次產生大量世界事件。
-
-  **region（區域記憶）**
-  - 地點比對改為精確相等，避免「月湖鎮」誤觸發「月湖鎮酒館」。
-  - 別名管理集中在 `LorebookEntry` 的地點資料，加入 `aliases` 欄位，記憶本身保持乾淨。
-  - 【防呆】透過 `aliases` 處理漏觸發，例如「酒館」對應到「月湖鎮酒館」。
-
-  **scene（場景記憶）**
-  - 同樣需要精確地點比對，非字串包含比對。
-  - 【防呆】超出上限時優先保留最近建立的紀錄。
-
-  **npc（NPC 記憶）**
-  - 目前任何場景都注入所有 NPC 記憶，建議配合出場狀態篩選。
-  - 【防呆】未出場 NPC 記憶禁止注入；Pinned 或高好感 NPC 例外保留 1–2 條關鍵記憶。
-
-  整體篩選三道關卡：
-  1. 排除過期記憶
-  2. 精確地點或關鍵字比對
-  3. 依 `importance` 截斷數量
-
-  - 【防呆】記憶過多無法篩選時，降級策略：只注入 `importance=critical`。
+- [x] 記憶系統分層（注入條件精確化）
+  2026-03-23 [Claude Sonnet 4.6]:
+  - types.ts: LorebookEntry 加 aliases?: string[]
+  - useCommandParser.ts isMemoryTriggered: region/scene 改精確比對（exact match + aliases from LorebookEntry），world 跳過地點限制
+  - useCommandParser.ts parseAndExecuteCommands: worldMemCount 防呆，同回合 world 記憶上限 2 條
+  - App.tsx buildPrompt: 加 sortByNewest()；region/scene normal/flavor 按最新優先截斷；npcMems 拆出場（全量截斷）vs 未出場 pinned/高好感（只 critical max 2）；總數 >20 降級策略（只保留 critical）
 
 ---
 
 ## 群組 B｜GM 助理（Sub GM）系統
 
-- [ ] 整體架構分工（Sub GM 基礎）
+- [x] 整體架構分工（Sub GM 基礎）
+  2026-03-23 [Claude Sonnet 4.6]: updateAdventureState 加 hasKeyEvent 參數；subGMRoundsRef 節流（每 3 回合 1 次）；hasKeyEvent（QUEST_ADD/LOCATION/MEMORY_ADD:world）可跳過冷卻；handleSendMessage 偵測並傳入 hasKeyEvent
 
-  兩個 AI 角色協同運作：
+- [x] GM 助理輸出格式
+  2026-03-23 [Claude Sonnet 4.6]: 加 diary_worthy 欄位至 Sub GM prompt；說明判斷標準；diaryWorthyRoundsRef 冷卻（5 次 Sub GM 呼叫後才可再次觸發）
 
-  - **主 GM（Main GM）**：面向玩家，負責場景敘事、NPC 對話、劇情推進、數值指令輸出。使用較強模型，token 消耗大。
-  - **GM 助理（Sub GM）**：後台資料整理，不直接面向玩家。負責整理冒險摘要、更新目標、判斷是否自動生成日記。使用輕量模型節省費用。
+- [x] GM 助理自動生成日記
+  2026-03-23 [Claude Sonnet 4.6]: handleGenerateDiary 加 silent 參數；silent=true 時不顯示 toast、改設 hasNewDiary=true；左欄日記卡標題顯示【新日記】紅色通知，點擊開啟即消除
 
-  觸發條件：主 GM 回覆達到一定字數，或發生任務新增、地點移動、世界記憶寫入等重要指令時才啟動。
-  - 【防呆】加入冷卻與節流：每 3 回合最多觸發一次；若上一回合已觸發且本回合無關鍵事件，跳過。
-
-- [ ] GM 助理輸出格式
-
-  每次執行輸出固定 JSON，三個欄位：
-  - `summary`：一句話總結剛發生的事，用於左欄冒險摘要
-  - `goals`：短期目標陣列，用於左欄當前目標
-  - `diary_worthy`：布林值，判斷本輪是否值得觸發自動日記生成
-
-  三個任務合併成一次 API 呼叫。只有 `diary_worthy: true` 時才再發起水晶球日記呼叫。
-  - 【防呆】`diary_worthy` 加冷卻：5 回合內最多 `true` 一次，避免連續觸發成本暴增。
-
-
-- [ ] GM 助理自動生成日記
-  - GM 助理在符合條件時主動觸發，生成後不彈出提示。
-  - 只在左欄「日記與記憶」卡片標題處顯示亮點提示【新日記】，玩家點開即消除。
-  - 玩家是否勾選日記完全自主，未勾選不注入。
-
-- [ ] 日記機制確認
-  - 日記維持「關鍵字觸發」機制，只有命中關鍵字才注入，需保留。
-  - 不讓 GM 助理自動新增關鍵字，保持玩家主控記憶焦點。
+- [x] 日記機制確認
+  2026-03-23 [Claude Sonnet 4.6]: 確認無變動——關鍵字觸發邏輯維持在 scanKeywords，Sub GM 不寫入關鍵字
 
 ---
 
@@ -219,9 +182,8 @@
   - 使用 `style={{ color: affectionColor(npc.affection) }}`，不用 className
   - CSS 變數定義在 `index.css` `:root` 區塊，參照 CLAUDE.md 規格
 
-- [ ] 道具資訊分層注入（buildPrompt 優化）
-  - 帶有 effect 的消耗品和數量 > 1 的道具完整傳送，其餘只傳名字和數量。
-  - 【防呆】道具欄超過上限時，僅保留最近變動的道具完整資訊。
+- [x] 道具資訊分層注入（buildPrompt 優化）
+  2026-03-23 [Claude Sonnet 4.6]: App.tsx buildPrompt [Inventory] 改分層注入：quantity>1 或 description 含效果關鍵字（HP/MP/回復/治療/效果...）→完整傳送；其餘只傳名稱+數量；超過 15 件時只有最近新增 5 件保留完整說明
 
 - [ ] 更多前端處理項目
   - 時間系統視覺化（日夜循環 icon / 天空漸層背景）
