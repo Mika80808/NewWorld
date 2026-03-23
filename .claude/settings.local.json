@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx tsc:*)",
+      "Bash(GIT_EDITOR=true git rebase --continue)"
+    ]
+  }
+}

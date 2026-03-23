@@ -73,10 +73,15 @@ export function useCommandParser(deps: CommandParserDeps) {
     if (cooldownCounters[mem.id] > 0) return false;
     if (stickyCounters[mem.id] > 0) return true;
 
-    // 地點比對
+    // 地點比對（region/scene 精確比對；world 無地點限制）
     const locTags = mem.tags?.locations || [];
-    if (locTags.length > 0 && !locTags.some(l => location.includes(l) || l.includes(location))) {
-      return false;
+    if (locTags.length > 0 && mem.type !== 'world') {
+      const locationEntry = lorebookEntries.find(e => e.category === '地點' && e.title === location);
+      const locationAliases = locationEntry?.aliases || [];
+      const allNames = [location, ...locationAliases];
+      if (!locTags.some(l => allNames.includes(l))) {
+        return false;
+      }
     }
 
     // 關鍵字比對
@@ -261,6 +266,7 @@ ${toMerge.map(m => `- ${m.text}`).join('\n')}`;
     const affinityUpdates: { name: string; delta: number }[] = [];
     const cmdResults: string[] = [];
     const newItemNames: string[] = [];  // 本回合新增的道具名稱
+    let worldMemCount = 0;              // 防呆：同一回合 world 記憶上限 2 條
 
     for (const cmd of allCommands) {
       // HP / MP / GOLD
@@ -355,6 +361,8 @@ ${toMerge.map(m => `- ${m.text}`).join('\n')}`;
       const memAddMatch = cmd.match(/^MEMORY_ADD:(world|region|scene|npc):(.+)$/i);
       if (memAddMatch) {
         const [, rawType, rest] = memAddMatch;
+        if (rawType.toLowerCase() === 'world' && worldMemCount >= 2) continue;
+        if (rawType.toLowerCase() === 'world') worldMemCount++;
         const parts = rest.split(':');
         const importancePat = /^(critical|normal|flavor)$/i;
         let importance = 'normal';
