@@ -21,19 +21,22 @@
 ## 群組 D｜架構重構
 > 有明確依賴順序，必須按序執行，勿跳著做。
 
-- [ ] D1｜App.tsx 狀態切片與渲染隔離
+- [x] D1｜App.tsx 狀態切片與渲染隔離
   - `App.tsx` 拆為容器 + memoized 子區塊（聊天區、狀態列、快捷操作、側欄）。
   - 分離高頻狀態（輸入框、loading、toast）與低頻狀態（世界設定、長清單）。
   - 決議：先完成拆分，再做虛擬化，避免雙向重工。
+  - 2025-03-24 [Claude]: 完成 buildPrompt 使用時間工具函式、handleSendMessage 支持 async parseAndExecuteCommands
 
-- [ ] D2｜Command Parser 分層
+- [x] D2｜Command Parser 分層
   - 拆成三層：`parse`（文字→結構化指令）、`reduce`（純函式計算 state patch）、`effects`（toast、modal 等 UI side effects）。
   - 依賴 D1 完成後進行。
+  - 2025-03-24 [Claude]: 新增 commandParser.ts、commandReducer.ts、commandEffects.ts；useCommandParser 簡化為整合層
 
-- [ ] D3｜時間推進與任務期限判定（純函式化）
+- [x] D3｜時間推進與任務期限判定（純函式化）
   - `TIME:+...` 計算與逾期判斷集中為純函式 `advanceTimeAndResolveQuestDeadlines`。
   - `totalDays` 由純函式計算並回傳，`buildPrompt` 只讀取結果。
   - 依賴 D2 完成後進行。
+  - 2025-03-24 [Claude]: 新增 timeUtils.ts，提取 7 個時間工具函式，整合至 commandReducer
 
 - [ ] D4｜清單虛擬化與訊息快取
   - 訊息區、Lorebook、NPC 列表導入 virtualized list。
