@@ -1,5 +1,4 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
-import { FixedSizeList as List } from 'react-window';
 import { Settings, Send, RefreshCw, MoreVertical, Book, BookOpen, User, Package, Beaker, Users, Heart, MapPin, Zap, Coins, Calendar, Shield, CheckSquare, ChevronDown, ChevronRight, Map as MapIcon, Cloud, Sun, CloudRain, Snowflake, Moon, Wind, Sparkles, Brain, ScrollText, History, X, Edit2, Trash2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { GoogleGenAI } from "@google/genai";
@@ -347,6 +346,8 @@ ${newPool.map((s, i) => `${i + 1}. ${s}`).join('\n')}`;
   const [visibleMessageCount, setVisibleMessageCount] = useState<number>(0);
   const chatScrollRef = useRef<HTMLDivElement>(null);
   const isAutoLoadingRef = useRef(false);
+  const visibleMessages = visibleMessageCount > 0 ? messages.slice(-visibleMessageCount) : [];
+  const hiddenMessageCount = Math.max(messages.length - visibleMessages.length, 0);
 
   // ─── Phase 2: Debounced load-more handler ──────────────────────────────────────
   const handleLoadMore = useMemo(
@@ -816,9 +817,6 @@ ${poolText}
     setLorebookEntries(prev => [newLore, ...prev]);
     setSelectedNpc(newNpc);
   };
-
-  const visibleMessages = visibleMessageCount > 0 ? messages.slice(-visibleMessageCount) : [];
-  const hiddenMessageCount = Math.max(messages.length - visibleMessages.length, 0);
 
   const handleUpdateLorebook = (id: number, updates: Partial<LorebookEntry>) => {
     setLorebookEntries(prev => prev.map(entry => 

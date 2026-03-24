@@ -13,7 +13,10 @@
       "Bash(npm run:*)",
       "Bash(npx tailwindcss:*)",
       "Bash(npm install:*)",
-      "Bash(curl -s http://localhost:3001/)"
+      "Bash(curl -s http://localhost:3001/)",
+      "Bash(/c/Users/Mika/.nvm/versions/node/v22.12.0/bin/node.exe node_modules/.bin/tsc --noEmit)",
+      "Bash(/c/Users/Mika/.nvm/versions/node/v22.12.0/bin/node.exe node_modules/typescript/bin/tsc --noEmit)",
+      "Bash(/c/Users/Mika/.nvm/versions/node/v22.12.0/bin/node.exe -e \"const rw = require\\(''./node_modules/react-window''\\); console.log\\(Object.keys\\(rw\\)\\);\")"
     ]
   }
 }

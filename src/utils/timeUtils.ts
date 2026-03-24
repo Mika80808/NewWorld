@@ -137,7 +137,7 @@ export function checkAndFailExpiredQuests(
     return q;
   });
 
-  return { updatedQuests, failedQuestTitles };
+  return { updatedQuests, failedQuestTitles: failedTitles };
 }
 
 /**
