@@ -1,6 +1,7 @@
 # CLAUDE.md — 專案上下文（AI 自動讀取）
 
 > 這份文件供 Claude Code 自動讀取。
+> 設計相關請見 SKILL.md。
 > 詳細開發歷史請見 CHANGELOG.md，待做任務請見 TODO.md。
 ---
 
