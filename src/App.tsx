@@ -144,7 +144,6 @@ export default function App() {
   const [isUpdatingLog, setIsUpdatingLog] = useState(false);
   const [hasNewDiary, setHasNewDiary] = useState(false);
   // Sub GM 節流：每 3 回合最多觸發一次（不存檔，session 內計數）
-  // Sub GM 節流：每 3 回合最多觸發一次（不存檔，session 內計數）
   const subGMRoundsRef = useRef(0);
 
   // 背景處理：整理冒險日誌與目標（使用 callAI 封裝層，不綁定特定 API）
