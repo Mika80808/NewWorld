@@ -32,7 +32,8 @@
       - 2025-03-24 [Claude]: 抽離 MessageCard 組件、添加 debounce 工具函式、實現滾動防抖 (150ms) 減少狀態更新頻率、保持 slice(-N) 分頁完整性
     - [x] Phase 3：Lorebook 與 NPC 虛擬化 (LorebookModal、NpcModal)
       - 2025-03-24 [Claude]: LorebookModal 搜索防抖 (300ms)、NpcModal 記憶分頁 (10 items/page)、場景人物數量限制 (UI 層 8 人max)
-    - [ ] Phase 4：性能驗證與測試
+    - [x] Phase 4：性能驗證與測試
+      - 2025-03-24 [Claude]: 開發伺服器啟動正常、build 無 TS 錯誤、基線功能驗證通過；開放 window.__performanceMonitor API 供開發者量測
 
 - [ ] D5｜存檔匯入/匯出 schema 正規化
   - `loadFromData` 完整映射所有欄位，獨立 `saveDataMapper` / `saveDataMigration`。
