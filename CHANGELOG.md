@@ -3,6 +3,21 @@
 > 純歷史紀錄，對開發者友好。待做任務請見 TODO.md。
 > 每次 AI 改完功能，請在對應版本區塊補上一條記錄。
 
+### ⚡ 快捷行動按需生成 2026-03-24 [Claude Sonnet 4.6]
+
+**目標**：將固定快捷回覆改為玩家按需觸發，減少主 GM AI 每回合的負擔。
+
+#### **改動**：`src/App.tsx`
+- 新增 state：`isLoadingQuickOptions`、`showQuickMenu`
+- 新增函式 `handleGenerateQuickOptions()`：向 sub GM 發獨立請求，解析回應為 3 個行動選項，完成後展開選單
+- 移除 輸入欄上方三個固定快捷按鈕（`quickOptions.map(...)` 區塊）
+- 新增 輸入欄左側 `⚡ (Zap)` 按鈕：點擊後 icon 轉圈等待，回應後選單從上方滑入顯示；再次點擊收起選單
+- 防呆：`isUpdatingLog === true`（日記背景生成中）時 ⚡ 變灰且 disabled
+- 選項點擊後：關閉選單、直接送出該行動
+- 移除 `buildPrompt` 中的 `<<OPTIONS>>` 說明段落（不再需要主 GM 生成選項）
+
+---
+
 ---
 
 ### D4 清單虛擬化與訊息快取：Phase 1 性能量測基礎設施 2026-03-24 [Claude Haiku 4.5]

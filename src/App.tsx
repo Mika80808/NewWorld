@@ -273,6 +273,8 @@ ${newPool.map((s, i) => `${i + 1}. ${s}`).join('\n')}`;
   const [isMapOpen, setIsMapOpen] = useState(false);
   const [inputText, setInputText] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [isLoadingQuickOptions, setIsLoadingQuickOptions] = useState(false);
+  const [showQuickMenu, setShowQuickMenu] = useState(false);
 
   // ─── API 設定（不屬於遊戲存檔，獨立存於 localStorage）───────────────────────
   const [mainGMConfig, setMainGMConfig] = useState<GMConfig>(() => {
@@ -1358,15 +1360,39 @@ MEMORY_ADD:world:critical:魔王宣布向月湖鎮宣戰:keywords=魔王,宣戰
 [FONT:serif]...[/FONT] 信件/公告/正式文書（明朝體）
 [FONT:spell]...[/FONT] 咒語/古文/神諭（書法體）
 
-【行動建議（可選）】
-<<OPTIONS>>
-動作一（10字內）
-動作二
-<</OPTIONS>>
-
 指令區塊在敘事之前。無數值變化則省略指令區塊。
 
 Please respond as the DM.`;
+  };
+
+  // ─── ⚡ 快捷行動生成（按需觸發）─────────────────────────────────────────────
+  const handleGenerateQuickOptions = async () => {
+    if (isLoadingQuickOptions || isUpdatingLog) return;
+    setIsLoadingQuickOptions(true);
+    setShowQuickMenu(false);
+    try {
+      const recentContext = messages.slice(-6).map(m => `${m.role === 'user' ? '玩家' : 'GM'}: ${m.text}`).join('\n');
+      const prompt = `你是一個文字冒險遊戲的 GM 助理。根據以下最近的對話脈絡，為玩家生成 3 個當下合理、有趣的行動選項。
+
+[當前位置] ${currentLocation}
+[最近對話]
+${recentContext}
+
+請直接輸出 3 個行動選項，每行一個，不要編號、不要任何說明或前綴，每個選項 10 字以內，繁體中文。`;
+
+      const result = await callAI(prompt, { role: 'sub' });
+      if (result) {
+        const opts = result.split('\n').map(l => l.trim()).filter(l => l.length > 0 && l.length <= 20).slice(0, 3);
+        if (opts.length > 0) {
+          setQuickOptions(opts);
+          setShowQuickMenu(true);
+        }
+      }
+    } catch (e) {
+      showToast('⚡ 行動生成失敗');
+    } finally {
+      setIsLoadingQuickOptions(false);
+    }
   };
 
   const handleSendMessage = async (textToUse?: string | React.MouseEvent | React.KeyboardEvent, historyToUse?: any[], locationOverride?: string) => {
@@ -1968,22 +1994,55 @@ Please respond as the DM.`;
             <div className="absolute inset-0 pointer-events-none -z-10" style={{ height: '200%', top: '-100%', background: 'linear-gradient(to top, #182a3a 20%, transparent 60%)' }} />
 
             <div className="w-full max-w-3xl">
-              <div className="flex space-x-2 mb-3">
-                {quickOptions.map((option, idx) => (
-                  <button
-                    key={idx}
-                    onClick={() => handleSendMessage(option)}
-                    disabled={isLoading}
-                    className="px-3 py-1 rounded-full text-sm transition disabled:opacity-50 disabled:cursor-not-allowed"
-                    style={{ color: 'var(--text-body)', border: '0.5px solid var(--border-default)', background: 'var(--bg-elevated)' }}
-                  >
-                    {option}
-                  </button>
-                ))}
-              </div>
+              {/* ⚡ Quick Options Popup Menu */}
+              {showQuickMenu && quickOptions.length > 0 && (
+                <div className="flex flex-col gap-1.5 mb-3 animate-in fade-in slide-in-from-bottom-2 duration-200">
+                  {quickOptions.map((option, idx) => (
+                    <button
+                      key={idx}
+                      onClick={() => { setShowQuickMenu(false); handleSendMessage(option); }}
+                      className="w-full text-left px-4 py-2 rounded-lg text-sm transition-all"
+                      style={{
+                        color: 'var(--text-body)',
+                        border: '0.5px solid var(--border-default)',
+                        background: 'color-mix(in srgb, var(--bg-elevated) 85%, transparent)',
+                        backdropFilter: 'blur(8px)',
+                      }}
+                      onMouseEnter={e => (e.currentTarget as HTMLButtonElement).style.background = 'color-mix(in srgb, var(--bg-elevated) 100%, transparent)'}
+                      onMouseLeave={e => (e.currentTarget as HTMLButtonElement).style.background = 'color-mix(in srgb, var(--bg-elevated) 85%, transparent)'}
+                    >
+                      {option}
+                    </button>
+                  ))}
+                </div>
+              )}
+
               <div className="flex items-end overflow-hidden transition-all" style={{ borderRadius: '8px', border: `0.5px solid var(--border-default)`, background: 'var(--bg-dialog-input)' }}>
+                {/* ⚡ Lightning Button */}
+                <button
+                  className="pl-3 pr-1 flex-shrink-0 transition-all"
+                  style={{
+                    height: '40px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    color: (isUpdatingLog || isLoadingQuickOptions) ? 'var(--text-stat-label)' : 'color-mix(in srgb, var(--text-body) 60%, transparent)',
+                    cursor: (isUpdatingLog || isLoadingQuickOptions) ? 'not-allowed' : 'pointer',
+                    opacity: isUpdatingLog ? 0.35 : 1,
+                  }}
+                  onClick={() => { if (showQuickMenu) setShowQuickMenu(false); else handleGenerateQuickOptions(); }}
+                  disabled={isUpdatingLog || isLoadingQuickOptions}
+                  title={isUpdatingLog ? '日記生成中，請稍候' : '生成行動建議'}
+                  onMouseEnter={e => { if (!isUpdatingLog && !isLoadingQuickOptions) (e.currentTarget as HTMLButtonElement).style.color = 'var(--text-body)'; }}
+                  onMouseLeave={e => { if (!isUpdatingLog && !isLoadingQuickOptions) (e.currentTarget as HTMLButtonElement).style.color = 'color-mix(in srgb, var(--text-body) 60%, transparent)'; }}
+                >
+                  {isLoadingQuickOptions
+                    ? <RefreshCw className="w-4 h-4 animate-spin" />
+                    : <Zap className="w-4 h-4" style={{ fill: showQuickMenu ? 'currentColor' : 'none' }} />
+                  }
+                </button>
+
                 <textarea
-                  className="w-full bg-transparent pl-4 pr-2 outline-none resize-none max-h-32 disabled:opacity-80"
+                  className="w-full bg-transparent pl-2 pr-2 outline-none resize-none max-h-32 disabled:opacity-80"
                   style={{ color: 'var(--text-main)', lineHeight: '20px', paddingTop: '10px', paddingBottom: '10px' }}
                   placeholder={isLoading ? "AI 正在思考中..." : "輸入你的行動或對話..."}
                   rows={1}
@@ -2005,8 +2064,8 @@ Please respond as the DM.`;
                 <button
                   className="px-3 transition"
                   style={{ height: '40px', display: 'flex', alignItems: 'center', color: isLoading || !inputText.trim() ? 'var(--bg-elevated)' : 'var(--bg-elevated)', cursor: isLoading || !inputText.trim() ? 'not-allowed' : 'pointer' }}
-                  onMouseEnter={e => { if (!isLoading && inputText.trim()) e.currentTarget.style.color = 'var(--text-body)'; }}
-                  onMouseLeave={e => e.currentTarget.style.color = 'var(--bg-elevated)'}
+                  onMouseEnter={e => { if (!isLoading && inputText.trim()) (e.currentTarget as HTMLButtonElement).style.color = 'var(--text-body)'; }}
+                  onMouseLeave={e => (e.currentTarget as HTMLButtonElement).style.color = 'var(--bg-elevated)'}
                   onClick={handleSendMessage}
                   disabled={isLoading || !inputText.trim()}
                 >
