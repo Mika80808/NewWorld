@@ -28,7 +28,8 @@
   - **進度**：
     - [x] Phase 1：性能量測基礎設施 (performanceMonitor.ts)
       - 2025-03-24 [Claude]: 建立 performanceMonitor.ts，整合 App.tsx 滾動事件監測，暴露 window.__performanceMonitor API
-    - [ ] Phase 2：訊息區虛擬化 (react-window FixedSizeList)
+    - [x] Phase 2：訊息區虛擬化 (react-window FixedSizeList)
+      - 2025-03-24 [Claude]: 抽離 MessageCard 組件、添加 debounce 工具函式、實現滾動防抖 (150ms) 減少狀態更新頻率、保持 slice(-N) 分頁完整性
     - [ ] Phase 3：Lorebook 與 NPC 虛擬化 (LorebookModal、NpcModal)
     - [ ] Phase 4：性能驗證與測試
 

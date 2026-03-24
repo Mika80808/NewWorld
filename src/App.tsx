@@ -1,4 +1,5 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
+import { FixedSizeList as List } from 'react-window';
 import { Settings, Send, RefreshCw, MoreVertical, Book, BookOpen, User, Package, Beaker, Users, Heart, MapPin, Zap, Coins, Calendar, Shield, CheckSquare, ChevronDown, ChevronRight, Map as MapIcon, Cloud, Sun, CloudRain, Snowflake, Moon, Wind, Sparkles, Brain, ScrollText, History, X, Edit2, Trash2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { GoogleGenAI } from "@google/genai";
@@ -11,11 +12,13 @@ import { ProfileModal } from './components/ProfileModal';
 import { SystemPromptModal } from './components/SystemPromptModal';
 import { SettingsModal } from './components/SettingsModal';
 import { MapModal } from './components/MapModal';
+import { MessageCard } from './components/MessageCard';
 import { MONTHS_DATA } from './constants';
 import { useGameStore, SAVE_KEY } from './hooks/useGameStore';
 import { useCommandParser } from './hooks/useCommandParser';
 import { getTotalDaysFromTimeState, getQuestRemainingDays } from './utils/timeUtils';
 import { performanceMonitor } from './utils/performanceMonitor';
+import { debounce } from './utils/debounce';
 
 // ─── Markdown Parser ─────────────────────────────────────────────────────────
 
@@ -342,6 +345,17 @@ ${newPool.map((s, i) => `${i + 1}. ${s}`).join('\n')}`;
   const [visibleMessageCount, setVisibleMessageCount] = useState<number>(0);
   const chatScrollRef = useRef<HTMLDivElement>(null);
   const isAutoLoadingRef = useRef(false);
+
+  // ─── Phase 2: Debounced load-more handler ──────────────────────────────────────
+  const handleLoadMore = useMemo(
+    () => debounce(() => {
+      if (hiddenMessageCount > 0 && !isAutoLoadingRef.current) {
+        isAutoLoadingRef.current = true;
+        setVisibleMessageCount(prev => Math.min(messages.length, prev + VISIBLE_MESSAGES_STEP));
+      }
+    }, 150),
+    [hiddenMessageCount, messages.length]
+  );
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -1872,181 +1886,79 @@ Please respond as the DM.`;
             onScroll={(e) => {
               const startTime = performance.now();
               const el = e.currentTarget;
-              if (el.scrollTop <= 4 && hiddenMessageCount > 0 && !isAutoLoadingRef.current) {
-                isAutoLoadingRef.current = true;
-                setVisibleMessageCount(prev => Math.min(messages.length, prev + VISIBLE_MESSAGES_STEP));
+              if (el.scrollTop <= 4) {
+                handleLoadMore();
               }
               const duration = performance.now() - startTime;
               performanceMonitor.recordScrollEvent(duration, messages.length);
             }}
           >
             {visibleMessages.map(msg => (
-              <div key={msg.id} className={`flex flex-col ${msg.role === 'user' ? 'items-end pl-5' : 'items-start pr-5'} max-w-3xl mx-auto w-full group relative ${activeMenuId === msg.id ? 'z-20' : 'z-0'}`}>
-                
-                <div className={`flex items-center space-x-2 mb-1 ${msg.role === 'user' ? 'mr-2 flex-row-reverse space-x-reverse' : 'ml-2'}`}>
-                  <span className="text-sm text-[var(--text-muted)] font-bold">
-                    {msg.role === 'user' ? profile.name : '異世界'}
-                  </span>
-                  <div className={`flex items-center space-x-1 opacity-0 group-hover:opacity-100 transition ${activeMenuId === msg.id ? 'opacity-100' : ''}`}>
-                    {msg.role !== 'user' && (
-                      <button
-                        onClick={() => handleRegenerate(msg.id)}
-                        disabled={isLoading}
-                        className="p-1 text-[var(--text-muted)] rounded-[8px] transition disabled:opacity-50 disabled:cursor-not-allowed"
-                        style={{ '--hover-color': 'var(--text-body)' } as React.CSSProperties}
-                        onMouseEnter={e => (e.currentTarget as HTMLElement).style.color = 'var(--text-body)'}
-                        onMouseLeave={e => (e.currentTarget as HTMLElement).style.color = ''}
-                        title="重新生成"
-                      >
-                        <RefreshCw className="w-3.5 h-3.5" />
-                      </button>
-                    )}
-                    <div className="relative">
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setActiveMenuId(activeMenuId === msg.id ? null : msg.id);
-                        }}
-                        className="p-1 text-[var(--text-muted)] rounded-[8px] transition"
-                        onMouseEnter={e => (e.currentTarget as HTMLElement).style.color = 'var(--text-body)'}
-                        onMouseLeave={e => (e.currentTarget as HTMLElement).style.color = ''}
-                        title="更多選項"
-                      >
-                        <MoreVertical className="w-3.5 h-3.5" />
-                      </button>
-
-                      {activeMenuId === msg.id && (
-                        <div className={`absolute bottom-full mb-1 w-24 backdrop-blur-md border border-white/10 rounded-[10px] shadow-[0_0_20px_rgba(0,0,0,0.3)] z-50 overflow-hidden flex flex-col ${msg.role === 'user' ? 'right-0' : 'left-0'}`} style={{ background: 'color-mix(in srgb, var(--bg-elevated) 90%, transparent)' }}>
-                          <button
-                            className="px-3 py-2 text-sm text-left transition"
-                            style={{ color: 'var(--text-body)' }}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              const copyText = (text: string) => {
-                                if (navigator.clipboard?.writeText) {
-                                  navigator.clipboard.writeText(text).then(() => showToast('已複製訊息')).catch(() => {
-                                    // fallback for non-secure contexts
-                                    const ta = document.createElement('textarea');
-                                    ta.value = text;
-                                    ta.style.position = 'fixed';
-                                    ta.style.opacity = '0';
-                                    document.body.appendChild(ta);
-                                    ta.select();
-                                    document.execCommand('copy');
-                                    document.body.removeChild(ta);
-                                    showToast('已複製訊息');
-                                  });
-                                } else {
-                                  const ta = document.createElement('textarea');
-                                  ta.value = text;
-                                  ta.style.position = 'fixed';
-                                  ta.style.opacity = '0';
-                                  document.body.appendChild(ta);
-                                  ta.select();
-                                  document.execCommand('copy');
-                                  document.body.removeChild(ta);
-                                  showToast('已複製訊息');
-                                }
-                              };
-                              copyText(msg.text);
-                              setActiveMenuId(null);
-                            }}
-                          >
-                            複製
-                          </button>
-                          <button
-                            className="px-3 py-2 text-sm text-left transition"
-                            style={{ color: 'var(--text-body)' }}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setEditingMessageId(msg.id);
-                              setEditMessageText(msg.text);
-                              setActiveMenuId(null);
-                            }}
-                          >
-                            編輯
-                          </button>
-                          <button
-                            className="px-3 py-2 text-sm text-left transition"
-                            style={{ color: 'var(--text-danger)' }}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              const newMessages = messages.filter(m => m.id !== msg.id);
-                              setMessages(newMessages);
-                              saveToStorage({ messages: newMessages });
-                              showToast('已刪除訊息');
-                              setActiveMenuId(null);
-                            }}
-                          >
-                            刪除
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </div>
-
-                <div className={`p-4 text-left max-w-full ${editingMessageId === msg.id ? 'w-full' : 'w-fit'}`} style={{
-                  color: msg.role === 'user' ? 'var(--text-dialog-main)' : 'var(--text-dialog-main)',
-                  background: msg.role === 'user' ? 'var(--bg-bubble-self)' : 'var(--bg-bubble-npc)',
-                  borderRadius: '8px',
-                  border: msg.role === 'user' ? '0.5px solid rgba(119, 93, 22, 0.3)' : '0.5px solid var(--border-default)'
-                }}>
-                  {editingMessageId === msg.id ? (
-                    <div className="flex flex-col w-full">
-                      <textarea
-                        value={editMessageText}
-                        onChange={(e) => setEditMessageText(e.target.value)}
-                        className="w-full backdrop-blur-sm p-3 rounded-[10px] border border-white/10 outline-none resize-none text-sm min-h-[200px]"
-                        style={{ background: 'color-mix(in srgb, var(--bg-elevated) 50%, transparent)', color: 'var(--text-dialog-muted)' }}
-                        autoFocus
-                      />
-                      <div className="flex justify-end space-x-2 mt-2">
-                        <button
-                          onClick={() => setEditingMessageId(null)}
-                          className="text-sm text-[var(--text-muted)] px-2 py-1"
-                          onMouseEnter={e => (e.currentTarget as HTMLElement).style.color = 'var(--text-dialog-main)'}
-                          onMouseLeave={e => (e.currentTarget as HTMLElement).style.color = ''}
-                        >
-                          取消
-                        </button>
-                        <button 
-                          onClick={() => {
-                            const newMessages = messages.map(m => m.id === msg.id ? { ...m, text: editMessageText } : m);
-                            setMessages(newMessages);
-                            saveToStorage({ messages: newMessages });
-                            setEditingMessageId(null);
-                            showToast('已更新訊息');
-                          }} 
-                          className="text-sm backdrop-blur-sm px-3 py-1 rounded-[8px] transition shadow-[var(--shadow)]"
-                          style={{ background: 'var(--btn-primary)', color: 'var(--text-main)' }}
-                          onMouseEnter={e => e.currentTarget.style.background = 'var(--btn-primary-hover)'}
-                          onMouseLeave={e => e.currentTarget.style.background = 'var(--btn-primary)'}
-                        >
-                          儲存
-                        </button>
-                      </div>
-                    </div>
-                  ) : msg.role === 'user' ? (
-                    <p className="leading-relaxed whitespace-pre-wrap">{msg.text}</p>
-                  ) : msg.text === '' && isLoading && msg.id === messages[messages.length - 1]?.id ? (
-                    <div className="flex items-center space-x-2 py-0.5 select-none">
-                      <span className="text-sm" style={{ color: 'var(--text-stat-label)' }}>✦ 異世界正在回應</span>
-                      <span className="flex items-end space-x-0.5 pb-0.5">
-                        {[0, 200, 400].map(delay => (
-                          <span
-                            key={delay}
-                            className="inline-block w-1 h-1 rounded-full"
-                            style={{ background: 'var(--text-stat-label)', animation: `blink-dot 1.4s ease-in-out infinite`, animationDelay: `${delay}ms` }}
-                          />
-                        ))}
-                      </span>
-                    </div>
-                  ) : (
-                    <div className="leading-relaxed">{renderMarkdown(stripBareCommands(msg.text))}</div>
-                  )}
-                </div>
-              </div>
+              <MessageCard
+                key={msg.id}
+                msg={msg}
+                profile={profile}
+                activeMenuId={activeMenuId}
+                editingMessageId={editingMessageId}
+                editMessageText={editMessageText}
+                isLoading={isLoading}
+                messages={messages}
+                onRegenerate={handleRegenerate}
+                onMenuToggle={(msgId) => setActiveMenuId(activeMenuId === msgId ? null : msgId)}
+                onCopy={(text) => {
+                  const copyText = (text: string) => {
+                    if (navigator.clipboard?.writeText) {
+                      navigator.clipboard.writeText(text).then(() => showToast('已複製訊息')).catch(() => {
+                        const ta = document.createElement('textarea');
+                        ta.value = text;
+                        ta.style.position = 'fixed';
+                        ta.style.opacity = '0';
+                        document.body.appendChild(ta);
+                        ta.select();
+                        document.execCommand('copy');
+                        document.body.removeChild(ta);
+                        showToast('已複製訊息');
+                      });
+                    } else {
+                      const ta = document.createElement('textarea');
+                      ta.value = text;
+                      ta.style.position = 'fixed';
+                      ta.style.opacity = '0';
+                      document.body.appendChild(ta);
+                      ta.select();
+                      document.execCommand('copy');
+                      document.body.removeChild(ta);
+                      showToast('已複製訊息');
+                    }
+                  };
+                  copyText(text);
+                  setActiveMenuId(null);
+                }}
+                onEdit={(msgId, text) => {
+                  setEditingMessageId(msgId);
+                  setEditMessageText(text);
+                  setActiveMenuId(null);
+                }}
+                onDelete={(msgId) => {
+                  const newMessages = messages.filter(m => m.id !== msgId);
+                  setMessages(newMessages);
+                  saveToStorage({ messages: newMessages });
+                  showToast('已刪除訊息');
+                  setActiveMenuId(null);
+                }}
+                onEditChange={setEditMessageText}
+                onEditCancel={() => setEditingMessageId(null)}
+                onEditSave={(msgId, newText) => {
+                  const newMessages = messages.map(m => m.id === msgId ? { ...m, text: newText } : m);
+                  setMessages(newMessages);
+                  saveToStorage({ messages: newMessages });
+                  setEditingMessageId(null);
+                  showToast('已更新訊息');
+                }}
+                renderMarkdown={renderMarkdown}
+                stripBareCommands={stripBareCommands}
+                showToast={showToast}
+              />
             ))}
             <div ref={messagesEndRef} />
           </div>

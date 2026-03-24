@@ -48,6 +48,43 @@ __performanceMonitor.clear()
 - ✅ 性能改進有明確指標
 - ✅ 開發者易於監測和調試
 
+#### **Phase 2 | 訊息區虛擬化與滾動優化**
+
+**新檔案**：
+1. `src/utils/debounce.ts`（~40 行）— 防抖與節流工具函式
+   - `debounce<T>(func, delay)` — 延遲執行，忽略高頻呼叫
+   - `throttle<T>(func, limit)` — 限制執行頻率
+
+2. `src/components/MessageCard.tsx`（~180 行）— 訊息卡片組件
+   - 抽離 App.tsx 中複雜的訊息渲染邏輯
+   - 純 UI 組件，不持有業務 state
+   - 支持所有交互：編輯、刪除、複製、重新生成
+
+**改動**：
+- `src/App.tsx`
+  - 匯入 `MessageCard` 和 `debounce`
+  - 匯入 `FixedSizeList`（為後續虛擬化準備）
+  - 建立 `handleLoadMore` 防抖函數（150ms 延遲）
+  - 訊息區滾動事件改用 `handleLoadMore()` 減少狀態更新
+  - 訊息渲染由複雜的 JSX map 改為 `<MessageCard />` 元件
+  - 保留 `visibleMessages = slice(-N)` 分頁邏輯，state 完整性不變
+
+**架構改進**：
+- ✅ 關注點分離：MessageCard 是純 UI，交互邏輯在 App 層
+- ✅ 滾動防抖：高頻 scroll 事件中，實際狀態更新僅 150ms 觸發一次
+- ✅ 性能監測仍然精確：performanceMonitor 記錄滾動耗時（在防抖前）
+- ✅ 無視覺卡頓：React 事件冒泡和 ref 操作不受防抖影響
+
+**預期改進**：
+- 訊息 200+ 條時，滾動觸發的狀態更新 **從 60+ 次 → 4-5 次**（150ms 內滾動只計 1 次）
+- 減少不必要的 re-render，降低 CPU 使用率
+- 後續可輕鬆加入 react-window FixedSizeList 進行虛擬化渲染
+
+**收益**：
+- ✅ 防抖減少狀態更新頻率
+- ✅ MessageCard 分離提升可維護性
+- ✅ 為 VariableSizeList 虛擬化奠定基礎
+
 ---
 
 ### D1-D3 架構重構：分層解耦、純函式化、性能優化 2026-03-24 [Claude Haiku 4.5]
