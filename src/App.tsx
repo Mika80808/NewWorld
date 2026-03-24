@@ -527,7 +527,7 @@ ${newPool.map((s, i) => `${i + 1}. ${s}`).join('\n')}`;
   // ─── 指令解析器（useCommandParser）─────────────────────────────────────────
   const { parseAndExecuteCommands, useItem, scanKeywords, isMemoryTriggered, tickMemoryCounters } =
     useCommandParser({
-      timeState, currentLocation, quests, memories, items,
+      timeState, profile, currentLocation, quests, memories, items, npcs,
       stickyCounters, cooldownCounters, messages, lorebookEntries,
       setTimeState, setProfile, setCurrentLocation, setQuests,
       setMemories, setEquipment, setItems, setNpcs,
@@ -1646,7 +1646,6 @@ ${recentContext}
                       >
                         <div className="flex justify-between items-center mb-1">
                           <span className="text-sm font-medium" style={{ color: 'var(--text-title)' }}>{item.name}</span>
-                          <span className="text-sm font-mono px-1.5 py-0.5 rounded-[8px]" style={{ background: 'var(--bg-elevated)', color: 'var(--text-body)' }}>x{item.quantity}</span>
                         </div>
                         <div className="text-sm leading-relaxed" style={{ color: 'color-mix(in srgb, var(--text-body) 80%, transparent)' }}>{item.description}</div>
 
@@ -1867,7 +1866,7 @@ ${recentContext}
                 onMouseLeave={e => { e.currentTarget.style.boxShadow = '0 2px 8px rgba(0, 0, 0, 0.44)'; }}
                 onClick={item.action}
               >
-                <span className="flex items-center text-sm" style={{ color: 'var(--text-main)' }}>{item.icon}{item.label}</span>
+                <span className="flex items-center text-sm" style={{ color: 'var(--text-main)' }}>{item.label}</span>
               </div>
             ))}
           </div>

@@ -46,7 +46,7 @@ export interface CommandParserDeps {
   showToast: (msg: string) => void;
   notifyCommandResult: (messages: string[]) => void;
   onNewQuest?: () => void;
-  callAI: (prompt: string, role?: 'main' | 'sub') => Promise<string>;
+  callAI: (prompt: string, options?: { role?: 'main' | 'sub'; maxTokens?: number; onChunk?: (chunk: string) => void }) => Promise<string>;
 }
 
 export interface ParseResult {
@@ -56,8 +56,8 @@ export interface ParseResult {
 
 export interface UseCommandParserReturn {
   parseAndExecuteCommands: (fullText: string) => Promise<ParseResult>;
-  useItem: (itemName: string, qty: number) => boolean;
-  scanKeywords: (keywords: string[], depth: number) => boolean;
+  useItem: (itemName: string, qty?: number) => boolean;
+  scanKeywords: (keywords: string[], depth?: number) => boolean;
   isMemoryTriggered: (mem: MemoryEntry, userInput: string, location: string) => boolean;
   tickMemoryCounters: (triggeredIds: string[]) => void;
 }
@@ -118,7 +118,7 @@ export function useCommandParser(deps: CommandParserDeps): UseCommandParserRetur
       {
         showToast,
         notifyCommandResult,
-        callAI: (prompt: string, role?: 'main' | 'sub') => callAI(prompt, role),
+        callAI: (prompt: string, role?: 'main' | 'sub') => callAI(prompt, role ? { role } : undefined),
       }
     );
 

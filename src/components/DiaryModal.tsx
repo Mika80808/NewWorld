@@ -16,7 +16,7 @@ interface DiaryModalProps {
   onDiaryKeywordAdd: (id: number, keyword: string) => void;
   onDiaryKeywordRemove: (id: number, keyword: string) => void;
   onDeleteDiary: (id: number) => void;
-  scanKeywords: (keywords: string[]) => boolean;
+  scanKeywords: (keywords: string[], depth?: number) => boolean;
 }
 
 // 取得日記標題（title 欄位優先；fallback 解析 text 第一行 ## ...）
