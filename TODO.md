@@ -21,28 +21,16 @@
 ## 群組 D｜架構重構
 > 有明確依賴順序，必須按序執行，勿跳著做。
 
-- [x] D1｜App.tsx 狀態切片與渲染隔離
-  - `App.tsx` 拆為容器 + memoized 子區塊（聊天區、狀態列、快捷操作、側欄）。
-  - 分離高頻狀態（輸入框、loading、toast）與低頻狀態（世界設定、長清單）。
-  - 決議：先完成拆分，再做虛擬化，避免雙向重工。
-  - 2025-03-24 [Claude]: 完成 buildPrompt 使用時間工具函式、handleSendMessage 支持 async parseAndExecuteCommands
-
-- [x] D2｜Command Parser 分層
-  - 拆成三層：`parse`（文字→結構化指令）、`reduce`（純函式計算 state patch）、`effects`（toast、modal 等 UI side effects）。
-  - 依賴 D1 完成後進行。
-  - 2025-03-24 [Claude]: 新增 commandParser.ts、commandReducer.ts、commandEffects.ts；useCommandParser 簡化為整合層
-
-- [x] D3｜時間推進與任務期限判定（純函式化）
-  - `TIME:+...` 計算與逾期判斷集中為純函式 `advanceTimeAndResolveQuestDeadlines`。
-  - `totalDays` 由純函式計算並回傳，`buildPrompt` 只讀取結果。
-  - 依賴 D2 完成後進行。
-  - 2025-03-24 [Claude]: 新增 timeUtils.ts，提取 7 個時間工具函式，整合至 commandReducer
-
 - [ ] D4｜清單虛擬化與訊息快取
   - 訊息區、Lorebook、NPC 列表導入 virtualized list。
   - 觸發條件：scroll long task > 50ms（量測後確認）；訊息數、DOM 節點數作為輔助觀察值。
   - 第一步：`slice(-N)` 顯示層截斷（只影響 UI render，state 保持完整，AI context 由 `buildPrompt` 的 `SLIDING_WINDOW` 管理）。
-  - 依賴 D1 完成後進行。
+  - **進度**：
+    - [x] Phase 1：性能量測基礎設施 (performanceMonitor.ts)
+      - 2025-03-24 [Claude]: 建立 performanceMonitor.ts，整合 App.tsx 滾動事件監測，暴露 window.__performanceMonitor API
+    - [ ] Phase 2：訊息區虛擬化 (react-window FixedSizeList)
+    - [ ] Phase 3：Lorebook 與 NPC 虛擬化 (LorebookModal、NpcModal)
+    - [ ] Phase 4：性能驗證與測試
 
 - [ ] D5｜存檔匯入/匯出 schema 正規化
   - `loadFromData` 完整映射所有欄位，獨立 `saveDataMapper` / `saveDataMigration`。
@@ -91,17 +79,9 @@
   - App.tsx 中 2 處 `text-[9px]`（第 2190、2248 行）改為 `text-[0.5625rem]`
   - 正文、標題改用 `rem`；行高、字距用 `em`；邊框、圓角、icon 保留 `px`
 
-  **前端視覺**
-  - HP/MP 動態條動畫（數字跳動、條縮短）
-
   **其他**
   - 確保 safe-area（iPhone 底部 home bar）不遮擋輸入區（`env(safe-area-inset-bottom)`）
   - 輸入框獲得焦點時不被鍵盤遮住（`visualViewport` 或 `env(keyboard-inset-height)`）
-
-
-- [ ] P1｜任務鏈與後果分歧
-  - 任務加入部分完成、被他人捷足先登等中間態，增加世界演化感。
-  - 尚未進一步細化。
 
 - [ ] P3｜指令 DSL 版本化
   - 例如 `COMMANDS v2`，維護向下相容 parser。
@@ -126,11 +106,24 @@
 
 ## ✅ 已完成
 
-- [x] 天空漸層背景（日夜循環）
-  - `App.tsx` `getSkyGradient` 函數已實作，依時段與天氣輸出漸層，掛載於全版背景層。
-
-- [x] Scrollbar 樣式統一
-  - `index.css` 已實作 `scrollbar-width: thin` 與 `::-webkit-scrollbar` 自訂樣式。
-
 - [x] 對話摘要壓縮
   - `App.tsx` `updateAdventureState` 以 `summaryPool` 累積摘要，達 10 則自動壓縮，壓縮 3 次觸發日記生成。
+
+- [x] D1｜App.tsx 狀態切片與渲染隔離
+  - `App.tsx` 拆為容器 + memoized 子區塊（聊天區、狀態列、快捷操作、側欄）。
+  - 分離高頻狀態（輸入框、loading、toast）與低頻狀態（世界設定、長清單）。
+  - 決議：先完成拆分，再做虛擬化，避免雙向重工。
+  - 2025-03-24 [Claude]: 完成 buildPrompt 使用時間工具函式、handleSendMessage 支持 async parseAndExecuteCommands
+
+- [x] D2｜Command Parser 分層
+  - 拆成三層：`parse`（文字→結構化指令）、`reduce`（純函式計算 state patch）、`effects`（toast、modal 等 UI side effects）。
+  - 依賴 D1 完成後進行。
+  - 2025-03-24 [Claude]: 新增 commandParser.ts、commandReducer.ts、commandEffects.ts；useCommandParser 簡化為整合層
+
+- [x] D3｜時間推進與任務期限判定（純函式化）
+  - `TIME:+...` 計算與逾期判斷集中為純函式 `advanceTimeAndResolveQuestDeadlines`。
+  - `totalDays` 由純函式計算並回傳，`buildPrompt` 只讀取結果。
+  - 依賴 D2 完成後進行。
+  - 2025-03-24 [Claude]: 新增 timeUtils.ts，提取 7 個時間工具函式，整合至 commandReducer
+
+

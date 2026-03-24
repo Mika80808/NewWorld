@@ -15,6 +15,7 @@ import { MONTHS_DATA } from './constants';
 import { useGameStore, SAVE_KEY } from './hooks/useGameStore';
 import { useCommandParser } from './hooks/useCommandParser';
 import { getTotalDaysFromTimeState, getQuestRemainingDays } from './utils/timeUtils';
+import { performanceMonitor } from './utils/performanceMonitor';
 
 // ─── Markdown Parser ─────────────────────────────────────────────────────────
 
@@ -367,6 +368,16 @@ ${newPool.map((s, i) => `${i + 1}. ${s}`).join('\n')}`;
       isAutoLoadingRef.current = false;
     });
   }, [visibleMessageCount]);
+
+  // ─── Phase 1: Expose Performance Monitor for Development ──────────────────────
+  useEffect(() => {
+    (window as any).__performanceMonitor = {
+      getScrollMetrics: () => performanceMonitor.getScrollMetrics(),
+      getRenderMetrics: () => performanceMonitor.getRenderMetrics(),
+      getReport: () => console.log(performanceMonitor.generateReport()),
+      clear: () => performanceMonitor.clear(),
+    };
+  }, []);
 
   // ─── 時間工具 ────────────────────────────────────────────────────────────────
   const getTimeOfDay = (hour: number) => {
@@ -1859,11 +1870,14 @@ Please respond as the DM.`;
             ref={chatScrollRef}
             className="flex-1 overflow-y-auto p-6 pt-14 pb-40 space-y-6"
             onScroll={(e) => {
+              const startTime = performance.now();
               const el = e.currentTarget;
               if (el.scrollTop <= 4 && hiddenMessageCount > 0 && !isAutoLoadingRef.current) {
                 isAutoLoadingRef.current = true;
                 setVisibleMessageCount(prev => Math.min(messages.length, prev + VISIBLE_MESSAGES_STEP));
               }
+              const duration = performance.now() - startTime;
+              performanceMonitor.recordScrollEvent(duration, messages.length);
             }}
           >
             {visibleMessages.map(msg => (

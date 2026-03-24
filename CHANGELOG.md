@@ -5,6 +5,51 @@
 
 ---
 
+### D4 清單虛擬化與訊息快取：Phase 1 性能量測基礎設施 2026-03-24 [Claude Haiku 4.5]
+
+**目標**：建立完整的性能量測框架，為虛擬化實現提供基線數據。
+
+#### **Phase 1 | 性能量測基礎設施**
+
+**新檔案**：`src/utils/performanceMonitor.ts`（~160 行）
+- `PerformanceMonitor` 類封裝性能監測邏輯
+- `recordScrollEvent(duration, messageCount)` — 記錄滾動事件耗時
+- `recordRender(duration, domNodeCount, messageCount)` — 記錄渲染耗時
+- `getScrollMetrics() / getRenderMetrics()` — 獲取統計數據（平均值、最大值、long task 比例）
+- `isLongTask(duration)` — 判斷是否超過 50ms 閾值
+- `generateReport()` — 生成人類可讀的性能報告
+- 單例模式：`performanceMonitor` 實例供全應用共享
+
+**改動**：
+- `src/App.tsx`
+  - 匯入 `performanceMonitor`
+  - 在訊息區滾動事件 (line 1861-1869) 添加計時邏輯，記錄滾動耗時和訊息數
+  - 暴露 `window.__performanceMonitor` API 供開發者在瀏覽器控制台訪問性能數據
+
+**開發者工具**（瀏覽器控制台）：
+```javascript
+// 獲取滾動性能統計
+__performanceMonitor.getScrollMetrics()
+// 獲取渲染性能統計
+__performanceMonitor.getRenderMetrics()
+// 打印格式化報告
+__performanceMonitor.getReport()
+// 清除記錄
+__performanceMonitor.clear()
+```
+
+**預期改進方向**：
+- 基線測試：訊息數 10 / 50 / 100 / 200 / 500 條時的滾動耗時
+- 虛擬化前後對比：確認優化效果（目標 > 50% 減少）
+- 自動警告：控制台日誌提示 > 50ms 的 long task
+
+**收益**：
+- ✅ 有量化數據支撐虛擬化優先級判斷
+- ✅ 性能改進有明確指標
+- ✅ 開發者易於監測和調試
+
+---
+
 ### D1-D3 架構重構：分層解耦、純函式化、性能優化 2026-03-24 [Claude Haiku 4.5]
 
 **核心目標**：將單層耦合的邏輯分離為三層（parse/reduce/effects），提升代碼質量、可測試性和可維護性。
