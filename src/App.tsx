@@ -1,4 +1,5 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
+import { FixedSizeList as List } from 'react-window';
 import { Settings, Send, RefreshCw, MoreVertical, Book, BookOpen, User, Package, Beaker, Users, Heart, MapPin, Zap, Coins, Calendar, Shield, CheckSquare, ChevronDown, ChevronRight, Map as MapIcon, Cloud, Sun, CloudRain, Snowflake, Moon, Wind, Sparkles, Brain, ScrollText, History, X, Edit2, Trash2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { GoogleGenAI } from "@google/genai";
@@ -11,9 +12,13 @@ import { ProfileModal } from './components/ProfileModal';
 import { SystemPromptModal } from './components/SystemPromptModal';
 import { SettingsModal } from './components/SettingsModal';
 import { MapModal } from './components/MapModal';
+import { MessageCard } from './components/MessageCard';
 import { MONTHS_DATA } from './constants';
 import { useGameStore, SAVE_KEY } from './hooks/useGameStore';
 import { useCommandParser } from './hooks/useCommandParser';
+import { getTotalDaysFromTimeState, getQuestRemainingDays } from './utils/timeUtils';
+import { performanceMonitor } from './utils/performanceMonitor';
+import { debounce } from './utils/debounce';
 
 // ─── Markdown Parser ─────────────────────────────────────────────────────────
 
@@ -341,6 +346,17 @@ ${newPool.map((s, i) => `${i + 1}. ${s}`).join('\n')}`;
   const chatScrollRef = useRef<HTMLDivElement>(null);
   const isAutoLoadingRef = useRef(false);
 
+  // ─── Phase 2: Debounced load-more handler ──────────────────────────────────────
+  const handleLoadMore = useMemo(
+    () => debounce(() => {
+      if (hiddenMessageCount > 0 && !isAutoLoadingRef.current) {
+        isAutoLoadingRef.current = true;
+        setVisibleMessageCount(prev => Math.min(messages.length, prev + VISIBLE_MESSAGES_STEP));
+      }
+    }, 150),
+    [hiddenMessageCount, messages.length]
+  );
+
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
@@ -366,6 +382,16 @@ ${newPool.map((s, i) => `${i + 1}. ${s}`).join('\n')}`;
       isAutoLoadingRef.current = false;
     });
   }, [visibleMessageCount]);
+
+  // ─── Phase 1: Expose Performance Monitor for Development ──────────────────────
+  useEffect(() => {
+    (window as any).__performanceMonitor = {
+      getScrollMetrics: () => performanceMonitor.getScrollMetrics(),
+      getRenderMetrics: () => performanceMonitor.getRenderMetrics(),
+      getReport: () => console.log(performanceMonitor.generateReport()),
+      clear: () => performanceMonitor.clear(),
+    };
+  }, []);
 
   // ─── 時間工具 ────────────────────────────────────────────────────────────────
   const getTimeOfDay = (hour: number) => {
@@ -1152,11 +1178,10 @@ ${(() => {
 ${(() => {
   const active = quests.filter(q => q.status === 'active');
   if (active.length === 0) return '（無）';
-  const todayTotal = timeState.year * 360 + (timeState.month - 1) * 30 + timeState.day;
+  const currentTotalDays = getTotalDaysFromTimeState(timeState);
   return active.map(q => {
-    const remaining = q.deadline != null
-      ? `剩 ${q.deadline - (todayTotal - q.createdAtTotalDays)} 天`
-      : '無期限';
+    const remainingDays = getQuestRemainingDays(q, currentTotalDays);
+    const remaining = remainingDays != null ? `剩 ${remainingDays} 天` : '無期限';
     if (q.isGoalMet) {
       return `${q.title}（委託：${q.giver}，目標已達成，待玩家回報）`;
     }
@@ -1376,7 +1401,7 @@ Please respond as the DM.`;
         return;
       }
 
-      const { narrative: parsedNarrative, newItems } = parseAndExecuteCommands(fullText);
+      const { narrative: parsedNarrative, newItems } = await parseAndExecuteCommands(fullText);
       const rawNarrative = parsedNarrative;
 
       // ── 助理 GM 接口：有新增道具時才觸發分類（Sub GM 實裝後補完）──────────
@@ -1859,180 +1884,81 @@ Please respond as the DM.`;
             ref={chatScrollRef}
             className="flex-1 overflow-y-auto p-6 pt-14 pb-40 space-y-6"
             onScroll={(e) => {
+              const startTime = performance.now();
               const el = e.currentTarget;
-              if (el.scrollTop <= 4 && hiddenMessageCount > 0 && !isAutoLoadingRef.current) {
-                isAutoLoadingRef.current = true;
-                setVisibleMessageCount(prev => Math.min(messages.length, prev + VISIBLE_MESSAGES_STEP));
+              if (el.scrollTop <= 4) {
+                handleLoadMore();
               }
+              const duration = performance.now() - startTime;
+              performanceMonitor.recordScrollEvent(duration, messages.length);
             }}
           >
             {visibleMessages.map(msg => (
-              <div key={msg.id} className={`flex flex-col ${msg.role === 'user' ? 'items-end pl-5' : 'items-start pr-5'} max-w-3xl mx-auto w-full group relative ${activeMenuId === msg.id ? 'z-20' : 'z-0'}`}>
-                
-                <div className={`flex items-center space-x-2 mb-1 ${msg.role === 'user' ? 'mr-2 flex-row-reverse space-x-reverse' : 'ml-2'}`}>
-                  <span className="text-sm text-[var(--text-muted)] font-bold">
-                    {msg.role === 'user' ? profile.name : '異世界'}
-                  </span>
-                  <div className={`flex items-center space-x-1 opacity-0 group-hover:opacity-100 transition ${activeMenuId === msg.id ? 'opacity-100' : ''}`}>
-                    {msg.role !== 'user' && (
-                      <button
-                        onClick={() => handleRegenerate(msg.id)}
-                        disabled={isLoading}
-                        className="p-1 text-[var(--text-muted)] rounded-[8px] transition disabled:opacity-50 disabled:cursor-not-allowed"
-                        style={{ '--hover-color': 'var(--text-body)' } as React.CSSProperties}
-                        onMouseEnter={e => (e.currentTarget as HTMLElement).style.color = 'var(--text-body)'}
-                        onMouseLeave={e => (e.currentTarget as HTMLElement).style.color = ''}
-                        title="重新生成"
-                      >
-                        <RefreshCw className="w-3.5 h-3.5" />
-                      </button>
-                    )}
-                    <div className="relative">
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setActiveMenuId(activeMenuId === msg.id ? null : msg.id);
-                        }}
-                        className="p-1 text-[var(--text-muted)] rounded-[8px] transition"
-                        onMouseEnter={e => (e.currentTarget as HTMLElement).style.color = 'var(--text-body)'}
-                        onMouseLeave={e => (e.currentTarget as HTMLElement).style.color = ''}
-                        title="更多選項"
-                      >
-                        <MoreVertical className="w-3.5 h-3.5" />
-                      </button>
-
-                      {activeMenuId === msg.id && (
-                        <div className={`absolute bottom-full mb-1 w-24 backdrop-blur-md border border-white/10 rounded-[10px] shadow-[0_0_20px_rgba(0,0,0,0.3)] z-50 overflow-hidden flex flex-col ${msg.role === 'user' ? 'right-0' : 'left-0'}`} style={{ background: 'color-mix(in srgb, var(--bg-elevated) 90%, transparent)' }}>
-                          <button
-                            className="px-3 py-2 text-sm text-left transition"
-                            style={{ color: 'var(--text-body)' }}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              const copyText = (text: string) => {
-                                if (navigator.clipboard?.writeText) {
-                                  navigator.clipboard.writeText(text).then(() => showToast('已複製訊息')).catch(() => {
-                                    // fallback for non-secure contexts
-                                    const ta = document.createElement('textarea');
-                                    ta.value = text;
-                                    ta.style.position = 'fixed';
-                                    ta.style.opacity = '0';
-                                    document.body.appendChild(ta);
-                                    ta.select();
-                                    document.execCommand('copy');
-                                    document.body.removeChild(ta);
-                                    showToast('已複製訊息');
-                                  });
-                                } else {
-                                  const ta = document.createElement('textarea');
-                                  ta.value = text;
-                                  ta.style.position = 'fixed';
-                                  ta.style.opacity = '0';
-                                  document.body.appendChild(ta);
-                                  ta.select();
-                                  document.execCommand('copy');
-                                  document.body.removeChild(ta);
-                                  showToast('已複製訊息');
-                                }
-                              };
-                              copyText(msg.text);
-                              setActiveMenuId(null);
-                            }}
-                          >
-                            複製
-                          </button>
-                          <button
-                            className="px-3 py-2 text-sm text-left transition"
-                            style={{ color: 'var(--text-body)' }}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setEditingMessageId(msg.id);
-                              setEditMessageText(msg.text);
-                              setActiveMenuId(null);
-                            }}
-                          >
-                            編輯
-                          </button>
-                          <button
-                            className="px-3 py-2 text-sm text-left transition"
-                            style={{ color: 'var(--text-danger)' }}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              const newMessages = messages.filter(m => m.id !== msg.id);
-                              setMessages(newMessages);
-                              saveToStorage({ messages: newMessages });
-                              showToast('已刪除訊息');
-                              setActiveMenuId(null);
-                            }}
-                          >
-                            刪除
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </div>
-
-                <div className={`p-4 text-left max-w-full ${editingMessageId === msg.id ? 'w-full' : 'w-fit'}`} style={{
-                  color: msg.role === 'user' ? 'var(--text-dialog-main)' : 'var(--text-dialog-main)',
-                  background: msg.role === 'user' ? 'var(--bg-bubble-self)' : 'var(--bg-bubble-npc)',
-                  borderRadius: '8px',
-                  border: msg.role === 'user' ? '0.5px solid rgba(119, 93, 22, 0.3)' : '0.5px solid var(--border-default)'
-                }}>
-                  {editingMessageId === msg.id ? (
-                    <div className="flex flex-col w-full">
-                      <textarea
-                        value={editMessageText}
-                        onChange={(e) => setEditMessageText(e.target.value)}
-                        className="w-full backdrop-blur-sm p-3 rounded-[10px] border border-white/10 outline-none resize-none text-sm min-h-[200px]"
-                        style={{ background: 'color-mix(in srgb, var(--bg-elevated) 50%, transparent)', color: 'var(--text-dialog-muted)' }}
-                        autoFocus
-                      />
-                      <div className="flex justify-end space-x-2 mt-2">
-                        <button
-                          onClick={() => setEditingMessageId(null)}
-                          className="text-sm text-[var(--text-muted)] px-2 py-1"
-                          onMouseEnter={e => (e.currentTarget as HTMLElement).style.color = 'var(--text-dialog-main)'}
-                          onMouseLeave={e => (e.currentTarget as HTMLElement).style.color = ''}
-                        >
-                          取消
-                        </button>
-                        <button 
-                          onClick={() => {
-                            const newMessages = messages.map(m => m.id === msg.id ? { ...m, text: editMessageText } : m);
-                            setMessages(newMessages);
-                            saveToStorage({ messages: newMessages });
-                            setEditingMessageId(null);
-                            showToast('已更新訊息');
-                          }} 
-                          className="text-sm backdrop-blur-sm px-3 py-1 rounded-[8px] transition shadow-[var(--shadow)]"
-                          style={{ background: 'var(--btn-primary)', color: 'var(--text-main)' }}
-                          onMouseEnter={e => e.currentTarget.style.background = 'var(--btn-primary-hover)'}
-                          onMouseLeave={e => e.currentTarget.style.background = 'var(--btn-primary)'}
-                        >
-                          儲存
-                        </button>
-                      </div>
-                    </div>
-                  ) : msg.role === 'user' ? (
-                    <p className="leading-relaxed whitespace-pre-wrap">{msg.text}</p>
-                  ) : msg.text === '' && isLoading && msg.id === messages[messages.length - 1]?.id ? (
-                    <div className="flex items-center space-x-2 py-0.5 select-none">
-                      <span className="text-sm" style={{ color: 'var(--text-stat-label)' }}>✦ 異世界正在回應</span>
-                      <span className="flex items-end space-x-0.5 pb-0.5">
-                        {[0, 200, 400].map(delay => (
-                          <span
-                            key={delay}
-                            className="inline-block w-1 h-1 rounded-full"
-                            style={{ background: 'var(--text-stat-label)', animation: `blink-dot 1.4s ease-in-out infinite`, animationDelay: `${delay}ms` }}
-                          />
-                        ))}
-                      </span>
-                    </div>
-                  ) : (
-                    <div className="leading-relaxed">{renderMarkdown(stripBareCommands(msg.text))}</div>
-                  )}
-                </div>
-              </div>
+              <MessageCard
+                key={msg.id}
+                msg={msg}
+                profile={profile}
+                activeMenuId={activeMenuId}
+                editingMessageId={editingMessageId}
+                editMessageText={editMessageText}
+                isLoading={isLoading}
+                messages={messages}
+                onRegenerate={handleRegenerate}
+                onMenuToggle={(msgId) => setActiveMenuId(activeMenuId === msgId ? null : msgId)}
+                onCopy={(text) => {
+                  const copyText = (text: string) => {
+                    if (navigator.clipboard?.writeText) {
+                      navigator.clipboard.writeText(text).then(() => showToast('已複製訊息')).catch(() => {
+                        const ta = document.createElement('textarea');
+                        ta.value = text;
+                        ta.style.position = 'fixed';
+                        ta.style.opacity = '0';
+                        document.body.appendChild(ta);
+                        ta.select();
+                        document.execCommand('copy');
+                        document.body.removeChild(ta);
+                        showToast('已複製訊息');
+                      });
+                    } else {
+                      const ta = document.createElement('textarea');
+                      ta.value = text;
+                      ta.style.position = 'fixed';
+                      ta.style.opacity = '0';
+                      document.body.appendChild(ta);
+                      ta.select();
+                      document.execCommand('copy');
+                      document.body.removeChild(ta);
+                      showToast('已複製訊息');
+                    }
+                  };
+                  copyText(text);
+                  setActiveMenuId(null);
+                }}
+                onEdit={(msgId, text) => {
+                  setEditingMessageId(msgId);
+                  setEditMessageText(text);
+                  setActiveMenuId(null);
+                }}
+                onDelete={(msgId) => {
+                  const newMessages = messages.filter(m => m.id !== msgId);
+                  setMessages(newMessages);
+                  saveToStorage({ messages: newMessages });
+                  showToast('已刪除訊息');
+                  setActiveMenuId(null);
+                }}
+                onEditChange={setEditMessageText}
+                onEditCancel={() => setEditingMessageId(null)}
+                onEditSave={(msgId, newText) => {
+                  const newMessages = messages.map(m => m.id === msgId ? { ...m, text: newText } : m);
+                  setMessages(newMessages);
+                  saveToStorage({ messages: newMessages });
+                  setEditingMessageId(null);
+                  showToast('已更新訊息');
+                }}
+                renderMarkdown={renderMarkdown}
+                stripBareCommands={stripBareCommands}
+                showToast={showToast}
+              />
             ))}
             <div ref={messagesEndRef} />
           </div>
@@ -2126,32 +2052,46 @@ Please respond as the DM.`;
           <div>
             <h3 className="font-bold mb-3 pb-2" style={{ color: 'var(--text-primary)', borderBottom: `0.5px solid var(--bg-elevated)` }}>✦ 當前場景人物</h3>
             <div className="space-y-2">
-              {npcs.filter(n => n.location === currentLocation && !n.isPinned).length > 0 ? (
-                npcs.filter(n => n.location === currentLocation && !n.isPinned).map(npc => {
-                  const lore = lorebookEntries.find(e => e.category === 'NPC' && e.title === npc.name);
-                  const displayJob    = lore?.job    ?? npc.job    ?? '';
-                  const displayGender = lore?.gender ?? '';
-                  return (
-                  <div
-                    key={npc.id}
-                    className="backdrop-blur-md border border-white/5 p-3 rounded-[10px] flex justify-between items-center cursor-pointer transition-all duration-300 shadow-lg group/npc overflow-hidden relative"
-                    onClick={() => setSelectedNpc(npc)}
-                  >
-                    <div className="absolute top-0 left-0 w-1 h-full opacity-0 group-hover/npc:opacity-40 transition-opacity" style={{ background: `linear-gradient(to bottom, transparent, var(--bg-elevated), transparent)` }}></div>
-                    <div className="flex flex-col">
-                      <span className="text-sm font-medium" style={{ color: 'var(--text-title)' }}>{npc.name}</span>
-                      <span className="text-sm uppercase tracking-tighter" style={{ color: 'var(--text-body)' }}>{displayGender ? `${displayGender}・${displayJob}` : displayJob}</span>
-                    </div>
-                    <div className="text-sm flex items-center px-2 py-1 rounded-full bg-black/20 border border-white/5" style={{ color: affectionColor(npc.affection) }}>
-                      <Heart className="w-3 h-3 mr-1 fill-current" />
-                      <span className="font-mono">{npc.affection}</span>
-                    </div>
-                  </div>
-                  );
-                })
-              ) : (
-                <div className="text-sm ml-4 text-[var(--text-muted)] italic">此處目前沒有人...</div>
-              )}
+              {(() => {
+                // ─── Phase 3: Limit scene NPC display to 8 people (UI layer only) ────
+                const sceneNpcs = npcs.filter(n => n.location === currentLocation && !n.isPinned);
+                const hiddenCount = Math.max(0, sceneNpcs.length - 8);
+                const displayedNpcs = sceneNpcs.slice(0, 8);
+
+                return sceneNpcs.length > 0 ? (
+                  <>
+                    {displayedNpcs.map(npc => {
+                      const lore = lorebookEntries.find(e => e.category === 'NPC' && e.title === npc.name);
+                      const displayJob    = lore?.job    ?? npc.job    ?? '';
+                      const displayGender = lore?.gender ?? '';
+                      return (
+                      <div
+                        key={npc.id}
+                        className="backdrop-blur-md border border-white/5 p-3 rounded-[10px] flex justify-between items-center cursor-pointer transition-all duration-300 shadow-lg group/npc overflow-hidden relative"
+                        onClick={() => setSelectedNpc(npc)}
+                      >
+                        <div className="absolute top-0 left-0 w-1 h-full opacity-0 group-hover/npc:opacity-40 transition-opacity" style={{ background: `linear-gradient(to bottom, transparent, var(--bg-elevated), transparent)` }}></div>
+                        <div className="flex flex-col">
+                          <span className="text-sm font-medium" style={{ color: 'var(--text-title)' }}>{npc.name}</span>
+                          <span className="text-sm uppercase tracking-tighter" style={{ color: 'var(--text-body)' }}>{displayGender ? `${displayGender}・${displayJob}` : displayJob}</span>
+                        </div>
+                        <div className="text-sm flex items-center px-2 py-1 rounded-full bg-black/20 border border-white/5" style={{ color: affectionColor(npc.affection) }}>
+                          <Heart className="w-3 h-3 mr-1 fill-current" />
+                          <span className="font-mono">{npc.affection}</span>
+                        </div>
+                      </div>
+                      );
+                    })}
+                    {hiddenCount > 0 && (
+                      <div className="text-xs italic" style={{ color: 'var(--text-muted)' }}>
+                        ✦ 還有 {hiddenCount} 人未顯示...
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <div className="text-sm ml-4 text-[var(--text-muted)] italic">此處目前沒有人...</div>
+                );
+              })()}
             </div>
           </div>
 
@@ -2187,7 +2127,7 @@ Please respond as the DM.`;
                         {mem.tags?.factions?.length > 0 && (
                           <div className="mt-1.5 flex flex-wrap gap-1">
                             {mem.tags.factions.map((f: string) => (
-                              <span key={f} className="text-[9px] px-1.5 py-0.5 rounded-[8px] uppercase tracking-tighter font-bold" style={{ background: 'color-mix(in srgb, var(--bg-elevated) 10%, transparent)', color: 'color-mix(in srgb, var(--bg-elevated) 70%, transparent)', border: `1px solid color-mix(in srgb, var(--bg-elevated) 20%, transparent)` }}>
+                              <span key={f} className="text-[0.5625rem] px-1.5 py-0.5 rounded-[8px] uppercase tracking-tighter font-bold" style={{ background: 'color-mix(in srgb, var(--bg-elevated) 10%, transparent)', color: 'color-mix(in srgb, var(--bg-elevated) 70%, transparent)', border: `1px solid color-mix(in srgb, var(--bg-elevated) 20%, transparent)` }}>
                                 {f}
                               </span>
                             ))}
@@ -2245,7 +2185,7 @@ Please respond as the DM.`;
                           <div key={mem.id} className="memory-card backdrop-blur-sm p-3 text-sm text-[var(--text-muted)] transition-all duration-300 shadow-sm" style={{ borderLeft: `2px solid var(--bg-elevated)` }}>
                             <div className="leading-relaxed">
                               {mem.content}
-                              {mem.source === 'ai_generated' && <span className="ml-1.5 text-[9px] uppercase tracking-tighter font-bold" style={{ color: 'color-mix(in srgb, var(--bg-elevated) 40%, transparent)' }}>（AI）</span>}
+                              {mem.source === 'ai_generated' && <span className="ml-1.5 text-[0.5625rem] uppercase tracking-tighter font-bold" style={{ color: 'color-mix(in srgb, var(--bg-elevated) 40%, transparent)' }}>（AI）</span>}
                             </div>
                           </div>
                         ))}

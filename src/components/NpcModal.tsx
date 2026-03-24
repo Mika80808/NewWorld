@@ -61,6 +61,7 @@ export const NpcModal: React.FC<NpcModalProps> = ({
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [editFields, setEditFields] = useState<Partial<LorebookEntry>>({});
   const [editName, setEditName] = useState('');
+  const [memoryPage, setMemoryPage] = useState(0);
   const newMemRef = useRef<HTMLTextAreaElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -69,6 +70,7 @@ export const NpcModal: React.FC<NpcModalProps> = ({
     setMenuOpen(false);
     setShowDeleteConfirm(false);
     setActiveTab('info');
+    setMemoryPage(0);
     if (selectedNpc?.name === '新角色' && !selectedNpc.job && !selectedNpc.appearance) {
       setIsEditing(true);
       setEditName('新角色');
@@ -521,20 +523,60 @@ export const NpcModal: React.FC<NpcModalProps> = ({
                   <>
                     {activeMemories.length > 0 ? (
                       <div className="space-y-2">
-                        {activeMemories.map(mem => (
-                          <MemoryCard
-                            key={mem.id}
-                            mem={mem}
-                            isEditing={editingMemId === mem.id}
-                            editingText={editingText}
-                            onEditTextChange={setEditingText}
-                            onStartEdit={handleStartEdit}
-                            onConfirmEdit={handleConfirmEdit}
-                            onCancelEdit={handleCancelEdit}
-                            onToggleImportance={handleToggleImportance}
-                            onRemove={(memId) => onRemoveNpcMemory(selectedNpc.id, memId)}
-                          />
-                        ))}
+                        {/* ─── Phase 3: Memory Pagination (10 items per page) ─────────────────── */}
+                        {(() => {
+                          const MEMORIES_PER_PAGE = 10;
+                          const totalPages = Math.ceil(activeMemories.length / MEMORIES_PER_PAGE);
+                          const startIdx = memoryPage * MEMORIES_PER_PAGE;
+                          const endIdx = Math.min(startIdx + MEMORIES_PER_PAGE, activeMemories.length);
+                          const pagedMemories = activeMemories.slice(startIdx, endIdx);
+
+                          return (
+                            <>
+                              <div className="space-y-2">
+                                {pagedMemories.map(mem => (
+                                  <MemoryCard
+                                    key={mem.id}
+                                    mem={mem}
+                                    isEditing={editingMemId === mem.id}
+                                    editingText={editingText}
+                                    onEditTextChange={setEditingText}
+                                    onStartEdit={handleStartEdit}
+                                    onConfirmEdit={handleConfirmEdit}
+                                    onCancelEdit={handleCancelEdit}
+                                    onToggleImportance={handleToggleImportance}
+                                    onRemove={(memId) => onRemoveNpcMemory(selectedNpc.id, memId)}
+                                  />
+                                ))}
+                              </div>
+                              {totalPages > 1 && (
+                                <div className="flex items-center justify-between text-[10px] pt-2 border-t border-white/5">
+                                  <button
+                                    onClick={() => setMemoryPage(p => Math.max(0, p - 1))}
+                                    disabled={memoryPage === 0}
+                                    className="px-2 py-1 rounded text-[var(--text-muted)] disabled:opacity-30 disabled:cursor-not-allowed transition"
+                                    onMouseEnter={e => { if (!e.currentTarget.disabled) e.currentTarget.style.color = 'var(--text-body)'; }}
+                                    onMouseLeave={e => { e.currentTarget.style.color = ''; }}
+                                  >
+                                    ← 上一頁
+                                  </button>
+                                  <span style={{ color: 'var(--text-muted)' }}>
+                                    {memoryPage + 1} / {totalPages} ({activeMemories.length} 則)
+                                  </span>
+                                  <button
+                                    onClick={() => setMemoryPage(p => Math.min(totalPages - 1, p + 1))}
+                                    disabled={memoryPage === totalPages - 1}
+                                    className="px-2 py-1 rounded text-[var(--text-muted)] disabled:opacity-30 disabled:cursor-not-allowed transition"
+                                    onMouseEnter={e => { if (!e.currentTarget.disabled) e.currentTarget.style.color = 'var(--text-body)'; }}
+                                    onMouseLeave={e => { e.currentTarget.style.color = ''; }}
+                                  >
+                                    下一頁 →
+                                  </button>
+                                </div>
+                              )}
+                            </>
+                          );
+                        })()}
                       </div>
                     ) : (
                       <div

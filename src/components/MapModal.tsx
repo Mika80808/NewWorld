@@ -8,16 +8,16 @@ const SVG_H = 520;
 const MAP_SCALE = 2.2;
 const CLUSTER_THRESHOLD = 20; // 地圖單位，小於此距離的地點合併為一群
 const MAP_PALETTE = {
-  paper: '#f4ecdc',
-  paperDeep: '#e6d6bf',
-  know: '#886847',
-  ink: '#ddd8d4',
-  inkSoft: '#685c57',
-  accent: '#376baf',
-  accentStrong: '#776c61',
-  water: '#9bb6c8',
-  pine: '#7a8e7a',
-  glow: 'rgba(84, 73, 122, 0.35)',
+  paper: '#f9f4f0',        /* Dutch White */
+  paperDeep: '#e8dcd3',    /* Papaya Whip - 淡米色 */
+  know: '#a0826d',         /* Brown Sugar */
+  ink: '#d4c4b8',          /* 咖啡色 */
+  inkSoft: '#9b8b7e',      /* 深咖啡 */
+  accentStrong: '#8e3d37',       /* 可可色 */
+  accent: '#08357E',       /* 深藍 */
+  water: '#b8a89e',        /* Chamoisee */
+  pine: '#9b8576',         /* 土咖啡 */
+  glow: 'rgba(193, 143, 115, 0.25)', /* Chestnut with alpha */
 };
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -243,6 +243,25 @@ export const MapModal: React.FC<MapModalProps> = ({
 
   // ── Render ───────────────────────────────────────────────────────────────────
   return (
+    <>
+      <style>{`
+        @keyframes pinBounce {
+          0% {
+            opacity: 0;
+            transform: translateY(8px);
+          }
+          50% {
+            transform: translateY(-4px);
+          }
+          100% {
+            opacity: 1;
+            transform: translateY(0);
+          }
+        }
+        .map-pin-animate {
+          animation: pinBounce 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+        }
+      `}</style>
     <div className="fixed inset-0 bg-black/85 backdrop-blur-sm z-50 flex items-center justify-center p-4">
       <div
         className="w-full max-w-5xl rounded-[10px] shadow-[0_0_80px_rgba(0,0,0,0.8)] flex flex-col overflow-hidden h-[87vh]"
@@ -393,7 +412,7 @@ export const MapModal: React.FC<MapModalProps> = ({
 
                           {/* 選取/當前位置：浮現定位針 */}
                           {(isCurrent || isSelected) && (
-                            <g filter="url(#pin-shadow)">
+                            <g filter="url(#pin-shadow)" className="map-pin-animate">
                               <path
                                 d="M 0,0 C -3,-3 -8,-9 -8,-14 A 8,8 0 1 1 8,-14 C 8,-9 3,-3 0,0 Z"
                                 transform={`translate(${cx}, ${cy - 4}) scale(${isCurrent ? 1.3 : 1.1})`}
@@ -471,43 +490,70 @@ export const MapModal: React.FC<MapModalProps> = ({
 
             {/* ── 羅盤 ──────────────────────────────────────────────────── */}
             <button
-              className="absolute bottom-[30px] left-[30px] transition-all duration-300 hover:scale-110"
-              style={{ 
-                opacity: 0.9, 
-                background: 'none', 
-                border: 'none', 
-                padding: 0, 
-                cursor: 'pointer',
-                filter: 'drop-shadow(0 4px 12px rgb(107, 90, 76))'
-              }}
-              onClick={handleCompassClick}
-              title="重置視角"
-            >
-              <svg width="60" height="60" viewBox="0 0 60 60">
-                <circle cx="30" cy="30" r="26" fill={MAP_PALETTE.paperDeep} stroke={MAP_PALETTE.accent} strokeWidth="1.5" opacity="0.95" />
-                <polygon points={starPoints(30, 30, 22, 10, 8)} fill="none" stroke={MAP_PALETTE.inkSoft} strokeWidth="1" opacity="0.6" />
-                <polygon points="30,6 26,20 34,20" fill={MAP_PALETTE.accent} />
-                <polygon points="30,54 26,40 34,40" fill={MAP_PALETTE.inkSoft} />
-                <polygon points="6,30 20,26 20,34" fill={MAP_PALETTE.inkSoft} opacity="0.8" />
-                <polygon points="54,30 40,26 40,34" fill={MAP_PALETTE.inkSoft} opacity="0.8" />
-                <circle cx="30" cy="30" r="5" fill={MAP_PALETTE.paper} stroke={MAP_PALETTE.accent} strokeWidth="1" />
-                <circle cx="30" cy="30" r="2.5" fill="#f3d998" />
-                <text x="30" y="5" textAnchor="middle" fontSize="8" fill={MAP_PALETTE.accent} fontWeight="900" style={{ fontFamily: "'Noto Sans TC', sans-serif" }}>N</text>
-              </svg>
-            </button>
+  className="absolute bottom-[30px] left-[30px] transition-all duration-300 hover:scale-110 active:scale-95"
+  style={{ 
+    opacity: 1, 
+    background: 'none', 
+    border: 'none', 
+    padding: 0, 
+    cursor: 'pointer',
+    filter: 'drop-shadow(0 6px 12px rgba(0,0,0,0.15))'
+  }}
+  onClick={handleCompassClick}
+  title="重置視角"
+>
+  <svg width="60" height="60" viewBox="0 0 60 60" style={{ overflow: 'visible' }}>
+ 
+    {/* 刻度線：極簡長短線 */}
+    {[0, 90, 180, 270].map(ang => (
+      <line 
+        key={ang}
+        x1="30" y1="8" x2="30" y2="12" 
+        transform={`rotate(${ang} 30 30)`} 
+        stroke={MAP_PALETTE.inkSoft} 
+        strokeWidth="1" 
+      />
+    ))}
 
-            {resetHint && (
-              <div className="absolute bottom-[100px] left-[30px] text-[11px] px-2 py-1 rounded-[8px]"
-                style={{ background: 'var(--bg-elevated)', border: '0.5px solid #e7b900', color: '#fde68a' }}>
-                視角已重置
-              </div>
-            )}
+    {/* 主指針：利用左右分割營造立體感 */}
+    <g>
+      {/* 北向指針 (N) - 深色側與淺色側 */}
+      <polygon points="30,8 30,30 24,30" fill={MAP_PALETTE.accentStrong} />
+      <polygon points="30,8 36,30 30,30" fill={MAP_PALETTE.accentStrong} opacity="0.7" />
+      
+      {/* 南向指針 (S) */}
+      <polygon points="30,52 30,30 36,30" fill={MAP_PALETTE.inkSoft} />
+      <polygon points="30,52 24,30 30,30" fill={MAP_PALETTE.inkSoft} opacity="0.6" />
+      
+      {/* 東西向指針 - 縮小比例作為輔助 */}
+      <polygon points="52,30 30,30 30,27" fill={MAP_PALETTE.inkSoft} opacity="0.4" />
+      <polygon points="8,30 30,30 30,33" fill={MAP_PALETTE.inkSoft} opacity="0.4" />
+    </g>
+
+    {/* 中心圓軸：強化結構感 */}
+    <circle cx="30" cy="30" r="3.5" fill={MAP_PALETTE.paper} stroke={MAP_PALETTE.inkSoft} strokeWidth="1.5" />
+    <circle cx="30" cy="30" r="1" fill={MAP_PALETTE.inkSoft} />
+
+    {/* 北方標記：改用無襯線字體，並稍微與指針拉開距離 */}
+    <text 
+      x="30" y="5" 
+      textAnchor="middle" 
+      fontSize="10" 
+      fill={MAP_PALETTE.accentStrong} 
+      style={{ fontFamily: 'Arial, sans-serif', fontWeight: 'bold', letterSpacing: '1px' }}
+    >
+      N
+    </text>
+  </svg>
+</button>
+
+           
           </div>
 
           {/* ── Right Panel ─────────────────────────────────────────────── */}
           <div
             className="w-64 flex flex-col overflow-hidden shrink-0"
-            style={{ background: 'var(--bg-glass-right)', borderLeft: '0.5px solid var(--border-default)' }}
+            style={{ background: 'transparent' }}
           >
             {selectedNode ? (
               <>
@@ -629,7 +675,7 @@ export const MapModal: React.FC<MapModalProps> = ({
               /* 無選取 → 地點清單 */
               <div className="flex-1 flex flex-col overflow-hidden">
                 <div className="px-4 pt-4 pb-2 shrink-0">
-                  <h4 className="text-base font-bold uppercase tracking-wider"
+                  <h4 className="text-base font-bold uppercase tracking-wider text-center"
                     style={{ color: 'var(--text-tab)', fontFamily: "'Noto Sans TC', sans-serif" }}>
                     已知地點
                   </h4>
@@ -640,7 +686,7 @@ export const MapModal: React.FC<MapModalProps> = ({
                     .map(loc => (
                       <button key={loc.id}
                         onClick={() => { setSelectedTitle(loc.title); setTravelMode(null); setGoldWarning(false); }}
-                        className="w-full text-left px-2.5 py-2 rounded-[2px] text-sm transition"
+                        className="w-full text-center px-2.5 py-2 rounded-[2px] text-sm transition"
                         style={{
                           background: loc.title === currentLocation ? 'rgba(201,168,76,0.1)' : 'transparent',
                           color: loc.title === currentLocation ? '#fde68a' : 'var(--text-tab)',
@@ -666,7 +712,7 @@ export const MapModal: React.FC<MapModalProps> = ({
                         .map(loc => (
                           <button key={loc.id}
                             onClick={() => { setSelectedTitle(loc.title); setTravelMode(null); setGoldWarning(false); }}
-                            className="w-full text-left px-2.5 py-2 rounded-[8px] text-sm transition"
+                            className="w-full text-center px-2.5 py-2 rounded-[8px] text-sm transition"
                             style={{ background: 'transparent', color: 'var(--text-muted)', fontFamily: "'Noto Sans TC', sans-serif" }}
                             onMouseEnter={e => (e.currentTarget.style.color = 'var(--text-muted)' )}
                             onMouseLeave={e => (e.currentTarget.style.color = 'var(--text-muted)' )}
@@ -685,5 +731,6 @@ export const MapModal: React.FC<MapModalProps> = ({
         </div>
       </div>
     </div>
+    </>
   );
 };
