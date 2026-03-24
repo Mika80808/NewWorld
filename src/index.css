@@ -63,7 +63,7 @@
   --bg-bubble-npc:     rgba(0, 0, 0, 0.541);    /* NPC 對話泡泡 */
   --bg-dialog-input:   #161616;                 /* 玩家輸入框 */
   --text-dialog-main:  #fafafa;                 /* 對話台詞 */
-  --text-dialog-muted: #d1d1d1;                 /* 敘述描寫 */
+  --text-dialog-muted: #b8c9e4;                 /* 敘述描寫 */
 
   /* ── 語意色（Tailwind 對應，取代 @theme 覆寫） ─────────── */
   --color-rose:    #ff2222;   /* 刪除／危險動作 */

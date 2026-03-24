@@ -168,7 +168,7 @@ export default function App() {
       const prompt = `你是 RPG 後台資料整理員，不負責說故事。
 根據以下最新一則對話，輸出固定 JSON，只輸出 JSON，不要任何說明：
 {
-  "summary": "以第三人稱過去式記錄：主角做了什麼、結果如何、對冒險有何影響。若本輪純屬日常閒聊或無實質進展，輸出 null",
+  "summary": "以第三人稱過去式精簡記錄：主角做了什麼、結果如何、實質影響。若本輪純屬日常閒聊或無實質進展，輸出 null",
   "goals": ["短期目標1", "短期目標2"]${newItems.length > 0 ? `,\n  "item_types": { "道具名": "equipment 或 item" }` : ''}
 }
 ${itemClassifySection}
@@ -1335,6 +1335,7 @@ MEMORY_ADD:world:critical:魔王宣布向月湖鎮宣戰:keywords=魔王,宣戰
 [出場:姓名1,姓名2]（從候選名單選誰實際在場；無人可輸出 [出場:]；可加候選外新角色）
 
 【各指令觸發時機】
+- TIME：每次回應必須輸出。依行動性質推進。
 - ITEM_ADD：玩家獲得道具時。說明需詳細描述外觀與效果（玩家使用時 AI 依此生成劇情）。
 - ITEM_USE：玩家主動使用道具時（前端扣數量）。ITEM_REMOVE：道具消耗/丟失。
 - QUEST_ADD：NPC 正式委託或玩家接布告欄任務時。後四欄可留空。
@@ -2109,7 +2110,11 @@ ${recentContext}
             <div className="space-y-2">
               {(() => {
                 // ─── Phase 3: Limit scene NPC display to 8 people (UI layer only) ────
-                const sceneNpcs = npcs.filter(n => n.location === currentLocation && !n.isPinned);
+                const sceneNpcs = npcs.filter(n =>
+                  appearingNpcs.includes(n.name) ||
+                  n.location === currentLocation ||
+                  n.isPinned
+                );
                 const hiddenCount = Math.max(0, sceneNpcs.length - 8);
                 const displayedNpcs = sceneNpcs.slice(0, 8);
 
