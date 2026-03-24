@@ -2052,32 +2052,46 @@ Please respond as the DM.`;
           <div>
             <h3 className="font-bold mb-3 pb-2" style={{ color: 'var(--text-primary)', borderBottom: `0.5px solid var(--bg-elevated)` }}>✦ 當前場景人物</h3>
             <div className="space-y-2">
-              {npcs.filter(n => n.location === currentLocation && !n.isPinned).length > 0 ? (
-                npcs.filter(n => n.location === currentLocation && !n.isPinned).map(npc => {
-                  const lore = lorebookEntries.find(e => e.category === 'NPC' && e.title === npc.name);
-                  const displayJob    = lore?.job    ?? npc.job    ?? '';
-                  const displayGender = lore?.gender ?? '';
-                  return (
-                  <div
-                    key={npc.id}
-                    className="backdrop-blur-md border border-white/5 p-3 rounded-[10px] flex justify-between items-center cursor-pointer transition-all duration-300 shadow-lg group/npc overflow-hidden relative"
-                    onClick={() => setSelectedNpc(npc)}
-                  >
-                    <div className="absolute top-0 left-0 w-1 h-full opacity-0 group-hover/npc:opacity-40 transition-opacity" style={{ background: `linear-gradient(to bottom, transparent, var(--bg-elevated), transparent)` }}></div>
-                    <div className="flex flex-col">
-                      <span className="text-sm font-medium" style={{ color: 'var(--text-title)' }}>{npc.name}</span>
-                      <span className="text-sm uppercase tracking-tighter" style={{ color: 'var(--text-body)' }}>{displayGender ? `${displayGender}・${displayJob}` : displayJob}</span>
-                    </div>
-                    <div className="text-sm flex items-center px-2 py-1 rounded-full bg-black/20 border border-white/5" style={{ color: affectionColor(npc.affection) }}>
-                      <Heart className="w-3 h-3 mr-1 fill-current" />
-                      <span className="font-mono">{npc.affection}</span>
-                    </div>
-                  </div>
-                  );
-                })
-              ) : (
-                <div className="text-sm ml-4 text-[var(--text-muted)] italic">此處目前沒有人...</div>
-              )}
+              {(() => {
+                // ─── Phase 3: Limit scene NPC display to 8 people (UI layer only) ────
+                const sceneNpcs = npcs.filter(n => n.location === currentLocation && !n.isPinned);
+                const hiddenCount = Math.max(0, sceneNpcs.length - 8);
+                const displayedNpcs = sceneNpcs.slice(0, 8);
+
+                return sceneNpcs.length > 0 ? (
+                  <>
+                    {displayedNpcs.map(npc => {
+                      const lore = lorebookEntries.find(e => e.category === 'NPC' && e.title === npc.name);
+                      const displayJob    = lore?.job    ?? npc.job    ?? '';
+                      const displayGender = lore?.gender ?? '';
+                      return (
+                      <div
+                        key={npc.id}
+                        className="backdrop-blur-md border border-white/5 p-3 rounded-[10px] flex justify-between items-center cursor-pointer transition-all duration-300 shadow-lg group/npc overflow-hidden relative"
+                        onClick={() => setSelectedNpc(npc)}
+                      >
+                        <div className="absolute top-0 left-0 w-1 h-full opacity-0 group-hover/npc:opacity-40 transition-opacity" style={{ background: `linear-gradient(to bottom, transparent, var(--bg-elevated), transparent)` }}></div>
+                        <div className="flex flex-col">
+                          <span className="text-sm font-medium" style={{ color: 'var(--text-title)' }}>{npc.name}</span>
+                          <span className="text-sm uppercase tracking-tighter" style={{ color: 'var(--text-body)' }}>{displayGender ? `${displayGender}・${displayJob}` : displayJob}</span>
+                        </div>
+                        <div className="text-sm flex items-center px-2 py-1 rounded-full bg-black/20 border border-white/5" style={{ color: affectionColor(npc.affection) }}>
+                          <Heart className="w-3 h-3 mr-1 fill-current" />
+                          <span className="font-mono">{npc.affection}</span>
+                        </div>
+                      </div>
+                      );
+                    })}
+                    {hiddenCount > 0 && (
+                      <div className="text-xs italic" style={{ color: 'var(--text-muted)' }}>
+                        ✦ 還有 {hiddenCount} 人未顯示...
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <div className="text-sm ml-4 text-[var(--text-muted)] italic">此處目前沒有人...</div>
+                );
+              })()}
             </div>
           </div>
 

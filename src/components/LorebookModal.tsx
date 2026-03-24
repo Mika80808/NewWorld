@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { BookOpen, Plus, Search, CheckSquare, Square, Trash2, Heart } from 'lucide-react';
 import { LorebookEntry, Npc } from '../types';
+import { debounce } from '../utils/debounce';
 
 function affectionColor(affection: number): string {
   if (affection < 0)   return 'var(--affection-hostile)';
@@ -42,6 +43,20 @@ export const LorebookModal: React.FC<LorebookModalProps> = ({
   const [editingLorebookId, setEditingLorebookId] = useState<number | null>(null);
   const [lorebookFilter, setLorebookFilter] = useState<string>('地點');
   const [lorebookSearch, setLorebookSearch] = useState<string>('');
+  const [debouncedSearch, setDebouncedSearch] = useState<string>('');
+
+  // ─── Phase 3: Debounced search (300ms delay) ─────────────────────────────────
+  const debouncedSetSearch = useMemo(
+    () => debounce((query: string) => {
+      setDebouncedSearch(query);
+    }, 300),
+    []
+  );
+
+  const handleSearchChange = (query: string) => {
+    setLorebookSearch(query);
+    debouncedSetSearch(query);
+  };
 
   if (!isOpen) return null;
 
@@ -196,8 +211,8 @@ export const LorebookModal: React.FC<LorebookModalProps> = ({
     const filtered = lorebookEntries
       .filter(e => e.category === category)
       .filter(e => {
-        if (!lorebookSearch.trim()) return true;
-        const s = lorebookSearch.toLowerCase();
+        if (!debouncedSearch.trim()) return true;
+        const s = debouncedSearch.toLowerCase();
         return (
           (e.title   && e.title.toLowerCase().includes(s)) ||
           (e.content && e.content.toLowerCase().includes(s))
@@ -703,7 +718,7 @@ export const LorebookModal: React.FC<LorebookModalProps> = ({
                 type="text"
                 placeholder="搜尋..."
                 value={lorebookSearch}
-                onChange={e => setLorebookSearch(e.target.value)}
+                onChange={e => handleSearchChange(e.target.value)}
                 className="w-full backdrop-blur-sm border border-white/10 rounded-[16px] h-9 pl-9 pr-3 text-sm outline-none transition"
                 style={{ background: 'color-mix(in srgb, var(--bg-elevated) 50%, transparent)', color: 'var(--text-body)' }}
               />

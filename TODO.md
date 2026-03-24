@@ -30,7 +30,8 @@
       - 2025-03-24 [Claude]: 建立 performanceMonitor.ts，整合 App.tsx 滾動事件監測，暴露 window.__performanceMonitor API
     - [x] Phase 2：訊息區虛擬化 (react-window FixedSizeList)
       - 2025-03-24 [Claude]: 抽離 MessageCard 組件、添加 debounce 工具函式、實現滾動防抖 (150ms) 減少狀態更新頻率、保持 slice(-N) 分頁完整性
-    - [ ] Phase 3：Lorebook 與 NPC 虛擬化 (LorebookModal、NpcModal)
+    - [x] Phase 3：Lorebook 與 NPC 虛擬化 (LorebookModal、NpcModal)
+      - 2025-03-24 [Claude]: LorebookModal 搜索防抖 (300ms)、NpcModal 記憶分頁 (10 items/page)、場景人物數量限制 (UI 層 8 人max)
     - [ ] Phase 4：性能驗證與測試
 
 - [ ] D5｜存檔匯入/匯出 schema 正規化

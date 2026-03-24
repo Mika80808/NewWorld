@@ -85,6 +85,52 @@ __performanceMonitor.clear()
 - ✅ MessageCard 分離提升可維護性
 - ✅ 為 VariableSizeList 虛擬化奠定基礎
 
+#### **Phase 3 | Lorebook 與 NPC 列表虛擬化**
+
+**改動**：
+
+1. **`src/components/LorebookModal.tsx`**（~20 行變更）
+   - 匯入 `debounce` 工具函式
+   - 新增 `debouncedSearch` 狀態，搜尋防抖 300ms
+   - `handleSearchChange()` 快速更新 UI（lorebookSearch），延遲更新過濾（debouncedSearch）
+   - 所有三個過濾區塊（地點 / NPC / 怪物等）改用 debouncedSearch
+   - **效果**：搜尋時立即顯示用戶輸入，但過濾計算延遲 300ms，減少頻繁 filter+map
+
+2. **`src/components/NpcModal.tsx`**（~30 行變更）
+   - 新增 `memoryPage` 狀態，管理記憶分頁
+   - 在 NPC 切換時重置 memoryPage = 0
+   - 記憶區塊改為分頁顯示：
+     - 每頁 10 條記憶
+     - 計算總頁數和當前頁範圍
+     - 僅渲染當前頁的記憶卡片
+     - 分頁按鈕（上一頁 / 頁碼 / 下一頁），超出範圍時禁用
+   - **效果**：50+ 記憶從全量渲染 → 分頁展示，減少 DOM 節點
+
+3. **`src/App.tsx`**（~20 行變更）
+   - 當前場景人物限制為 8 人（UI 層）：
+     - 篩選場景內所有非釘選 NPC
+     - 只顯示前 8 人
+     - 超出者顯示提示「還有 N 人未顯示...」
+   - **與 buildPrompt 協調**：
+     - buildPrompt 依地點類型限制候選 8 人（鎮) / 3 人（其他）
+     - UI 層統一限制為 8 人，避免列表過長
+     - AI context 由 buildPrompt 完全控制，UI 限制僅影響視覺
+
+**架構改進**：
+- ✅ LorebookModal 搜尋不再 block，即時反饋 + 延遲計算
+- ✅ NpcModal 記憶分頁減少單次渲染 DOM，提升滾動流暢度
+- ✅ 場景 NPC 列表視覺簡潔，避免垂直滾動
+
+**預期改進**：
+- Lorebook 搜尋 > 200 條時，過濾延遲 3-5ms → < 1ms（防抖）
+- NPC Modal 50+ 記憶全量渲染改為分頁，首屏 DOM < 20%
+- 場景 NPC 列表 < 10 項，UI 整潔
+
+**收益**：
+- ✅ 搜尋即時反應，計算延後，不卡頓
+- ✅ 分頁減少 DOM，改善滾動性能
+- ✅ 統一 UI 限制，保持 AI context 完整
+
 ---
 
 ### D1-D3 架構重構：分層解耦、純函式化、性能優化 2026-03-24 [Claude Haiku 4.5]
