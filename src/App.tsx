@@ -1427,7 +1427,7 @@ ${recentContext}
       const { narrative: parsedNarrative, newItems } = await parseAndExecuteCommands(fullText);
       const rawNarrative = parsedNarrative;
 
-      // ── 助理 GM 接口：有新增道具時才觸發分類（Sub GM 實裝後補完）──────────
+      // ── 助理 GM 接口：有新增道具時才觸發分類──────────
       // newItems 為本回合新增的道具名稱清單，updateAdventureState 會請助理 GM 分類
       // 解析所有 [出場:] 標記
 
@@ -2041,7 +2041,7 @@ ${recentContext}
                 <textarea
                   className="w-full bg-transparent pl-2 pr-2 outline-none resize-none max-h-32 disabled:opacity-80"
                   style={{ color: 'var(--text-main)', lineHeight: '20px', paddingTop: '10px', paddingBottom: '10px' }}
-                  placeholder={isLoading ? "AI 正在思考中..." : "輸入你的行動或對話..."}
+                  placeholder={isLoading ? "..." : "輸入你的行動或對話..."}
                   rows={1}
                   value={inputText}
                   onChange={(e) => setInputText(e.target.value)}
@@ -2062,7 +2062,7 @@ ${recentContext}
                   className="px-3 transition"
                   style={{ height: '40px', display: 'flex', alignItems: 'center', color: isLoading || !inputText.trim() ? 'var(--bg-elevated)' : 'var(--bg-elevated)', cursor: isLoading || !inputText.trim() ? 'not-allowed' : 'pointer' }}
                   onMouseEnter={e => { if (!isLoading && inputText.trim()) (e.currentTarget as HTMLButtonElement).style.color = 'var(--text-body)'; }}
-                  onMouseLeave={e => (e.currentTarget as HTMLButtonElement).style.color = 'var(--bg-elevated)'}
+                  onMouseLeave={e => (e.currentTarget as HTMLButtonElement).style.color = 'var(--text-muted)'}
                   onClick={handleSendMessage}
                   disabled={isLoading || !inputText.trim()}
                 >

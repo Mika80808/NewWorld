@@ -286,7 +286,7 @@ export const MapModal: React.FC<MapModalProps> = ({
           <button
             onClick={onClose}
             className="w-7 h-7 flex items-center justify-center rounded-full shrink-0 transition"
-            style={{ background: 'var(--bg-elevated)', border: '0.5px solid var(--border-default)', color: '#4a7ac9' }}
+            style={{ background: 'var(--bg-elevated)', border: '0.5px solid var(--border-default)', color: 'var(--text-muted)' }}
             onMouseEnter={e => (e.currentTarget.style.color = '#fde68a')}
             onMouseLeave={e => (e.currentTarget.style.color = 'var(--text-muted)')}
           >
