@@ -15,54 +15,6 @@
 > - `src/components/`：純 UI 組件，只接收 props 和 callback，不持有業務 state
 > - AI 改功能前必須先讀取對應組件檔案
 
----
-
-## 群組 A｜Prompt 品質
-> 直接影響每次 AI 回應，改動風險低，優先處理。
-
-- [x] Prompt 效率優化 / COMMAND FORMAT 壓縮
-  - COMMAND FORMAT 區塊永遠硬寫在 `buildPrompt` 函數結尾，與玩家可編輯的 `systemPrompt` 完全隔離，玩家看不到也改不了。
-  - 壓縮目標：縮短這段硬寫內容的字數，不是移動位置。
-  2026-03-23 [Claude Sonnet 4.6]: App.tsx buildPrompt COMMAND FORMAT 區塊 83行→58行（-30%）；移除行內重複說明、合併各觸發時機為緊湊清單、壓縮字體/選項區塊說明
-
-- [x] Prompt 記憶寫入規則（再次確認）
-  - 在 `buildPrompt` 的 COMMAND FORMAT 說明裡，加入「AI 何時應輸出 MEMORY_ADD」的規則。
-  - 包含五種情境：世界事件 / 區域事件 / 場景狀態改變 / NPC 情報 / 玩家重要事件。
-  - 特別規則：AI 回應裡出現 `[ ]` 布告欄內容時，必定觸發 `MEMORY_ADD:region`。
-  2026-03-23 [Claude Sonnet 4.6]: 已由 Gemini 在遠端實作完成（ceb2248），五種情境與布告欄特別規則均已存在於 buildPrompt
-
-- [x] 記憶系統分層（注入條件精確化）
-  2026-03-23 [Claude Sonnet 4.6]:
-  - types.ts: LorebookEntry 加 aliases?: string[]
-  - useCommandParser.ts isMemoryTriggered: region/scene 改精確比對（exact match + aliases from LorebookEntry），world 跳過地點限制
-  - useCommandParser.ts parseAndExecuteCommands: worldMemCount 防呆，同回合 world 記憶上限 2 條
-  - App.tsx buildPrompt: 加 sortByNewest()；region/scene normal/flavor 按最新優先截斷；npcMems 拆出場（全量截斷）vs 未出場 pinned/高好感（只 critical max 2）；總數 >20 降級策略（只保留 critical）
-
----
-
-## 群組 B｜GM 助理（Sub GM）系統
-
-- [x] 整體架構分工（Sub GM 基礎）
-  2026-03-23 [Claude Sonnet 4.6]: updateAdventureState 加 hasKeyEvent 參數；subGMRoundsRef 節流（每 3 回合 1 次）；hasKeyEvent（QUEST_ADD/LOCATION/MEMORY_ADD:world）可跳過冷卻；handleSendMessage 偵測並傳入 hasKeyEvent
-
-- [x] GM 助理輸出格式
-  2026-03-23 [Claude Sonnet 4.6]: 加 diary_worthy 欄位至 Sub GM prompt；說明判斷標準；diaryWorthyRoundsRef 冷卻（5 次 Sub GM 呼叫後才可再次觸發）
-
-- [x] GM 助理自動生成日記
-  2026-03-23 [Claude Sonnet 4.6]: handleGenerateDiary 加 silent 參數；silent=true 時不顯示 toast、改設 hasNewDiary=true；左欄日記卡標題顯示【新日記】紅色通知，點擊開啟即消除
-
-- [x] 日記機制確認
-  2026-03-23 [Claude Sonnet 4.6]: 確認無變動——關鍵字觸發邏輯維持在 scanKeywords，Sub GM 不寫入關鍵字
-
----
-
-- [ ] 更多前端處理項目
-  - 時間系統視覺化（日夜循環 icon / 天空漸層背景）
-  - HP/MP 動態條動畫（數字跳動、條縮短）
-
-- [ ] 多配色主題
-  - 用 `data-theme` + CSS variables 切換主題。
-  - 設定 Modal 加色塊選擇器，儲存至 `localStorage`。
 
 ---
 
@@ -109,37 +61,40 @@
 > 不阻塞主線開發，可隨時插入。
 
 - [ ] P1｜行動端（Mobile Web）基本可用
- 
+
   目標：手機瀏覽器可正常開啟、操作、存檔，不做 App／PWA。
   桌面與手機共用同一套組件，響應式切換布局。
- 
+
   **主畫面**
   - 對話區全寬顯示
   - 左上角 icon → 點擊開左側抽屜（角色狀態、道具、任務）
   - 右上角 icon → 點擊開右側抽屜（記憶、關注 NPC）
   - 抽屜寬度約 80% 螢幕寬，開啟時背景變暗（`rgba(0,0,0,0.5)` overlay，點擊遮罩關閉）
   - 抽屜內容與桌面版相同，不重新分配
- 
+
   **地圖頁**
   - 上半：地圖視覺
   - 下半：地點資訊欄
- 
+
   **設定集（Lorebook）**
   - 桌面＋手機統一改為 Grid 卡片式，不維護兩套 UI
   - 人物：響應式 grid（桌面 2 欄，手機視寬度而定），縮略卡顯示姓名、種族性別、好感度、職業、關係
   - 地點：顯示地名＋一句簡介
   - 點擊卡片 → 開啟詳細 Modal
   - 其他分類（怪物、物品、歷史）各自對應欄位，待後續細化
- 
+
   **字體**
-  - `:root { font-size: 16px }` 作為基準
+  - `:root { font-size: 16px }` 作為基準，加入 `@media (max-width: 640px)` 縮小至 `14px`
+  - App.tsx 中 2 處 `text-[9px]`（第 2190、2248 行）改為 `text-[0.5625rem]`
   - 正文、標題改用 `rem`；行高、字距用 `em`；邊框、圓角、icon 保留 `px`
-  - 手機版若需縮小全站字體，只需調整 `:root font-size`
- 
+
+  **前端視覺**
+  - HP/MP 動態條動畫（數字跳動、條縮短）
+
   **其他**
   - 確保 safe-area（iPhone 底部 home bar）不遮擋輸入區（`env(safe-area-inset-bottom)`）
   - 輸入框獲得焦點時不被鍵盤遮住（`visualViewport` 或 `env(keyboard-inset-height)`）
- 
+
 
 - [ ] P1｜任務鏈與後果分歧
   - 任務加入部分完成、被他人捷足先登等中間態，增加世界演化感。
@@ -154,38 +109,25 @@
 - [ ] P3｜內容安全與邊界控制
   - 內容等級（PG-13 / 成人向）與禁忌主題開關。
 
-- [ ] 對話摘要壓縮
-  - 超過 N 輪後，舊對話壓縮成摘要節省 token。
-  - 建議：保留最近 20 則原文，更早的壓縮成 200 字摘要。
-
 - [ ] 向量語意搜尋記憶
   - 進階記憶檢索，以語意相似度取代關鍵字判斷是否注入。
 
 - [ ] Firebase 雲端儲存
   - 取代 localStorage，支援跨裝置同步。（目前已決定暫緩）
 
-- [ ] Scrollbar 樣式統一
-  - 用 `::-webkit-scrollbar` CSS 自訂滾動條。
+- [ ] 多配色主題
+  - 用 `data-theme` + CSS variables 切換主題。
+  - 設定 Modal 加色塊選擇器，儲存至 `localStorage`。
 
 ---
 
 ## ✅ 已完成
 
+- [x] 天空漸層背景（日夜循環）
+  - `App.tsx` `getSkyGradient` 函數已實作，依時段與天氣輸出漸層，掛載於全版背景層。
 
-- [x] **視覺主題統一（CSS Variables 落地）**
+- [x] Scrollbar 樣式統一
+  - `index.css` 已實作 `scrollbar-width: thin` 與 `::-webkit-scrollbar` 自訂樣式。
 
-  規格已定義在 CLAUDE.md，待實作到 `index.css` 與全專案 className：
-
-  | 項目 | 規格 | 狀態 |
-  |---|---|---|
-  | `--text3` 更新 | `#cec9c0` → `#b7b4ae`，全專案 `text-[#cec9c0]` 換成 `var(--text3)` | ⬜ |
-  | `--text4` 新增 | `#e6d6bf`，狀態數值（HP/MP/金幣數字）專用 | ⬜ |
-  | Tailwind 語意色 | rose-400/emerald-400/amber-400/blue-400/violet-400 覆寫 | ⬜ |
-  | 圓角統一 | 大圓角 10px / 其餘一律 8px，掃全專案 `rounded-[Npx]` | ⬜ |
-
-  > 藍色按鈕標準（`#1044ab` / `#1a56db` / `#2563eb`）已完成（2026-03-20）。
-
-
-- [x] **NPC thoughts 閾值調整（5 → 10）**
-  2026-03-21 [Claude Sonnet 4.6]: useCommandParser.ts THOUGHTS_LIMIT 5→10；types.ts NpcMemory 加 isNew?；pre_merge/merged 記憶寫入帶 isNew:true；NpcModal.tsx thoughts.slice(0,5) 只顯示前5條、記憶標題粉紅點（hasNewMemory）、切到記憶頁後自動清除 isNew；App.tsx 加 handleClearNewMemories
-
+- [x] 對話摘要壓縮
+  - `App.tsx` `updateAdventureState` 以 `summaryPool` 累積摘要，達 10 則自動壓縮，壓縮 3 次觸發日記生成。

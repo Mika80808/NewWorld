@@ -39,6 +39,8 @@ export interface GameSaveData {
   quests: Quest[];
   adventureLog: string[];
   currentGoals: string[];
+  summaryPool: string[];    // 滾動式暫存摘要池
+  compressCount: number;    // 已壓縮次數（滿 3 次觸發日記）
 }
 
 // ─── 舊存檔 EquipmentItem migrate helper ─────────────────────────────────────
@@ -210,6 +212,12 @@ export function useGameStore() {
   const [currentGoals, setCurrentGoals] = useState<string[]>(
     () => (_s?.currentGoals as string[]) || []
   );
+  const [summaryPool, setSummaryPool] = useState<string[]>(
+    () => (_s?.summaryPool as string[]) || []
+  );
+  const [compressCount, setCompressCount] = useState<number>(
+    () => (_s?.compressCount as number) || 0
+  );
 
   // ─── 儲存至 localStorage ──────────────────────────────────────────────────
   const saveToStorage = (snapshot?: Partial<GameSaveData>): void => {
@@ -220,6 +228,7 @@ export function useGameStore() {
       currentLocation, messages, memories, quickOptions,
       timeState, quests,
       adventureLog, currentGoals,
+      summaryPool, compressCount,
       ...snapshot,
     };
     localStorage.setItem(SAVE_KEY, JSON.stringify(saveData));
@@ -280,6 +289,8 @@ export function useGameStore() {
     }
     if (saveData.adventureLog) setAdventureLog(saveData.adventureLog as string[]);
     if (saveData.currentGoals) setCurrentGoals(saveData.currentGoals as string[]);
+    if (saveData.summaryPool) setSummaryPool(saveData.summaryPool as string[]);
+    if (typeof saveData.compressCount === 'number') setCompressCount(saveData.compressCount);
 
     // 裝備：優先讀新欄位 equipment，否則 migrate 舊 inventory
     if (Array.isArray(saveData.equipment) && (saveData.equipment as unknown[]).length > 0) {
@@ -335,6 +346,8 @@ export function useGameStore() {
     // 冒險狀態
     adventureLog, setAdventureLog,
     currentGoals, setCurrentGoals,
+    summaryPool, setSummaryPool,
+    compressCount, setCompressCount,
     // 儲存 / 載入
     saveToStorage,
     loadFromData,

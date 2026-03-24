@@ -5,6 +5,29 @@
 
 ---
 
+### 冒險摘要三階段系統 2026-03-24 [Claude Sonnet 4.6]
+
+**設計目標**：將原本累積顯示所有摘要的左欄，改為「只顯示最新一則 + 滾動式暫存池 + 自動壓縮 + 自動生成日記」三階段流程。
+
+**`useGameStore.ts`**：
+- `GameSaveData` 介面新增 `summaryPool: string[]`（暫存摘要池）、`compressCount: number`（壓縮次數計數）
+- 新增對應 `useState`，支援 localStorage 讀取與儲存
+- `saveToStorage` 加入兩個新欄位
+- `loadFromData` 加入讀取邏輯（向下相容舊存檔）
+- `return` 物件加入 `summaryPool, setSummaryPool, compressCount, setCompressCount`
+
+**`App.tsx`**：
+- 移除 `diaryWorthyRoundsRef`（廢棄 AI 判定日記機制）
+- `updateAdventureState` 完整改寫為三階段：
+  - **階段一**：生成本輪摘要（移除 `diary_worthy` 欄位、移除字數硬限制、加入 `null` 略過機制、第三人稱過去式）；左欄只顯示 `adventureLog[0]`
+  - **階段二**：暫存池累積滿 10 則時，靜默呼叫 AI 壓縮成一段文字覆寫暫存池
+  - **階段三**：壓縮計數達 3 次時，清零並觸發 `handleGenerateDiaryFromPool`
+- 新增 `handleGenerateDiaryFromPool`：吃暫存壓縮摘要生成日記（靜默，`--bg-mark` 紅點通知）
+- `handleGenerateDiary` 抽出 `_applyDiaryText` 共用解析寫入函式
+- 左欄冒險摘要區移除 `max-h-32 overflow-y-auto`，改為只顯示最新一則
+
+---
+
 ### NPC 欄位擴充 + UI 全面重製 2026-03-21 [Claude Sonnet 4.6]
 
 **NPC 欄位**：`types.ts` — `Npc` 與 `LorebookEntry` 加 `gender?`、`race?`、`backstory?`；`NpcMemory` 加 `isNew?`。`useCommandParser.ts` — `NPC_NEW` regex 從 5 欄升為 7 欄（`姓名:種族:性別:職業:外貌:性格:背景`，背景選填）；THOUGHTS_LIMIT 5→10；pre_merge/merged 記憶寫入帶 `isNew: true`。`App.tsx` — `buildPrompt` NPC 注入新增種族/背景故事欄位（背景好感≥20才注入）；`handleRecordNpc` 同步 race/gender/backstory；新增 `handleClearNewMemories`/`handleDeleteNpc`。

@@ -14,6 +14,7 @@ import { MapModal } from './components/MapModal';
 import { MONTHS_DATA } from './constants';
 import { useGameStore, SAVE_KEY } from './hooks/useGameStore';
 import { useCommandParser } from './hooks/useCommandParser';
+import { getTotalDaysFromTimeState, getQuestRemainingDays } from './utils/timeUtils';
 
 // ─── Markdown Parser ─────────────────────────────────────────────────────────
 
@@ -140,9 +141,8 @@ export default function App() {
   const [isUpdatingLog, setIsUpdatingLog] = useState(false);
   const [hasNewDiary, setHasNewDiary] = useState(false);
   // Sub GM 節流：每 3 回合最多觸發一次（不存檔，session 內計數）
+  // Sub GM 節流：每 3 回合最多觸發一次（不存檔，session 內計數）
   const subGMRoundsRef = useRef(0);
-  // diary_worthy 冷卻：5 次 Sub GM 呼叫後才可再次自動生成（init=5 表示初始可觸發）
-  const diaryWorthyRoundsRef = useRef(5);
 
   // 背景處理：整理冒險日誌與目標（使用 callAI 封裝層，不綁定特定 API）
   const updateAdventureState = async (history: Message[], newItems: string[] = [], hasKeyEvent = false) => {
@@ -161,15 +161,14 @@ export default function App() {
 請在 JSON 中加入 "item_types" 欄位，key 為道具名，value 為 "equipment" 或 "item"。
 新增道具：${newItems.join('、')}`
         : '';
-      const prompt = `你是一個 RPG 後台資料整理員，不負責說故事。
-請根據以下最新一則的對話，輸出固定 JSON 格式，只輸出 JSON，不要任何說明：
-{
-  "summary": "50個字以內總結剛發生的事，重點是主角的行動、重要 NPC 的反應、以及對冒險目標的影響",
-  "goals": ["短期目標1", "短期目標2"],
-  "diary_worthy": false${newItems.length > 0 ? `,\n  "item_types": { "道具名": "equipment 或 item" }` : ''}
-}
 
-diary_worthy 判斷標準：本輪是否發生值得記錄的重大事件（任務接取/完成、重要人物相遇、地點移動、重大衝突）。
+      // ── 階段一：生成本輪摘要 ──────────────────────────────────────────────
+      const prompt = `你是 RPG 後台資料整理員，不負責說故事。
+根據以下最新一則對話，輸出固定 JSON，只輸出 JSON，不要任何說明：
+{
+  "summary": "以第三人稱過去式記錄：主角做了什麼、結果如何、對冒險有何影響。若本輪純屬日常閒聊或無實質進展，輸出 null",
+  "goals": ["短期目標1", "短期目標2"]${newItems.length > 0 ? `,\n  "item_types": { "道具名": "equipment 或 item" }` : ''}
+}
 ${itemClassifySection}
 
 對話內容：
@@ -179,12 +178,13 @@ ${lastMessages}`;
       if (!text) return;
       const clean = text.replace(/```json|```/g, '').trim();
       const data = JSON.parse(clean);
-      if (data.summary) {
-        setAdventureLog(prev => [data.summary, ...prev].slice(0, 10));
-      }
+
+      // 更新短期目標
       if (data.goals) {
         setCurrentGoals(data.goals);
       }
+
+      // 道具分類
       if (data.item_types && typeof data.item_types === 'object') {
         const toEquip: string[] = Object.entries(data.item_types)
           .filter(([, v]) => v === 'equipment')
@@ -202,11 +202,48 @@ ${lastMessages}`;
           setEquipment(newEquipment);
         }
       }
-      // diary_worthy：達到冷卻後自動後台生成日記，只亮點提示，不彈 toast
-      diaryWorthyRoundsRef.current += 1;
-      if (data.diary_worthy === true && diaryWorthyRoundsRef.current >= 5) {
-        diaryWorthyRoundsRef.current = 0;
-        handleGenerateDiary(true);
+
+      // 摘要加入暫存池（null 表示本輪無實質進展，略過）
+      if (data.summary && typeof data.summary === 'string') {
+        // 左欄只顯示最新一則
+        setAdventureLog([data.summary]);
+
+        // 加入暫存池，達 10 則觸發壓縮
+        const newPool = [...summaryPool, data.summary];
+        if (newPool.length >= 10) {
+          // ── 階段二：壓縮摘要（靜默背景）──────────────────────────────────
+          const compressPrompt = `你是 RPG 後台資料整理員。
+以下是最近 ${newPool.length} 則冒險摘要，請整理成一段連貫的事件紀錄：
+
+規則：
+- 保留所有具意義的行動、事件、NPC 互動、地點變化
+- 合併重複或相似的內容
+- 瑣事（純移動、日常對話、無結果的閒逛）可省略
+- 第三人稱過去式，100 字以內
+- 直接輸出文字，不要任何說明或標題
+
+摘要列表：
+${newPool.map((s, i) => `${i + 1}. ${s}`).join('\n')}`;
+
+          const compressed = await callAI(compressPrompt);
+          if (compressed) {
+            const newCompressCount = compressCount + 1;
+            setSummaryPool([compressed.trim()]);
+            setCompressCount(newCompressCount);
+
+            // ── 階段三：壓縮 3 次後自動生成日記（靜默）────────────────────
+            if (newCompressCount >= 3) {
+              setCompressCount(0);
+              // 取出目前暫存池（含剛壓縮的這段）作為日記素材
+              handleGenerateDiaryFromPool([compressed.trim()]);
+            }
+          } else {
+            // 壓縮失敗時保留原池，避免資料遺失
+            setSummaryPool(newPool);
+          }
+        } else {
+          setSummaryPool(newPool);
+        }
       }
     } catch (error) {
       console.error("Failed to update adventure state:", error);
@@ -291,6 +328,8 @@ ${lastMessages}`;
     quickOptions, setQuickOptions,
     adventureLog, setAdventureLog,
     currentGoals, setCurrentGoals,
+    summaryPool, setSummaryPool,
+    compressCount, setCompressCount,
     saveToStorage,
     loadFromData,
   } = store;
@@ -567,7 +606,7 @@ ${lastMessages}`;
     ));
   };
 
-  // ─── 🔮 魔法日記：AI 自動生成 ────────────────────────────────────────────
+  // ─── 🔮 魔法日記：AI 自動生成（手動觸發，吃最近 20 則對話）─────────────────
   const handleGenerateDiary = async (silent = false) => {
     if (!mainGMConfig.apiKey.trim()) { if (!silent) showToast('❌ 請先設定 API Key'); return; }
     try {
@@ -608,33 +647,75 @@ ${recentChat}
 
       const text = await callAI(prompt, { role: 'main' });
       if (!text) { if (!silent) showToast('❌ 生成失敗，請稍後再試'); return; }
-      const newId = Date.now();
-      // 解析標題（第一行 ## ... 或 [...] 格式）
-      const lines = text.trim().split('\n');
-      const firstLine = lines[0].trim();
-      const parsedTitle = firstLine.startsWith('## ')
-        ? firstLine.slice(3).trim()
-        : firstLine.startsWith('[') && firstLine.endsWith(']')
-        ? firstLine.slice(1, -1).trim()
-        : '';
-      const bodyText = parsedTitle
-        ? lines.slice(1).join('\n').replace(/^\n+/, '').trim()
-        : text.trim();
-      setDiaryEntries(prev => [{
-        id: newId,
-        title: parsedTitle,
-        text: bodyText,
-        isActive: false,
-        keywords: [],
-        source: 'ai_generated',
-      }, ...prev]);
-      if (silent) {
-        setHasNewDiary(true);
-      } else {
-        showToast('🔮 魔法日記已生成');
-      }
+      _applyDiaryText(text, silent);
     } catch (e) {
       if (!silent) showToast('❌ 生成失敗，請稍後再試');
+    }
+  };
+
+  // ─── 🔮 魔法日記：自動觸發（吃暫存壓縮摘要，靜默）──────────────────────────
+  const handleGenerateDiaryFromPool = async (pool: string[]) => {
+    if (!mainGMConfig.apiKey.trim()) return;
+    try {
+      const poolText = pool.map((p, i) => `[紀錄 ${i + 1}]\n${p}`).join('\n\n');
+      const prompt = `你是一個故事日記助手。根據以下冒險紀錄，生成一則第三人稱日記條目。
+
+## 寫作要點
+- 角色層面：主角變化、關係進展、重要新角色
+- 情節層面：推動主線的重大事件、重要伏筆
+- 世界觀層面：新設定、關鍵道具、地點
+- 情感層面：情感轉折點、重要互動細節
+
+## 寫作規則
+- 使用「引號」標記重要對話和專有名詞
+- 禁止使用**粗體**
+- 繁體中文，500 字以內
+- 結尾兩句預測：1.（主線相關）2.（支線相關）
+
+格式：
+[日記標題]
+
+日記內容：...
+
+---
+冒險紀錄：
+${poolText}
+
+請直接輸出，不要加任何前綴說明。`;
+
+      const text = await callAI(prompt, { role: 'main' });
+      if (!text) return;
+      _applyDiaryText(text, true);
+    } catch (e) {
+      console.error('Failed to generate diary from pool:', e);
+    }
+  };
+
+  // ─── 日記文字解析與寫入（共用）──────────────────────────────────────────────
+  const _applyDiaryText = (text: string, silent: boolean) => {
+    const newId = Date.now();
+    const lines = text.trim().split('\n');
+    const firstLine = lines[0].trim();
+    const parsedTitle = firstLine.startsWith('## ')
+      ? firstLine.slice(3).trim()
+      : firstLine.startsWith('[') && firstLine.endsWith(']')
+      ? firstLine.slice(1, -1).trim()
+      : '';
+    const bodyText = parsedTitle
+      ? lines.slice(1).join('\n').replace(/^\n+/, '').trim()
+      : text.trim();
+    setDiaryEntries(prev => [{
+      id: newId,
+      title: parsedTitle,
+      text: bodyText,
+      isActive: false,
+      keywords: [],
+      source: 'ai_generated',
+    }, ...prev]);
+    if (silent) {
+      setHasNewDiary(true);
+    } else {
+      showToast('🔮 魔法日記已生成');
     }
   };
 
@@ -1072,11 +1153,10 @@ ${(() => {
 ${(() => {
   const active = quests.filter(q => q.status === 'active');
   if (active.length === 0) return '（無）';
-  const todayTotal = timeState.year * 360 + (timeState.month - 1) * 30 + timeState.day;
+  const currentTotalDays = getTotalDaysFromTimeState(timeState);
   return active.map(q => {
-    const remaining = q.deadline != null
-      ? `剩 ${q.deadline - (todayTotal - q.createdAtTotalDays)} 天`
-      : '無期限';
+    const remainingDays = getQuestRemainingDays(q, currentTotalDays);
+    const remaining = remainingDays != null ? `剩 ${remainingDays} 天` : '無期限';
     if (q.isGoalMet) {
       return `${q.title}（委託：${q.giver}，目標已達成，待玩家回報）`;
     }
@@ -1296,7 +1376,7 @@ Please respond as the DM.`;
         return;
       }
 
-      const { narrative: parsedNarrative, newItems } = parseAndExecuteCommands(fullText);
+      const { narrative: parsedNarrative, newItems } = await parseAndExecuteCommands(fullText);
       const rawNarrative = parsedNarrative;
 
       // ── 助理 GM 接口：有新增道具時才觸發分類（Sub GM 實裝後補完）──────────
@@ -1420,19 +1500,17 @@ Please respond as the DM.`;
             </ul>
           </div>
 
-          <div className="px-4 py-3 transition-all" style={{ boxShadow: 'none' }}
+            <div className="px-4 py-3 transition-all" style={{ boxShadow: 'none' }}
             onMouseEnter={e => { e.currentTarget.style.boxShadow = '0 5px 10px rgba(204, 173, 105, 0.6), 0 12px 40px rgba(65, 46, 109, 0.3)'; }}
             onMouseLeave={e => { e.currentTarget.style.boxShadow = 'none'; }}>
             <h3 className="flex items-center font-bold text-lg mb-2" style={{ color: 'var(--text-primary)' }}>
               <History className="w-4 h-4 mr-2" /> 冒險摘要
             </h3>
-            <div className="max-h-32 overflow-y-auto space-y-2 pr-1 custom-scrollbar">
+            <div className="pr-1">
               {adventureLog.length > 0 ? (
-                adventureLog.map((log, i) => (
-                  <div key={i} className="text-sm leading-relaxed pl-2 py-0.5 italic" style={{ color: 'var(--text-body)', borderLeft: '2px solid var(--border-default)' }}>
-                    {log}
-                  </div>
-                ))
+                <div className="text-sm leading-relaxed pl-2 py-0.5 italic" style={{ color: 'var(--text-body)', borderLeft: '2px solid var(--border-default)' }}>
+                  {adventureLog[0]}
+                </div>
               ) : (
                 <div className="text-sm ml-6 text-[var(--text-muted)] italic">等待冒險展開...</div>
               )}
@@ -2109,7 +2187,7 @@ Please respond as the DM.`;
                         {mem.tags?.factions?.length > 0 && (
                           <div className="mt-1.5 flex flex-wrap gap-1">
                             {mem.tags.factions.map((f: string) => (
-                              <span key={f} className="text-[9px] px-1.5 py-0.5 rounded-[8px] uppercase tracking-tighter font-bold" style={{ background: 'color-mix(in srgb, var(--bg-elevated) 10%, transparent)', color: 'color-mix(in srgb, var(--bg-elevated) 70%, transparent)', border: `1px solid color-mix(in srgb, var(--bg-elevated) 20%, transparent)` }}>
+                              <span key={f} className="text-[0.5625rem] px-1.5 py-0.5 rounded-[8px] uppercase tracking-tighter font-bold" style={{ background: 'color-mix(in srgb, var(--bg-elevated) 10%, transparent)', color: 'color-mix(in srgb, var(--bg-elevated) 70%, transparent)', border: `1px solid color-mix(in srgb, var(--bg-elevated) 20%, transparent)` }}>
                                 {f}
                               </span>
                             ))}
@@ -2167,7 +2245,7 @@ Please respond as the DM.`;
                           <div key={mem.id} className="memory-card backdrop-blur-sm p-3 text-sm text-[var(--text-muted)] transition-all duration-300 shadow-sm" style={{ borderLeft: `2px solid var(--bg-elevated)` }}>
                             <div className="leading-relaxed">
                               {mem.content}
-                              {mem.source === 'ai_generated' && <span className="ml-1.5 text-[9px] uppercase tracking-tighter font-bold" style={{ color: 'color-mix(in srgb, var(--bg-elevated) 40%, transparent)' }}>（AI）</span>}
+                              {mem.source === 'ai_generated' && <span className="ml-1.5 text-[0.5625rem] uppercase tracking-tighter font-bold" style={{ color: 'color-mix(in srgb, var(--bg-elevated) 40%, transparent)' }}>（AI）</span>}
                             </div>
                           </div>
                         ))}
