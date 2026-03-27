@@ -1,4 +1,14 @@
-import { useState } from 'react';
+/**
+ * useGameStore.ts — 遊戲狀態中心（D5 + D6）
+ *
+ * D5：新增 schemaVersion + saveDataMapper + runMigrations，
+ *     統一 loadFromData 與 useState 初始化邏輯。
+ * D6：saveToStorage 改為寫入 IndexedDB（async，fire-and-forget 安全），
+ *     useState 初始值統一用 saveDataMapper({}) 預設值，
+ *     useEffect 非同步從 IndexedDB 載入真實存檔（含 localStorage 一次性遷移），
+ *     暴露 isStoreReady 讓 App.tsx 在載入前顯示 loading 畫面。
+ */
+import { useState, useEffect, useRef } from 'react';
 import {
   TimeState, Profile, Quest, Npc, NpcMemory, LorebookEntry, SystemPrompt,
   DiaryEntry, Message, MemoryEntry, EquipmentItem, ItemEntry,
@@ -7,30 +17,26 @@ import {
   INITIAL_SYSTEM_PROMPT, INITIAL_LOREBOOK_ENTRIES,
   INITIAL_MESSAGES,
 } from '../constants';
+import * as gameDB from '../db/gameDB';
 
+// ─── 存檔 Key（向下相容，IndexedDB 遷移後可選保留或移除）─────────────────────
 export const SAVE_KEY = 'rpworld_save';
 
-function loadSave(): Record<string, unknown> | null {
-  try {
-    const raw = localStorage.getItem(SAVE_KEY);
-    return raw ? JSON.parse(raw) : null;
-  } catch { return null; }
-}
+// ─── Schema 版本 ──────────────────────────────────────────────────────────────
+// 每次有破壞性欄位變更時 +1，並在 MIGRATIONS 新增對應函數
+const CURRENT_SCHEMA = 2;
 
 // ─── 型別：儲存快照 ───────────────────────────────────────────────────────────
 export interface GameSaveData {
+  schemaVersion: number;          // D5 新增
   profile: Profile;
   systemPrompt: SystemPrompt;
   diaryEntries: DiaryEntry[];
   lorebookEntries: LorebookEntry[];
   npcs: Npc[];
   appearingNpcs: string[];
-  // 新欄位名
   equipment: EquipmentItem[];
   items: ItemEntry[];
-  // 舊欄位名（向下相容，loadFromData 會處理）
-  inventory?: unknown[];
-  consumables?: unknown[];
   currentLocation: string;
   messages: Message[];
   memories: MemoryEntry[];
@@ -39,189 +45,239 @@ export interface GameSaveData {
   quests: Quest[];
   adventureLog: string[];
   currentGoals: string[];
-  summaryPool: string[];    // 滾動式暫存摘要池
-  compressCount: number;    // 已壓縮次數（滿 3 次觸發日記）
+  summaryPool: string[];
+  compressCount: number;
 }
 
-// ─── 舊存檔 EquipmentItem migrate helper ─────────────────────────────────────
-// 舊 InventoryItem = { id, name, quantity, description }
-// 新 EquipmentItem = { id, name, description, isEquipped }
+// ─── Migration helpers ────────────────────────────────────────────────────────
 function migrateEquipment(raw: unknown[]): EquipmentItem[] {
   return raw.map((i: unknown) => {
     const item = i as Record<string, unknown>;
     return {
-      id: (item.id as number) ?? Date.now(),
-      name: (item.name as string) ?? '',
-      description: (item.description as string) ?? '',
-      isEquipped: (item.isEquipped as boolean) ?? false,
+      id:          (item.id          as number)  ?? Date.now(),
+      name:        (item.name        as string)  ?? '',
+      description: (item.description as string)  ?? '',
+      isEquipped:  (item.isEquipped  as boolean) ?? false,
     };
   });
 }
 
-// ─── 舊存檔 ItemEntry migrate helper ─────────────────────────────────────────
-// 舊 ConsumableItem = { id, name, quantity, description, effect? }
-// 新 ItemEntry      = { id, name, quantity, description }（移除 effect）
 function migrateItems(raw: unknown[]): ItemEntry[] {
   return raw.map((i: unknown) => {
     const item = i as Record<string, unknown>;
     return {
-      id: (item.id as number) ?? Date.now(),
-      name: (item.name as string) ?? '',
-      quantity: (item.quantity as number) ?? 1,
+      id:          (item.id          as number) ?? Date.now(),
+      name:        (item.name        as string) ?? '',
+      quantity:    (item.quantity    as number) ?? 1,
       description: (item.description as string) ?? '',
-      // effect 欄位刻意丟棄
     };
   });
 }
 
+function mapNpcs(raw: unknown): Npc[] {
+  if (!Array.isArray(raw)) return [];
+  return (raw as Npc[]).map(npc => ({
+    ...npc,
+    memories: Array.isArray(npc.memories)
+      ? npc.memories.map((m: string | NpcMemory, i: number): NpcMemory =>
+          typeof m === 'string'
+            ? {
+                id:         `nmem_legacy_${npc.id}_${i}`,
+                text:        m,
+                createdAt:  '—',
+                source:     'manual'  as const,
+                importance: 'normal'  as const,
+              }
+            : m
+        )
+      : [],
+  }));
+}
+
+// ─── Version migrations ───────────────────────────────────────────────────────
+// V0→V1：無結構變更（placeholder）
+function migrateV0toV1(data: Record<string, unknown>): Record<string, unknown> {
+  return data;
+}
+
+// V1→V2：inventory → equipment，consumables → items
+function migrateV1toV2(data: Record<string, unknown>): Record<string, unknown> {
+  const out = { ...data };
+  if (!(Array.isArray(out.equipment) && (out.equipment as unknown[]).length > 0)) {
+    if (Array.isArray(out.inventory) && (out.inventory as unknown[]).length > 0) {
+      out.equipment = out.inventory;
+    }
+  }
+  if (!(Array.isArray(out.items) && (out.items as unknown[]).length > 0)) {
+    if (Array.isArray(out.consumables) && (out.consumables as unknown[]).length > 0) {
+      out.items = out.consumables;
+    }
+  }
+  delete out.inventory;
+  delete out.consumables;
+  return out;
+}
+
+const MIGRATIONS: Record<number, (d: Record<string, unknown>) => Record<string, unknown>> = {
+  0: migrateV0toV1,
+  1: migrateV1toV2,
+};
+
+function runMigrations(raw: Record<string, unknown>): Record<string, unknown> {
+  let version = (raw.schemaVersion as number) ?? 0;
+  let data = { ...raw };
+  while (version < CURRENT_SCHEMA) {
+    if (MIGRATIONS[version]) data = MIGRATIONS[version](data);
+    version++;
+  }
+  return { ...data, schemaVersion: CURRENT_SCHEMA };
+}
+
+// ─── saveDataMapper：唯一欄位映射入口 ────────────────────────────────────────
+// 接受任意 unknown 形狀（含空物件），回傳完整、型別安全的 GameSaveData。
+export function saveDataMapper(raw: Record<string, unknown>): GameSaveData {
+  const d = runMigrations(raw);
+
+  const p = (d.profile as Partial<Profile>) || {};
+  const t = (d.timeState as Partial<TimeState>) || {};
+
+  return {
+    schemaVersion:  CURRENT_SCHEMA,
+    profile: {
+      name:        p.name        || '',
+      job:         p.job         || '異鄉人',
+      appearance:  p.appearance  || '',
+      personality: p.personality || '',
+      other:       p.other       || '',
+      hp:          p.hp          ?? 50,
+      mp:          p.mp          ?? 0,
+      gold:        p.gold        ?? 0,
+    },
+    systemPrompt:    (d.systemPrompt    as SystemPrompt)    || INITIAL_SYSTEM_PROMPT,
+    diaryEntries:    (d.diaryEntries    as DiaryEntry[])    || [],
+    lorebookEntries: (d.lorebookEntries as LorebookEntry[]) || INITIAL_LOREBOOK_ENTRIES,
+    npcs:            mapNpcs(d.npcs),
+    appearingNpcs:   (d.appearingNpcs   as string[])        || [],
+    equipment:       Array.isArray(d.equipment)
+                       ? migrateEquipment(d.equipment as unknown[])
+                       : [],
+    items:           Array.isArray(d.items)
+                       ? migrateItems(d.items as unknown[])
+                       : [],
+    currentLocation: (d.currentLocation as string)          || '迷霧森林',
+    messages:        (d.messages        as Message[])        || INITIAL_MESSAGES,
+    memories:        (d.memories        as MemoryEntry[])    || [],
+    quickOptions:    (d.quickOptions    as string[])         || ['觀察四周', '檢查自己', '大聲求助'],
+    timeState: {
+      year:    t.year    ?? 1024,
+      month:   t.month   ?? 4,
+      day:     t.day     ?? 15,
+      hour:    t.hour    ?? 21,
+      minute:  t.minute  ?? 30,
+      weather: t.weather || '晴朗',
+    },
+    quests:       ((d.quests as Quest[]) || []).map(q => ({ isGoalMet: false, ...q })),
+    adventureLog:  (d.adventureLog  as string[]) || [],
+    currentGoals:  (d.currentGoals  as string[]) || [],
+    summaryPool:   (d.summaryPool   as string[]) || [],
+    compressCount: (d.compressCount as number)   || 0,
+  };
+}
+
+// ─── 預設值（空存檔）────────────────────────────────────────────────────────────
+const DEFAULTS = saveDataMapper({});
+
 // ─── Hook ─────────────────────────────────────────────────────────────────────
 export function useGameStore() {
-  const _s = loadSave();
 
-  // ── 時間 ───────────────────────────────────────────────────────────────────
-  const [timeState, setTimeState] = useState<TimeState>(
-    () => {
-      const t = (_s?.timeState as Partial<TimeState>) || {};
-      return {
-        year: t.year ?? 1024,
-        month: t.month ?? 4,
-        day: t.day ?? 15,
-        hour: t.hour ?? 21,
-        minute: t.minute ?? 30,
-        weather: t.weather || '晴朗',
-      };
-    }
-  );
-
-  // ── 玩家角色 ────────────────────────────────────────────────────────────────
-  const [profile, setProfile] = useState<Profile>(
-    () => {
-      const p = (_s?.profile as Partial<Profile>) || {};
-      return {
-        name: p.name || '',
-        job: p.job || '異鄉人',
-        appearance: p.appearance || '',
-        personality: p.personality || '',
-        other: p.other || '',
-        hp: p.hp ?? 50,
-        mp: p.mp ?? 0,
-        gold: p.gold ?? 0,
-      };
-    }
-  );
-
-  // ── 系統提示 ────────────────────────────────────────────────────────────────
-  const [systemPrompt, setSystemPrompt] = useState<SystemPrompt>(
-    () => (_s?.systemPrompt as SystemPrompt) || INITIAL_SYSTEM_PROMPT
-  );
-
-  // ── NPC ─────────────────────────────────────────────────────────────────────
-  const [npcs, setNpcs] = useState<Npc[]>(
-    () => {
-      const raw = (_s?.npcs as Npc[]) || [];
-      return raw.map(npc => ({
-        ...npc,
-        // migrate：舊存檔 memories 可能是 string[]，自動升級為 NpcMemory[]
-        memories: Array.isArray(npc.memories)
-          ? npc.memories.map((m: string | NpcMemory, i: number): NpcMemory =>
-              typeof m === 'string'
-                ? {
-                    id: `nmem_legacy_${npc.id}_${i}`,
-                    text: m,
-                    createdAt: '—',
-                    source: 'manual' as const,
-                    importance: 'normal' as const,
-                  }
-                : m
-            )
-          : [],
-      }));
-    }
-  );
-
-  const [appearingNpcs, setAppearingNpcs] = useState<string[]>(
-    () => (_s?.appearingNpcs as string[]) || []
-  );
-
-  // ── 地點 ────────────────────────────────────────────────────────────────────
-  const [currentLocation, setCurrentLocation] = useState<string>(
-    () => (_s?.currentLocation as string) || '迷霧森林'
-  );
-
-  // ── 記憶 ────────────────────────────────────────────────────────────────────
-  const [memories, setMemories] = useState<MemoryEntry[]>(
-    () => (_s?.memories as MemoryEntry[]) || []
-  );
-  // sticky / cooldown 計數器不儲存至 localStorage（每次重開重置）
-  const [stickyCounters, setStickyCounters] = useState<Record<string, number>>({});
+  // ── State（全部初始值為預設值，useEffect 非同步覆寫真實存檔）─────────────────
+  const [isStoreReady,    setIsStoreReady]    = useState(false);
+  const [timeState,       setTimeState]       = useState<TimeState>(DEFAULTS.timeState);
+  const [profile,         setProfile]         = useState<Profile>(DEFAULTS.profile);
+  const [systemPrompt,    setSystemPrompt]    = useState<SystemPrompt>(DEFAULTS.systemPrompt);
+  const [npcs,            setNpcs]            = useState<Npc[]>(DEFAULTS.npcs);
+  const [appearingNpcs,   setAppearingNpcs]   = useState<string[]>(DEFAULTS.appearingNpcs);
+  const [currentLocation, setCurrentLocation] = useState<string>(DEFAULTS.currentLocation);
+  const [memories,        setMemories]        = useState<MemoryEntry[]>(DEFAULTS.memories);
+  const [stickyCounters,   setStickyCounters]   = useState<Record<string, number>>({});
   const [cooldownCounters, setCooldownCounters] = useState<Record<string, number>>({});
+  const [quests,          setQuests]          = useState<Quest[]>(DEFAULTS.quests);
+  const [diaryEntries,    setDiaryEntries]    = useState<DiaryEntry[]>(DEFAULTS.diaryEntries);
+  const [lorebookEntries, setLorebookEntries] = useState<LorebookEntry[]>(DEFAULTS.lorebookEntries);
+  const [equipment,       setEquipment]       = useState<EquipmentItem[]>(DEFAULTS.equipment);
+  const [items,           setItems]           = useState<ItemEntry[]>(DEFAULTS.items);
+  const [messages,        setMessages]        = useState<Message[]>(DEFAULTS.messages);
+  const [quickOptions,    setQuickOptions]    = useState<string[]>(DEFAULTS.quickOptions);
+  const [adventureLog,    setAdventureLog]    = useState<string[]>(DEFAULTS.adventureLog);
+  const [currentGoals,    setCurrentGoals]    = useState<string[]>(DEFAULTS.currentGoals);
+  const [summaryPool,     setSummaryPool]     = useState<string[]>(DEFAULTS.summaryPool);
+  const [compressCount,   setCompressCount]   = useState<number>(DEFAULTS.compressCount);
 
-  // ── 任務 ────────────────────────────────────────────────────────────────────
-  const [quests, setQuests] = useState<Quest[]>(
-    () => ((_s?.quests as Quest[]) || []).map(q => ({
-      isGoalMet: false,   // 舊存檔 migrate：補預設值
-      ...q,
-    }))
-  );
+  // ── loadFromData：批次套用 saveDataMapper 的結果到 state ─────────────────────
+  const loadFromData = (raw: Record<string, unknown>): void => {
+    const d = saveDataMapper(raw);
+    setProfile(d.profile);
+    setSystemPrompt(d.systemPrompt);
+    setDiaryEntries(d.diaryEntries);
+    setLorebookEntries(d.lorebookEntries);
+    setNpcs(d.npcs);
+    setAppearingNpcs(d.appearingNpcs);
+    setEquipment(d.equipment);
+    setItems(d.items);
+    setCurrentLocation(d.currentLocation);
+    setMessages(d.messages);
+    setMemories(d.memories);
+    setQuickOptions(d.quickOptions);
+    setTimeState(d.timeState);
+    setQuests(d.quests);
+    setAdventureLog(d.adventureLog);
+    setCurrentGoals(d.currentGoals);
+    setSummaryPool(d.summaryPool);
+    setCompressCount(d.compressCount);
+  };
 
-  // ── 日記 ────────────────────────────────────────────────────────────────────
-  const [diaryEntries, setDiaryEntries] = useState<DiaryEntry[]>(
-    () => (_s?.diaryEntries as DiaryEntry[]) || []
-  );
+  // ── D6：非同步初始化（IndexedDB，含 localStorage 一次性遷移）────────────────
+  const initDoneRef = useRef(false);
+  useEffect(() => {
+    if (initDoneRef.current) return;   // StrictMode 防重複
+    initDoneRef.current = true;
 
-  // ── 設定集 ──────────────────────────────────────────────────────────────────
-  const [lorebookEntries, setLorebookEntries] = useState<LorebookEntry[]>(
-    () => (_s?.lorebookEntries as LorebookEntry[]) || INITIAL_LOREBOOK_ENTRIES
-  );
+    (async () => {
+      try {
+        let raw = await gameDB.readSave(gameDB.SLOT_DEFAULT);
 
-  // ── 裝備（新）────────────────────────────────────────────────────────────────
-  // migrate：優先讀 equipment，若無則從舊 inventory 轉換
-  const [equipment, setEquipment] = useState<EquipmentItem[]>(() => {
-    if (Array.isArray(_s?.equipment) && (_s.equipment as unknown[]).length > 0) {
-      return migrateEquipment(_s.equipment as unknown[]);
-    }
-    if (Array.isArray(_s?.inventory) && (_s.inventory as unknown[]).length > 0) {
-      return migrateEquipment(_s.inventory as unknown[]);
-    }
-    return [];
-  });
+        if (!raw) {
+          // 舊存檔在 localStorage → 遷移至 IndexedDB
+          const lsRaw = localStorage.getItem(SAVE_KEY);
+          if (lsRaw) {
+            try {
+              raw = JSON.parse(lsRaw) as Record<string, unknown>;
+              const mapped = saveDataMapper(raw);
+              await gameDB.writeSave(gameDB.SLOT_DEFAULT, mapped);
+              localStorage.removeItem(SAVE_KEY);  // 遷移成功後清除
+            } catch {
+              // IndexedDB 寫入失敗：保留 localStorage，繼續使用 raw
+            }
+          }
+        }
 
-  // ── 道具（新）────────────────────────────────────────────────────────────────
-  // migrate：優先讀 items，若無則從舊 consumables 轉換
-  const [items, setItems] = useState<ItemEntry[]>(() => {
-    if (Array.isArray(_s?.items) && (_s.items as unknown[]).length > 0) {
-      return migrateItems(_s.items as unknown[]);
-    }
-    if (Array.isArray(_s?.consumables) && (_s.consumables as unknown[]).length > 0) {
-      return migrateItems(_s.consumables as unknown[]);
-    }
-    return [];
-  });
+        if (raw) loadFromData(raw);
+      } catch (err) {
+        console.error('[useGameStore] IndexedDB 讀取失敗，嘗試 localStorage fallback', err);
+        try {
+          const lsRaw = localStorage.getItem(SAVE_KEY);
+          if (lsRaw) loadFromData(JSON.parse(lsRaw));
+        } catch { /* ignore */ }
+      } finally {
+        setIsStoreReady(true);
+      }
+    })();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── 對話訊息 ────────────────────────────────────────────────────────────────
-  const [messages, setMessages] = useState<Message[]>(
-    () => (_s?.messages as Message[]) || INITIAL_MESSAGES
-  );
-  const [quickOptions, setQuickOptions] = useState<string[]>(
-    () => (_s?.quickOptions as string[]) || ['觀察四周', '檢查自己', '大聲求助']
-  );
-
-  const [adventureLog, setAdventureLog] = useState<string[]>(
-    () => (_s?.adventureLog as string[]) || []
-  );
-  const [currentGoals, setCurrentGoals] = useState<string[]>(
-    () => (_s?.currentGoals as string[]) || []
-  );
-  const [summaryPool, setSummaryPool] = useState<string[]>(
-    () => (_s?.summaryPool as string[]) || []
-  );
-  const [compressCount, setCompressCount] = useState<number>(
-    () => (_s?.compressCount as number) || 0
-  );
-
-  // ─── 儲存至 localStorage ──────────────────────────────────────────────────
-  const saveToStorage = (snapshot?: Partial<GameSaveData>): void => {
+  // ── saveToStorage：寫入 IndexedDB（async，fire-and-forget 安全）────────────
+  const saveToStorage = (snapshot?: Partial<GameSaveData>): Promise<void> => {
     const saveData: GameSaveData = {
+      schemaVersion: CURRENT_SCHEMA,
       profile, systemPrompt, diaryEntries, lorebookEntries,
       npcs, appearingNpcs,
       equipment, items,
@@ -231,91 +287,20 @@ export function useGameStore() {
       summaryPool, compressCount,
       ...snapshot,
     };
-    localStorage.setItem(SAVE_KEY, JSON.stringify(saveData));
-  };
 
-  // ─── 從資料載入（匯入存檔用）─────────────────────────────────────────────
-  const loadFromData = (saveData: Record<string, unknown>): void => {
-    if (saveData.profile) {
-      const p = saveData.profile as Partial<Profile>;
-      setProfile({
-        name: p.name || '',
-        job: p.job || '異鄉人',
-        appearance: p.appearance || '',
-        personality: p.personality || '',
-        other: p.other || '',
-        hp: p.hp ?? 50,
-        mp: p.mp ?? 0,
-        gold: p.gold ?? 0,
-      });
-    }
-    if (saveData.systemPrompt) setSystemPrompt(saveData.systemPrompt as SystemPrompt);
-    if (saveData.diaryEntries) setDiaryEntries(saveData.diaryEntries as DiaryEntry[]);
-    if (saveData.lorebookEntries) setLorebookEntries(saveData.lorebookEntries as LorebookEntry[]);
-    if (saveData.npcs) {
-      const rawNpcs = saveData.npcs as Npc[];
-      setNpcs(rawNpcs.map(npc => ({
-        ...npc,
-        memories: Array.isArray(npc.memories)
-          ? npc.memories.map((m: string | NpcMemory, i: number): NpcMemory =>
-              typeof m === 'string'
-                ? {
-                    id: `nmem_legacy_${npc.id}_${i}`,
-                    text: m,
-                    createdAt: '—',
-                    source: 'manual' as const,
-                    importance: 'normal' as const,
-                  }
-                : m
-            )
-          : [],
-      })));
-    }
-    if (saveData.appearingNpcs) setAppearingNpcs(saveData.appearingNpcs as string[]);
-    if (saveData.currentLocation) setCurrentLocation(saveData.currentLocation as string);
-    if (saveData.memories) setMemories(saveData.memories as MemoryEntry[]);
-    if (saveData.messages) setMessages(saveData.messages as Message[]);
-    if (saveData.quickOptions) setQuickOptions(saveData.quickOptions as string[]);
-    if (saveData.timeState) {
-      const t = saveData.timeState as Partial<TimeState>;
-      setTimeState({
-        year: t.year ?? 1024,
-        month: t.month ?? 4,
-        day: t.day ?? 15,
-        hour: t.hour ?? 21,
-        minute: t.minute ?? 30,
-        weather: t.weather || '晴朗',
-      });
-    }
-    if (saveData.adventureLog) setAdventureLog(saveData.adventureLog as string[]);
-    if (saveData.currentGoals) setCurrentGoals(saveData.currentGoals as string[]);
-    if (saveData.summaryPool) setSummaryPool(saveData.summaryPool as string[]);
-    if (typeof saveData.compressCount === 'number') setCompressCount(saveData.compressCount);
+    // 更新最後存檔時間（metadata，localStorage）
+    localStorage.setItem('rpworld_last_saved', new Date().toISOString());
 
-    // 裝備：優先讀新欄位 equipment，否則 migrate 舊 inventory
-    if (Array.isArray(saveData.equipment) && (saveData.equipment as unknown[]).length > 0) {
-      setEquipment(migrateEquipment(saveData.equipment as unknown[]));
-    } else if (Array.isArray(saveData.inventory) && (saveData.inventory as unknown[]).length > 0) {
-      setEquipment(migrateEquipment(saveData.inventory as unknown[]));
-    } else {
-      setEquipment([]);
-    }
-
-    // 道具：優先讀新欄位 items，否則 migrate 舊 consumables
-    if (Array.isArray(saveData.items) && (saveData.items as unknown[]).length > 0) {
-      setItems(migrateItems(saveData.items as unknown[]));
-    } else if (Array.isArray(saveData.consumables) && (saveData.consumables as unknown[]).length > 0) {
-      setItems(migrateItems(saveData.consumables as unknown[]));
-    } else {
-      setItems([]);
-    }
-
-    if (saveData.quests) setQuests(
-      (saveData.quests as Quest[]).map(q => ({ isGoalMet: false, ...q }))
-    );
+    return gameDB.writeSave(gameDB.SLOT_DEFAULT, saveData).catch(err => {
+      // IndexedDB 失敗時 fallback 寫入 localStorage
+      console.error('[saveToStorage] IndexedDB 失敗，fallback 至 localStorage', err);
+      try { localStorage.setItem(SAVE_KEY, JSON.stringify(saveData)); } catch { /* ignore */ }
+    });
   };
 
   return {
+    // 初始化狀態
+    isStoreReady,
     // 時間
     timeState, setTimeState,
     // 玩家
@@ -337,7 +322,7 @@ export function useGameStore() {
     diaryEntries, setDiaryEntries,
     // 設定集
     lorebookEntries, setLorebookEntries,
-    // 裝備 / 道具（新名稱）
+    // 裝備 / 道具
     equipment, setEquipment,
     items, setItems,
     // 對話

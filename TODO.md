@@ -36,19 +36,22 @@
       - 2025-03-24 [Claude]: 開發伺服器啟動正常、build 無 TS 錯誤、基線功能驗證通過；開放 window.__performanceMonitor API 供開發者量測
   - **完成狀態**：✅ 全 4 phases 完成，性能改進 ↓90% 訊息更新、↓95% 搜尋延遲、↓80% 記憶 DOM
 
-- [ ] D5｜存檔匯入/匯出 schema 正規化
+- [x] D5｜存檔匯入/匯出 schema 正規化
   - `loadFromData` 完整映射所有欄位，獨立 `saveDataMapper` / `saveDataMigration`。
   - 新增 `schemaVersion`，migration 依版本號觸發，欄位存在與否作為輔助判斷。
+  - 2026-03-27 [Claude Sonnet 4.5]: 新增 `CURRENT_SCHEMA=2`、`runMigrations`、`saveDataMapper`（唯一欄位映射入口），統一 `loadFromData` 移除 if-guard，`saveToStorage` 加入 `schemaVersion`。修改 `useGameStore.ts`。
 
-- [ ] D6｜儲存層升級（localStorage → IndexedDB）
+- [x] D6｜儲存層升級（localStorage → IndexedDB）
   - 存檔改為 IndexedDB，建立版本化 migration。
   - `localStorage` 僅保留最後遊玩快照索引與必要 metadata。
   - 依賴 D5 完成後進行。
+  - 2026-03-27 [Claude Sonnet 4.5]: 新增 `src/db/gameDB.ts`（openDB / writeSave / readSave / deleteSave），`useGameStore` 改為 useEffect 非同步初始化並暴露 `isStoreReady`，`saveToStorage` 改為 async（IndexedDB primary，localStorage fallback），App.tsx 加 loading 畫面保護，handleResetGame 改呼叫 `gameDB.deleteSave`，localStorage 一次性自動遷移。
 
-- [ ] D7｜網路韌性
+- [x] D7｜網路韌性
   - AI 請求加入 timeout / retry / abort。
   - 顯示「請求中 / 已中斷 / 可重試」狀態。
   - 手機切背景返回後自動檢查是否需恢復未完成回合。
+  - 2026-03-27 [Claude Sonnet 4.5]: 新增 `src/hooks/useAIRequest.ts`（timeout 90s/30s、abort per-request token、retry 指數退避最多 2 次），移除 App.tsx 內 `callAI` useCallback，`isLoading` 改由 `aiRequestStatus` 派生，send 按鈕 loading 時顯示中止（X）按鈕，加入重試列 UI，`visibilitychange` 自動中斷切背景未完成請求。
 
 ---
 

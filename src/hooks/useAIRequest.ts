@@ -1,0 +1,129 @@
+/**
+ * useAIRequest.ts — AI 請求封裝層（D7）
+ *
+ * 功能：
+ *   - Timeout：主 GM 90s、Sub GM 30s，超時拋出 REQUEST_TIMEOUT
+ *   - Abort：abort() 後，串流迴圈即停止（per-request token 機制）
+ *   - Retry：timeout / 429 / 500 / 503 最多重試 2 次（指數退避）
+ *   - 狀態：暴露 aiRequestStatus（'idle' | 'loading' | 'aborted' | 'timeout' | 'error'）
+ */
+import { useState, useRef, useCallback } from 'react';
+import { GoogleGenAI } from '@google/genai';
+import { GMConfig, SubGMConfig } from '../types';
+
+export type AIRequestStatus = 'idle' | 'loading' | 'aborted' | 'timeout' | 'error';
+
+const TIMEOUT_MS: Record<'main' | 'sub', number> = {
+  main: 90_000,
+  sub:  30_000,
+};
+
+const MAX_RETRIES: Record<'main' | 'sub', number> = {
+  main: 2,
+  sub:  1,
+};
+
+function isRetryable(err: unknown): boolean {
+  if (err instanceof Error) {
+    const msg = err.message;
+    return (
+      msg === 'REQUEST_TIMEOUT' ||
+      msg.includes('429') ||
+      msg.includes('500') ||
+      msg.includes('503')
+    );
+  }
+  return false;
+}
+
+// ─── Hook ─────────────────────────────────────────────────────────────────────
+export function useAIRequest(mainGMConfig: GMConfig, subGMConfig: SubGMConfig) {
+  const [aiRequestStatus, setAiRequestStatus] = useState<AIRequestStatus>('idle');
+
+  // Per-request abort token：每次呼叫 callAI 遞增，舊請求的 for-await 迴圈偵測到不符即停止
+  const requestTokenRef = useRef(0);
+
+  // ── callAI ──────────────────────────────────────────────────────────────────
+  const callAI = useCallback(async (
+    prompt: string,
+    options?: {
+      role?: 'main' | 'sub';
+      maxTokens?: number;
+      onChunk?: (chunk: string) => void;
+    }
+  ): Promise<string> => {
+    const { role = 'sub' } = options ?? {};
+    const cfg = role === 'main' ? mainGMConfig : subGMConfig;
+    const key = (role === 'sub' && subGMConfig.useSameKey)
+      ? mainGMConfig.apiKey
+      : cfg.apiKey;
+    if (!key.trim()) return '';
+
+    const model  = cfg.model || 'gemini-2.0-flash';
+    const tokens = options?.maxTokens ?? cfg.maxTokens;
+
+    // 標記本次請求的 token
+    const myToken = ++requestTokenRef.current;
+
+    for (let attempt = 0; attempt <= MAX_RETRIES[role]; attempt++) {
+      try {
+        const ai = new GoogleGenAI({ apiKey: key.trim() });
+
+        // ── 實際 AI 呼叫（streaming 或 non-streaming）───────────────────────
+        const doCall = async (): Promise<string> => {
+          if (options?.onChunk) {
+            // Streaming path（主 GM）
+            const response = await ai.models.generateContentStream({
+              model, contents: prompt, config: { maxOutputTokens: tokens },
+            });
+            let fullText = '';
+            for await (const chunk of response) {
+              // Abort 檢查：token 不符表示外部已呼叫 abort()
+              if (requestTokenRef.current !== myToken) {
+                throw new DOMException('Aborted', 'AbortError');
+              }
+              if (chunk.text) {
+                fullText += chunk.text;
+                options.onChunk(chunk.text);
+              }
+            }
+            return fullText;
+          } else {
+            // Non-streaming path（Sub GM）
+            const response = await ai.models.generateContent({
+              model, contents: prompt, config: { maxOutputTokens: tokens },
+            });
+            return response.text?.trim() || '';
+          }
+        };
+
+        // ── Timeout race ─────────────────────────────────────────────────────
+        const timeoutPromise = new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error('REQUEST_TIMEOUT')), TIMEOUT_MS[role])
+        );
+
+        return await Promise.race([doCall(), timeoutPromise]);
+
+      } catch (err) {
+        // Abort：不重試，直接往上拋
+        if (err instanceof DOMException && err.name === 'AbortError') throw err;
+
+        const isLast = attempt >= MAX_RETRIES[role];
+        if (isLast || !isRetryable(err)) throw err;
+
+        // 指數退避
+        await new Promise(r => setTimeout(r, 1_000 * Math.pow(2, attempt)));
+      }
+    }
+
+    return ''; // unreachable
+  }, [mainGMConfig, subGMConfig]);
+
+  // ── abort：廢棄當前請求 ──────────────────────────────────────────────────────
+  const abort = useCallback(() => {
+    requestTokenRef.current++; // 讓進行中的 for-await 迴圈偵測到 token 不符
+    setAiRequestStatus('aborted');
+  }, []);
+
+  return { callAI, abort, aiRequestStatus, setAiRequestStatus };
+}
