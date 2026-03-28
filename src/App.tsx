@@ -149,6 +149,10 @@ export default function App() {
   const questBtnRef = useRef<HTMLDivElement>(null);
   const questPanelRef = useRef<HTMLDivElement>(null);
   const [questPanelPos, setQuestPanelPos] = useState({ top: 0, left: 0 });
+  // ── Mobile Layout State ──────────────────────────────────────────
+  const [isMobile, setIsMobile] = useState(() => window.innerWidth <= 640);
+  const [mobileLeftOpen, setMobileLeftOpen] = useState(false);
+  const [mobileRightOpen, setMobileRightOpen] = useState(false);
   // Sub GM 節流：每 3 回合最多觸發一次（不存檔，session 內計數）
   const subGMRoundsRef = useRef(0);
 
@@ -1510,6 +1514,32 @@ ${recentContext}
     return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
   }, [isLoading, abortAI]);
 
+  // ── Mobile: resize 偵測 ──────────────────────────────────────────
+  useEffect(() => {
+    const handler = () => setIsMobile(window.innerWidth <= 640);
+    window.addEventListener('resize', handler);
+    return () => window.removeEventListener('resize', handler);
+  }, []);
+
+  // ── Mobile: 鍵盤頂起（visualViewport）────────────────────────────
+  useEffect(() => {
+    if (!isMobile) return;
+    const vv = window.visualViewport;
+    if (!vv) return;
+    const handler = () => {
+      document.documentElement.style.setProperty(
+        '--keyboard-inset',
+        `${window.innerHeight - vv.height}px`
+      );
+    };
+    vv.addEventListener('resize', handler);
+    vv.addEventListener('scroll', handler);
+    return () => {
+      vv.removeEventListener('resize', handler);
+      vv.removeEventListener('scroll', handler);
+    };
+  }, [isMobile]);
+
   const handleRegenerate = (msgId: number) => {
     if (isLoading) return;
     const msgIndex = messages.findIndex(m => m.id === msgId);
@@ -1550,13 +1580,133 @@ ${recentContext}
       {/* Sky gradient overlay */}
       <div className="fixed inset-0 pointer-events-none z-0" style={{ background: getSkyGradient(timeState.hour, timeState.weather), opacity: 0.55, transition: 'background 2s ease' }} />
       {/* panel glass overlays removed — individual widgets handle their own glass */}
+
+      {/* ── Mobile Nav Bar（手機專用）── */}
+      {isMobile && (
+        <div
+          className="relative z-20 flex items-center px-3 shrink-0"
+          style={{
+            height: '46px',
+            background: 'rgba(10,12,10,0.82)',
+            backdropFilter: 'blur(20px)',
+            WebkitBackdropFilter: 'blur(20px)',
+            borderBottom: '0.5px solid rgba(255,255,255,0.07)',
+          }}
+        >
+          {/* 左側：☰ 開啟左抽屜 */}
+          <button
+            onClick={() => { setMobileLeftOpen(prev => !prev); setMobileRightOpen(false); }}
+            className="flex items-center justify-center shrink-0"
+            style={{
+              width: '34px', height: '34px', borderRadius: '8px',
+              background: mobileLeftOpen ? 'rgba(192,160,96,0.15)' : 'rgba(255,255,255,0.05)',
+              border: `0.5px solid ${mobileLeftOpen ? 'rgba(192,160,96,0.35)' : 'rgba(255,255,255,0.09)'}`,
+            }}
+          >
+            <MoreVertical className="w-4 h-4" style={{ color: mobileLeftOpen ? 'var(--border-accent)' : 'var(--text-title)' }} />
+          </button>
+
+          {/* 中央：場景名稱 */}
+          <div className="flex-1 text-center">
+            <div className="text-sm font-semibold" style={{ color: 'var(--text-title)' }}>
+              {currentLocation || '未知場所'}
+            </div>
+            <div className="text-[0.625rem]" style={{ color: 'var(--text-muted)' }}>
+              第 {timeState.day} 天・{timeState.hour < 12 ? '上午' : timeState.hour < 18 ? '午後' : '夜晚'}
+            </div>
+          </div>
+
+          {/* 右側按鈕群 */}
+          <div className="flex items-center gap-1.5">
+            {/* 地圖 */}
+            <button
+              onClick={() => setIsMapOpen(true)}
+              className="flex items-center justify-center shrink-0"
+              style={{ width: '34px', height: '34px', borderRadius: '8px', background: 'rgba(255,255,255,0.05)', border: '0.5px solid rgba(255,255,255,0.09)' }}
+            >
+              <MapIcon className="w-4 h-4" style={{ color: 'var(--text-title)' }} />
+            </button>
+            {/* 設定集 */}
+            <button
+              onClick={() => setIsLorebookModalOpen(true)}
+              className="flex items-center justify-center shrink-0"
+              style={{ width: '34px', height: '34px', borderRadius: '8px', background: 'rgba(255,255,255,0.05)', border: '0.5px solid rgba(255,255,255,0.09)' }}
+            >
+              <BookOpen className="w-4 h-4" style={{ color: 'var(--text-title)' }} />
+            </button>
+            {/* ⓘ 開啟右抽屜 */}
+            <button
+              onClick={() => { setMobileRightOpen(prev => !prev); setMobileLeftOpen(false); }}
+              className="flex items-center justify-center shrink-0"
+              style={{
+                width: '34px', height: '34px', borderRadius: '8px',
+                background: mobileRightOpen ? 'rgba(192,160,96,0.15)' : 'rgba(255,255,255,0.05)',
+                border: `0.5px solid ${mobileRightOpen ? 'rgba(192,160,96,0.35)' : 'rgba(255,255,255,0.09)'}`,
+              }}
+            >
+              <Brain className="w-4 h-4" style={{ color: mobileRightOpen ? 'var(--border-accent)' : 'var(--text-title)' }} />
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── Mobile HUD 橫條（手機專用）── */}
+      {isMobile && (
+        <div
+          className="relative z-20 flex items-center px-3 gap-3 shrink-0"
+          style={{
+            height: '30px',
+            background: 'rgba(6,8,6,0.75)',
+            backdropFilter: 'blur(12px)',
+            WebkitBackdropFilter: 'blur(12px)',
+            borderBottom: '0.5px solid rgba(255,255,255,0.04)',
+          }}
+        >
+          {/* HP */}
+          <div className="flex items-center gap-1">
+            <span style={{ fontSize: '9.5px', fontWeight: 500, color: 'var(--text-stat-label)' }}>HP</span>
+            <div style={{ width: '36px', height: '4px', background: 'rgba(255,255,255,0.1)', borderRadius: '2px', overflow: 'hidden' }}>
+              <div style={{ height: '100%', borderRadius: '2px', background: 'linear-gradient(90deg,#b83030,#ff5050)', width: `${Math.max(0, Math.min(100, (profile.hp / (profile.maxHp ?? 100)) * 100))}%` }} />
+            </div>
+            <span style={{ fontSize: '9.5px', fontWeight: 600, color: 'var(--text-stat-value)' }}>{profile.hp}</span>
+          </div>
+
+          {/* 分隔線 */}
+          <div style={{ width: '0.5px', height: '12px', background: 'rgba(255,255,255,0.1)' }} />
+
+          {/* MP */}
+          <div className="flex items-center gap-1">
+            <span style={{ fontSize: '9.5px', fontWeight: 500, color: 'var(--text-stat-label)' }}>MP</span>
+            <div style={{ width: '36px', height: '4px', background: 'rgba(255,255,255,0.1)', borderRadius: '2px', overflow: 'hidden' }}>
+              <div style={{ height: '100%', borderRadius: '2px', background: 'linear-gradient(90deg,#2060a8,#5090d0)', width: `${Math.max(0, Math.min(100, (profile.mp / (profile.maxMp ?? 100)) * 100))}%` }} />
+            </div>
+            <span style={{ fontSize: '9.5px', fontWeight: 600, color: 'var(--text-stat-value)' }}>{profile.mp}</span>
+          </div>
+
+          {/* 分隔線 */}
+          <div style={{ width: '0.5px', height: '12px', background: 'rgba(255,255,255,0.1)' }} />
+
+          {/* 天氣 */}
+          <div className="flex items-center gap-1" style={{ fontSize: '10px', color: 'var(--text-muted)' }}>
+            {getWeatherIcon()}
+            <span>{timeState.weather}</span>
+          </div>
+
+          {/* 金幣（推到最右） */}
+          <div className="flex items-center gap-1 ml-auto" style={{ fontSize: '10px', fontWeight: 500, color: 'var(--color-amber)' }}>
+            <Coins className="w-3 h-3" />
+            <span>{(profile.gold ?? 0).toLocaleString()} G</span>
+          </div>
+        </div>
+      )}
+
       {/* Main Content */}
       <div className="flex flex-1 overflow-hidden relative z-10">
 
         {/* Left Panel */}
         <div
           className="w-[260px] shrink-0 flex flex-col px-3 py-4 gap-3 overflow-y-auto"
-          style={{ zIndex: 20 }}>
+          style={{ zIndex: 20, display: isMobile ? 'none' : undefined }}>
 
           {/* ── Widget: Note Paper ── */}
           <div
@@ -1681,7 +1831,7 @@ ${recentContext}
             <div className="relative shrink-0">
               <Package className="w-4 h-4" style={{ color: 'var(--text-primary)' }} />
               {equipment.length > 0 && (
-                <span className="absolute -top-1.5 -right-2 text-[10px] font-bold px-1 min-w-[16px] text-center rounded-full" style={{ background: 'var(--tab-active)', color: '#fff', lineHeight: '16px' }}>
+                <span className="absolute -top-1.5 -right-2 text-[0.625rem] font-bold px-1 min-w-[16px] text-center rounded-full" style={{ background: 'var(--tab-active)', color: '#fff', lineHeight: '16px' }}>
                   {equipment.length}
                 </span>
               )}
@@ -1713,7 +1863,7 @@ ${recentContext}
             <div className="relative shrink-0">
               <Beaker className="w-4 h-4" style={{ color: 'var(--text-primary)' }} />
               {items.reduce((acc, item) => acc + item.quantity, 0) > 0 && (
-                <span className="absolute -top-1.5 -right-2 text-[10px] font-bold px-1 min-w-[16px] text-center rounded-full" style={{ background: 'var(--tab-active)', color: '#fff', lineHeight: '16px' }}>
+                <span className="absolute -top-1.5 -right-2 text-[0.625rem] font-bold px-1 min-w-[16px] text-center rounded-full" style={{ background: 'var(--tab-active)', color: '#fff', lineHeight: '16px' }}>
                   {items.reduce((acc, item) => acc + item.quantity, 0)}
                 </span>
               )}
@@ -2103,7 +2253,7 @@ ${recentContext}
           </div>
 
           {/* Input Area */}
-          <div className="absolute bottom-0 w-full z-30 flex justify-center px-4 pt-2 pb-2">
+          <div className={`absolute bottom-0 w-full z-30 flex justify-center px-4 pt-2 pb-2${isMobile ? ' mobile-input-safe' : ''}`}>
             <div className="w-full md:w-4/5 rounded-[8px] px-4 pt-2 pb-1 backdrop-blur-xl border border-white/8" style={{ background: 'rgba(10,12,16,0.72)', boxShadow: '0 -4px 32px rgba(0,0,0,0.5)' }}>
               {/* ⚡ Quick Options Popup Menu */}
               {showQuickMenu && quickOptions.length > 0 && (
@@ -2252,7 +2402,7 @@ ${recentContext}
         {/* Right Panel — 3 Independent Widgets */}
         <div
           className="w-[260px] shrink-0 flex flex-col p-3 gap-3 overflow-y-auto z-10"
-          style={{}}
+          style={{ display: isMobile ? 'none' : undefined }}
         >
 
           {/* ── Widget 1: 世界記憶 ────────────────────────────── */}
@@ -2382,7 +2532,7 @@ ${recentContext}
               });
               return regionMems.length > 0 ? (
                 <div className="mb-3">
-                  <p className="text-[10px] uppercase tracking-widest mb-1.5 font-semibold" style={{ color: 'var(--text-muted)' }}>區域</p>
+                  <p className="text-[0.625rem] uppercase tracking-widest mb-1.5 font-semibold" style={{ color: 'var(--text-muted)' }}>區域</p>
                   <ul className="space-y-1.5">
                     {regionMems.map(mem => (
                       <li key={mem.id} className="flex items-start gap-2 text-xs leading-relaxed" style={{ color: 'var(--text-muted)' }}>
@@ -2403,13 +2553,13 @@ ${recentContext}
               );
               return (
                 <div className="mb-3">
-                  <p className="text-[10px] uppercase tracking-widest mb-1.5 font-semibold" style={{ color: 'var(--text-muted)' }}>場景</p>
+                  <p className="text-[0.625rem] uppercase tracking-widest mb-1.5 font-semibold" style={{ color: 'var(--text-muted)' }}>場景</p>
                   {sceneMems.length > 0 ? (
                     <ul className="space-y-1.5">
                       {sceneMems.map(mem => (
                         <li key={mem.id} className="flex items-start gap-2 text-xs leading-relaxed" style={{ color: 'var(--text-muted)' }}>
                           <span className="mt-1.5 w-1 h-1 rounded-full shrink-0" style={{ background: 'var(--color-sky)', opacity: 0.7 }}></span>
-                          <span>{mem.content}{mem.source === 'ai_generated' && <em className="ml-1 text-[10px] opacity-50">AI</em>}</span>
+                          <span>{mem.content}{mem.source === 'ai_generated' && <em className="ml-1 text-[0.625rem] opacity-50">AI</em>}</span>
                         </li>
                       ))}
                     </ul>
@@ -2425,7 +2575,7 @@ ${recentContext}
               const npcMems = memories.filter(m => m.type === 'npc' && m.isActive);
               return npcMems.length > 0 ? (
                 <div>
-                  <p className="text-[10px] uppercase tracking-widest mb-1.5 font-semibold" style={{ color: 'var(--text-muted)' }}>NPC</p>
+                  <p className="text-[0.625rem] uppercase tracking-widest mb-1.5 font-semibold" style={{ color: 'var(--text-muted)' }}>NPC</p>
                   <ul className="space-y-1.5">
                     {npcMems.map(mem => (
                       <li key={mem.id} className="flex items-start gap-2 text-xs leading-relaxed" style={{ color: 'var(--text-muted)' }}>
@@ -2620,6 +2770,500 @@ ${recentContext}
               ))}
             </div>
           </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* ── Mobile 左側抽屜 ─────────────────────────────────── */}
+      <AnimatePresence>
+        {isMobile && mobileLeftOpen && (
+          <>
+            {/* Overlay */}
+            <motion.div
+              key="left-overlay"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.2 }}
+              className="fixed inset-0 z-[40]"
+              style={{ background: 'rgba(0,0,0,0.55)' }}
+              onClick={() => setMobileLeftOpen(false)}
+            />
+            {/* Drawer */}
+            <motion.div
+              key="left-drawer"
+              initial={{ x: '-100%' }}
+              animate={{ x: 0 }}
+              exit={{ x: '-100%' }}
+              transition={{ duration: 0.25, ease: [0.32, 0.72, 0, 1] }}
+              className="fixed top-0 left-0 bottom-0 z-[50] flex flex-col overflow-hidden"
+              style={{
+                width: 'min(80vw, 300px)',
+                background: 'rgba(12,14,12,0.97)',
+                backdropFilter: 'blur(28px)',
+                WebkitBackdropFilter: 'blur(28px)',
+                borderRight: '0.5px solid rgba(255,255,255,0.07)',
+              }}
+            >
+              {/* Drawer Header */}
+              <div
+                className="flex items-center justify-between px-4 shrink-0"
+                style={{
+                  height: '56px',
+                  paddingTop: 'env(safe-area-inset-top, 0px)',
+                  borderBottom: '0.5px solid rgba(255,255,255,0.07)',
+                }}
+              >
+                <span className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>選單</span>
+                <button
+                  onClick={() => setMobileLeftOpen(false)}
+                  className="flex items-center justify-center"
+                  style={{ width: '28px', height: '28px', borderRadius: '6px', background: 'rgba(255,255,255,0.05)', border: '0.5px solid rgba(255,255,255,0.08)' }}
+                >
+                  <X className="w-3.5 h-3.5" style={{ color: 'var(--text-muted)' }} />
+                </button>
+              </div>
+
+              {/* Drawer Body */}
+              <div className="flex-1 overflow-y-auto px-3 py-3 flex flex-col gap-3">
+
+                {/* ── Widget: Note Paper ── */}
+                <div
+                  className="rounded-[8px] overflow-hidden relative"
+                  style={{
+                    background: 'rgba(248,242,226,0.90)',
+                    border: '1px solid rgba(185,165,130,0.55)',
+                    backdropFilter: 'blur(24px) saturate(180%)',
+                    WebkitBackdropFilter: 'blur(24px) saturate(180%)',
+                    boxShadow: `2px 2px 0 0 rgba(235,225,205,0.92), 4px 4px 0 0 rgba(220,210,190,0.82), 0 10px 28px rgba(0,0,0,0.32), inset 0 1px 0 rgba(255,255,255,0.55)`,
+                  }}
+                >
+                  <div className="absolute inset-0 pointer-events-none" style={{ backgroundImage: 'repeating-linear-gradient(transparent 0, transparent 27px, rgba(140,110,70,0.09) 27px, rgba(140,110,70,0.09) 28px)', backgroundPosition: '0 52px', zIndex: 0 }} />
+                  <div className="absolute top-0 bottom-0 pointer-events-none" style={{ left: '38px', width: '1px', background: 'linear-gradient(to bottom, transparent 8%, rgba(188,55,55,0.16) 16%, rgba(188,55,55,0.16) 84%, transparent 92%)', zIndex: 0 }} />
+                  <div className="relative" style={{ zIndex: 1 }}>
+                    <div className="px-4 pt-3 pb-1 flex items-center">
+                      <h3 className="flex items-center font-bold text-lg" style={{ color: 'var(--text-note)' }}>
+                        <ScrollText className="w-4 h-4 mr-2" style={{ color: 'var(--text-note)' }} /> 當前目標
+                        {isUpdatingLog && <RefreshCw className="w-3 h-3 ml-2 animate-spin opacity-50" style={{ color: 'var(--text-note)' }} />}
+                      </h3>
+                    </div>
+                    <ul className="px-4 pb-2 space-y-1.5">
+                      {currentGoals.length > 0 ? currentGoals.map((goal, i) => (
+                        <li key={i} className="text-sm leading-relaxed flex items-start gap-2">
+                          <span className="flex-shrink-0 mt-0.5 text-xs" style={{ color: 'rgba(120,90,50,0.40)' }}>○</span>
+                          <span style={{ color: 'var(--text-note)' }}>{goal}</span>
+                        </li>
+                      )) : (
+                        <li className="text-sm" style={{ color: 'var(--text-note-muted)' }}>暫無明確目標...</li>
+                      )}
+                    </ul>
+                    <button className="w-full px-4 py-2 flex items-center transition-all" onClick={() => setSummaryCollapsed(prev => !prev)} style={{ background: 'transparent' }}>
+                      {summaryCollapsed ? <ChevronRight className="w-3.5 h-3.5 mr-1.5 flex-shrink-0" style={{ color: 'var(--text-note)' }} /> : <ChevronDown className="w-3.5 h-3.5 mr-1.5 flex-shrink-0" style={{ color: 'var(--text-note)' }} />}
+                      <span className="text-sm font-bold" style={{ color: 'var(--text-note)' }}>冒險摘要</span>
+                    </button>
+                    <AnimatePresence>
+                      {!summaryCollapsed && (
+                        <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.2 }} className="overflow-hidden">
+                          <div className="px-4 pb-3">
+                            {adventureLog.length > 0 ? (
+                              <div className="text-sm leading-relaxed flex items-start gap-2">
+                                <span className="flex-shrink-0 mt-0.5 text-xs" style={{ color: 'rgba(120,90,50,0.35)' }}>∵</span>
+                                <span style={{ color: 'var(--text-note)', opacity: 0.85 }}>{adventureLog[0]}</span>
+                              </div>
+                            ) : (
+                              <div className="text-sm" style={{ color: 'var(--text-note-muted)' }}>等待冒險展開...</div>
+                            )}
+                          </div>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+                  </div>
+                </div>
+
+                {/* ── Widget: Quest Log ── */}
+                <div
+                  className="rounded-[8px] px-4 py-3 cursor-pointer transition-all shadow-xl"
+                  style={{
+                    background: isQuestPanelOpen ? 'color-mix(in srgb, var(--bg-elevated) 95%, transparent)' : 'color-mix(in srgb, var(--bg-elevated) 80%, transparent)',
+                    border: `1px solid ${isQuestPanelOpen ? 'var(--border-accent)' : 'color-mix(in srgb, var(--border-default) 60%, transparent)'}`,
+                    backdropFilter: 'blur(24px) saturate(160%)',
+                    WebkitBackdropFilter: 'blur(24px) saturate(160%)',
+                  }}
+                  onClick={() => setIsQuestModalOpen(true)}
+                >
+                  <div className="flex items-center justify-between">
+                    <h3 className="flex items-center font-bold text-base" style={{ color: 'var(--text-primary)' }}>
+                      <BookOpen className="w-4 h-4 mr-2" /> 任務日誌
+                    </h3>
+                    <div className="flex items-center gap-2">
+                      {quests.filter(q => q.status === 'active').length > 0 && (
+                        <span className="text-xs font-bold px-2 py-0.5 rounded-full" style={{ background: 'var(--color-success)', color: '#fff' }}>
+                          {quests.filter(q => q.status === 'active').length}
+                        </span>
+                      )}
+                      <ChevronRight className="w-3.5 h-3.5" style={{ color: 'var(--text-muted)' }} />
+                    </div>
+                  </div>
+                </div>
+
+                {/* ── Widget: 裝備（inline expand）── */}
+                <div>
+                  <button
+                    onClick={() => { setIsInventoryOpen(prev => !prev); if (isConsumablesOpen) setIsConsumablesOpen(false); }}
+                    className="w-full rounded-[8px] px-4 py-3 shadow-xl flex items-center gap-3 transition-all"
+                    style={{
+                      background: isInventoryOpen ? 'color-mix(in srgb, var(--bg-elevated) 95%, transparent)' : 'color-mix(in srgb, var(--bg-elevated) 80%, transparent)',
+                      border: `1px solid ${isInventoryOpen ? 'var(--border-accent)' : 'color-mix(in srgb, var(--border-default) 60%, transparent)'}`,
+                      backdropFilter: 'blur(24px) saturate(160%)',
+                      WebkitBackdropFilter: 'blur(24px) saturate(160%)',
+                    }}
+                  >
+                    <div className="relative shrink-0">
+                      <Package className="w-4 h-4" style={{ color: 'var(--text-primary)' }} />
+                      {equipment.length > 0 && (
+                        <span className="absolute -top-1.5 -right-2 text-[0.625rem] font-bold px-1 min-w-[16px] text-center rounded-full" style={{ background: 'var(--tab-active)', color: '#fff', lineHeight: '16px' }}>
+                          {equipment.length}
+                        </span>
+                      )}
+                    </div>
+                    <span className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>裝備</span>
+                    <ChevronDown className="w-3.5 h-3.5 ml-auto" style={{ color: 'var(--text-muted)', transform: isInventoryOpen ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }} />
+                  </button>
+                  <AnimatePresence>
+                    {isInventoryOpen && (
+                      <motion.div
+                        initial={{ height: 0, opacity: 0 }}
+                        animate={{ height: 'auto', opacity: 1 }}
+                        exit={{ height: 0, opacity: 0 }}
+                        transition={{ duration: 0.2 }}
+                        className="overflow-hidden"
+                      >
+                        <div className="mt-1 rounded-[8px] border p-2 space-y-2" style={{ borderColor: 'var(--border-default)', background: 'color-mix(in srgb, var(--bg-elevated) 80%, transparent)' }}>
+                          {equipment.length > 0 ? equipment.map(item => (
+                            <div key={item.id} className="p-2.5 rounded-[8px] border cursor-pointer transition-all" style={{ borderColor: 'color-mix(in srgb, var(--bg-elevated) 50%, transparent)' }} onClick={() => setSelectedInventoryItem(selectedInventoryItem === item.id ? null : item.id)}>
+                              <div className="text-sm font-medium" style={{ color: 'var(--text-title)' }}>{item.name}</div>
+                              <div className="text-sm leading-relaxed" style={{ color: 'color-mix(in srgb, var(--text-body) 80%, transparent)' }}>{item.description}</div>
+                              <AnimatePresence>
+                                {selectedInventoryItem === item.id && (
+                                  <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="flex space-x-2 mt-2.5 pt-2.5 overflow-hidden" style={{ borderTop: '1px solid color-mix(in srgb, var(--bg-elevated) 50%, transparent)' }}>
+                                    <button className="flex-1 text-sm py-1.5 rounded-[8px] transition font-medium" style={{ background: 'color-mix(in srgb, var(--bg-elevated) 30%, transparent)', color: 'var(--text-title)' }} onClick={(e) => { e.stopPropagation(); showToast(`裝備了 ${item.name}`); setSelectedInventoryItem(null); }}>裝備</button>
+                                    <button className="flex-1 text-sm py-1.5 rounded-[8px] transition font-medium" style={{ background: 'color-mix(in srgb, var(--bg-elevated) 30%, transparent)', color: 'var(--text-title)' }} onClick={(e) => { e.stopPropagation(); showToast(`卸下了 ${item.name}`); setSelectedInventoryItem(null); }}>卸下</button>
+                                    <button className="flex-1 border text-sm py-1.5 rounded-[8px] transition font-medium" style={{ background: 'color-mix(in srgb, var(--color-rose) 10%, transparent)', color: 'var(--text-danger)', borderColor: 'color-mix(in srgb, var(--color-rose) 20%, transparent)' }} onClick={(e) => { e.stopPropagation(); setEquipment(prev => prev.filter(i => i.id !== item.id)); showToast(`丟棄了 ${item.name}`); setSelectedInventoryItem(null); }}>丟棄</button>
+                                  </motion.div>
+                                )}
+                              </AnimatePresence>
+                            </div>
+                          )) : <div className="text-center text-sm py-4" style={{ color: 'var(--text-muted)' }}>背包空空如也...</div>}
+                        </div>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </div>
+
+                {/* ── Widget: 消耗品（inline expand）── */}
+                <div>
+                  <button
+                    onClick={() => { setIsConsumablesOpen(prev => !prev); if (isInventoryOpen) setIsInventoryOpen(false); }}
+                    className="w-full rounded-[8px] px-4 py-3 shadow-xl flex items-center gap-3 transition-all"
+                    style={{
+                      background: isConsumablesOpen ? 'color-mix(in srgb, var(--bg-elevated) 95%, transparent)' : 'color-mix(in srgb, var(--bg-elevated) 80%, transparent)',
+                      border: `1px solid ${isConsumablesOpen ? 'var(--border-accent)' : 'color-mix(in srgb, var(--border-default) 60%, transparent)'}`,
+                      backdropFilter: 'blur(24px) saturate(160%)',
+                      WebkitBackdropFilter: 'blur(24px) saturate(160%)',
+                    }}
+                  >
+                    <div className="relative shrink-0">
+                      <Beaker className="w-4 h-4" style={{ color: 'var(--text-primary)' }} />
+                      {items.reduce((acc, item) => acc + item.quantity, 0) > 0 && (
+                        <span className="absolute -top-1.5 -right-2 text-[0.625rem] font-bold px-1 min-w-[16px] text-center rounded-full" style={{ background: 'var(--tab-active)', color: '#fff', lineHeight: '16px' }}>
+                          {items.reduce((acc, item) => acc + item.quantity, 0)}
+                        </span>
+                      )}
+                    </div>
+                    <span className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>消耗品</span>
+                    <ChevronDown className="w-3.5 h-3.5 ml-auto" style={{ color: 'var(--text-muted)', transform: isConsumablesOpen ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }} />
+                  </button>
+                  <AnimatePresence>
+                    {isConsumablesOpen && (
+                      <motion.div
+                        initial={{ height: 0, opacity: 0 }}
+                        animate={{ height: 'auto', opacity: 1 }}
+                        exit={{ height: 0, opacity: 0 }}
+                        transition={{ duration: 0.2 }}
+                        className="overflow-hidden"
+                      >
+                        <div className="mt-1 rounded-[8px] border p-2 space-y-2" style={{ borderColor: 'var(--border-default)', background: 'color-mix(in srgb, var(--bg-elevated) 80%, transparent)' }}>
+                          {items.length > 0 ? items.map(item => (
+                            <div key={item.id} className="p-2.5 rounded-[8px] border cursor-pointer transition-all" style={{ borderColor: 'color-mix(in srgb, var(--bg-elevated) 50%, transparent)' }} onClick={() => setSelectedConsumableItem(selectedConsumableItem === item.id ? null : item.id)}>
+                              <div className="flex justify-between items-center mb-1">
+                                <span className="text-sm font-medium" style={{ color: 'var(--text-title)' }}>{item.name}</span>
+                                <span className="text-sm font-mono px-1.5 py-0.5 rounded-[8px]" style={{ background: 'var(--bg-elevated)', color: 'var(--text-body)' }}>x{item.quantity}</span>
+                              </div>
+                              <div className="text-sm leading-relaxed" style={{ color: 'color-mix(in srgb, var(--text-body) 80%, transparent)' }}>{item.description}</div>
+                              <AnimatePresence>
+                                {selectedConsumableItem === item.id && (
+                                  <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="flex space-x-2 mt-2.5 pt-2.5 overflow-hidden" style={{ borderTop: '1px solid color-mix(in srgb, var(--bg-elevated) 50%, transparent)' }}>
+                                    <button className="flex-1 border text-sm py-1.5 rounded-[8px] transition font-medium" style={{ background: 'color-mix(in srgb, var(--color-emerald) 10%, transparent)', color: 'var(--color-emerald)', borderColor: 'color-mix(in srgb, var(--color-emerald) 20%, transparent)' }} onClick={(e) => { e.stopPropagation(); useItem(item.name); setSelectedConsumableItem(null); handleSendMessage(`（我使用了 ${item.name}（${item.description}））`); }}>使用</button>
+                                    <button className="flex-1 border text-sm py-1.5 rounded-[8px] transition font-medium" style={{ background: 'color-mix(in srgb, var(--color-rose) 10%, transparent)', color: 'var(--text-danger)', borderColor: 'color-mix(in srgb, var(--color-rose) 20%, transparent)' }} onClick={(e) => { e.stopPropagation(); setItems(prev => prev.filter(i => i.id !== item.id)); showToast(`丟棄了 ${item.name}`); setSelectedConsumableItem(null); }}>丟棄</button>
+                                  </motion.div>
+                                )}
+                              </AnimatePresence>
+                            </div>
+                          )) : <div className="text-center text-sm py-4" style={{ color: 'var(--text-muted)' }}>沒有任何消耗品...</div>}
+                        </div>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </div>
+
+                {/* ── Widget: 日記 ── */}
+                <button
+                  className="w-full rounded-[8px] px-4 py-3 shadow-xl flex items-center gap-3 transition-all"
+                  style={{ background: 'color-mix(in srgb, var(--bg-elevated) 80%, transparent)', border: '1px solid color-mix(in srgb, var(--border-default) 60%, transparent)', backdropFilter: 'blur(24px) saturate(160%)', WebkitBackdropFilter: 'blur(24px) saturate(160%)' }}
+                  onClick={() => { setIsDiaryModalOpen(true); setHasNewDiary(false); }}
+                >
+                  <div className="relative shrink-0">
+                    <Book className="w-4 h-4" style={{ color: 'var(--text-primary)' }} />
+                    {hasNewDiary && <span className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full" style={{ background: 'var(--bg-mark)' }} />}
+                  </div>
+                  <span className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>日記</span>
+                </button>
+
+                {/* ── Widget: Pinned NPCs ── */}
+                {npcs.filter(n => n.isPinned).length > 0 && (
+                  <div className="rounded-[8px] px-4 py-3 shadow-xl overflow-hidden" style={{ background: 'color-mix(in srgb, var(--bg-elevated) 80%, transparent)', border: '1px solid color-mix(in srgb, var(--border-default) 60%, transparent)', backdropFilter: 'blur(24px) saturate(160%)', WebkitBackdropFilter: 'blur(24px) saturate(160%)' }}>
+                    <h3 className="font-bold mb-3 text-sm" style={{ color: 'var(--text-primary)' }}>✦ 關注</h3>
+                    <div className="space-y-2">
+                      {npcs.filter(n => n.isPinned).map(npc => (
+                        <div key={npc.id} className="backdrop-blur-md p-3 rounded-[10px] flex justify-between items-center cursor-pointer transition-all duration-300 shadow-md border border-white/5 relative overflow-hidden group/pinned" onClick={() => setSelectedNpc(npc)}>
+                          <div className="absolute top-0 left-0 w-1 h-full opacity-40" style={{ background: 'var(--border-accent)' }}></div>
+                          <div>
+                            <div className="text-sm font-bold" style={{ color: 'var(--text-title)' }}>{npc.name}</div>
+                            <div className="text-sm uppercase tracking-tighter" style={{ color: 'var(--text-body)' }}>{npc.job}</div>
+                          </div>
+                          <div className="flex flex-col items-end">
+                            <div className="text-sm flex items-center bg-black/20 px-2 py-0.5 rounded-full border border-white/10" style={{ color: affectionColor(npc.affection) }}>
+                              <Heart className="w-3 h-3 mr-1 fill-current" /> {npc.affection}
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* 底部快捷按鈕 */}
+                <div className="rounded-[8px] p-2 mt-auto" style={{ background: 'rgba(0,0,0,0.58)', backdropFilter: 'blur(20px) saturate(150%)', WebkitBackdropFilter: 'blur(20px) saturate(150%)', border: '1px solid rgba(255,255,255,0.07)', boxShadow: '0 4px 20px rgba(0,0,0,0.55)' }}>
+                  <div className="grid grid-cols-2 gap-1.5">
+                    {[
+                      { label: '個人資訊', action: () => setIsProfileModalOpen(true) },
+                      { label: '故事集', action: () => setIsLorebookModalOpen(true) },
+                      { label: '系統', action: () => setIsSettingsModalOpen(true) },
+                      { label: 'Prompt', action: () => setIsSystemPromptModalOpen(true) },
+                    ].map(item => (
+                      <div key={item.label} className="p-1.5 rounded-[5px] cursor-pointer transition-all flex items-center justify-center" style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)' }}
+                        onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.10)'; e.currentTarget.style.border = '1px solid rgba(255,255,255,0.12)'; }}
+                        onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.04)'; e.currentTarget.style.border = '1px solid rgba(255,255,255,0.06)'; }}
+                        onClick={item.action}
+                      >
+                        <span className="flex items-center text-xs" style={{ color: 'var(--text-main)' }}>{item.label}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+
+      {/* ── Mobile 右側抽屜 ─────────────────────────────────── */}
+      <AnimatePresence>
+        {isMobile && mobileRightOpen && (
+          <>
+            {/* Overlay */}
+            <motion.div
+              key="right-overlay"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.2 }}
+              className="fixed inset-0 z-[40]"
+              style={{ background: 'rgba(0,0,0,0.55)' }}
+              onClick={() => setMobileRightOpen(false)}
+            />
+            {/* Drawer */}
+            <motion.div
+              key="right-drawer"
+              initial={{ x: '100%' }}
+              animate={{ x: 0 }}
+              exit={{ x: '100%' }}
+              transition={{ duration: 0.25, ease: [0.32, 0.72, 0, 1] }}
+              className="fixed top-0 right-0 bottom-0 z-[50] flex flex-col overflow-hidden"
+              style={{
+                width: 'min(80vw, 300px)',
+                background: 'rgba(12,14,12,0.97)',
+                backdropFilter: 'blur(28px)',
+                WebkitBackdropFilter: 'blur(28px)',
+                borderLeft: '0.5px solid rgba(255,255,255,0.07)',
+              }}
+            >
+              {/* Drawer Header */}
+              <div
+                className="flex items-center justify-between px-4 shrink-0"
+                style={{
+                  height: '56px',
+                  paddingTop: 'env(safe-area-inset-top, 0px)',
+                  borderBottom: '0.5px solid rgba(255,255,255,0.07)',
+                }}
+              >
+                <span className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>資訊面板</span>
+                <button
+                  onClick={() => setMobileRightOpen(false)}
+                  className="flex items-center justify-center"
+                  style={{ width: '28px', height: '28px', borderRadius: '6px', background: 'rgba(255,255,255,0.05)', border: '0.5px solid rgba(255,255,255,0.08)' }}
+                >
+                  <X className="w-3.5 h-3.5" style={{ color: 'var(--text-muted)' }} />
+                </button>
+              </div>
+
+              {/* Drawer Body — 桌面右欄內容 */}
+              <div className="flex-1 overflow-y-auto p-3 flex flex-col gap-3">
+
+                {/* ── Widget 1: 世界記憶 ── */}
+                <div className="rounded-[8px] border border-white/10 backdrop-blur-md p-4 shadow-xl transition-all duration-300 group/wm" style={{ background: 'rgba(10,10,20,0.55)' }}>
+                  <div className="flex items-center gap-2 mb-4">
+                    <Sparkles className="w-4 h-4 shrink-0" style={{ color: 'var(--color-amber)' }} />
+                    <span className="text-lg font-bold" style={{ color: 'var(--text-primary)' }}>世界記憶</span>
+                  </div>
+                  <div className="rounded-[4px] border border-white/10 shadow-[0_8px_32px_rgba(0,0,0,0.3)] backdrop-blur-md relative overflow-hidden mb-3" style={{ background: `linear-gradient(135deg, #1e1477, var(--bg-elevated))` }}>
+                    <div className="absolute -right-6 -bottom-6 opacity-10 group-hover/wm:opacity-20 transition-all duration-700 rotate-12 group-hover/wm:scale-110">
+                      <Sparkles className="w-[72px] h-[72px]" style={{ color: 'white' }} />
+                    </div>
+                    <div className="absolute top-0 left-0 w-full h-[1px]" style={{ background: `linear-gradient(to right, transparent, rgba(255,255,255,0.15), transparent)` }}></div>
+                    <div className="px-4 py-2.5 relative z-10">
+                      <div className="flex items-center gap-2 mb-1.5">
+                        <div className="p-1.5 rounded-[8px] bg-white/5 border border-white/10"><Calendar className="w-3 h-3" style={{ color: 'var(--text-muted)' }} /></div>
+                        <span className="text-xs font-bold tracking-[0.15em] uppercase" style={{ color: 'var(--text-body)' }}>{currentMonthData.elegant}</span>
+                      </div>
+                      <p className="text-xs leading-relaxed font-light pl-1" style={{ color: 'color-mix(in srgb, var(--text-body) 85%, transparent)', borderLeft: `1px solid rgba(255,255,255,0.15)` }}>{currentMonthData.desc}</p>
+                    </div>
+                  </div>
+                  <div className="space-y-1.5">
+                    {memories.filter(m => m.type === 'world' && m.isActive).map(mem => (
+                      <div key={mem.id} className="flex items-start gap-2 text-xs leading-relaxed py-1 pl-2" style={{ borderLeft: `2px solid var(--border-default)` }}>
+                        {mem.importance === 'critical' && <Sparkles className="w-3 h-3 mt-0.5 shrink-0" style={{ color: 'var(--color-amber)' }} />}
+                        <span style={{ color: 'var(--text-muted)' }}>{mem.content}</span>
+                      </div>
+                    ))}
+                    {memories.filter(m => m.type === 'world' && m.isActive).length === 0 && (
+                      <p className="text-xs pl-1" style={{ color: 'var(--text-muted)' }}>尚無世界記憶</p>
+                    )}
+                  </div>
+                </div>
+
+                {/* ── Widget 2: 當前場景人物 ── */}
+                <div className="rounded-[8px] border border-white/10 backdrop-blur-md p-4 shadow-xl transition-all duration-300" style={{ background: 'rgba(10,15,10,0.55)' }}>
+                  <div className="flex items-center gap-2 mb-4">
+                    <Users className="w-4 h-4 shrink-0" style={{ color: 'var(--text-title)' }} />
+                    <span className="text-lg font-bold" style={{ color: 'var(--text-primary)' }}>當前場景人物</span>
+                  </div>
+                  <div className="space-y-2">
+                    {(() => {
+                      const sceneNpcs = npcs.filter(n => appearingNpcs.includes(n.name) || n.location === currentLocation || n.isPinned);
+                      const hiddenCount = Math.max(0, sceneNpcs.length - 8);
+                      const displayedNpcs = sceneNpcs.slice(0, 8);
+                      return sceneNpcs.length > 0 ? (
+                        <>
+                          {displayedNpcs.map(npc => {
+                            const lore = lorebookEntries.find(e => e.category === 'NPC' && e.title === npc.name);
+                            const displayJob    = lore?.job    ?? npc.job    ?? '';
+                            const displayGender = lore?.gender ?? '';
+                            return (
+                              <div key={npc.id} className="backdrop-blur-md border border-white/5 p-2.5 rounded-[4px] flex justify-between items-center cursor-pointer transition-all duration-300 shadow-lg group/npc overflow-hidden relative hover:border-white/15" onClick={() => setSelectedNpc(npc)}>
+                                <div className="absolute top-0 left-0 w-1 h-full opacity-0 group-hover/npc:opacity-40 transition-opacity" style={{ background: `linear-gradient(to bottom, transparent, var(--bg-elevated), transparent)` }}></div>
+                                <div className="flex flex-col">
+                                  <span className="text-sm font-medium" style={{ color: 'var(--text-title)' }}>{npc.name}</span>
+                                  <span className="text-xs uppercase tracking-tighter" style={{ color: 'var(--text-body)' }}>{displayGender ? `${displayGender}・${displayJob}` : displayJob}</span>
+                                </div>
+                                <div className="text-xs flex items-center px-2 py-1 rounded-full bg-black/20 border border-white/5" style={{ color: affectionColor(npc.affection) }}>
+                                  <Heart className="w-3 h-3 mr-1 fill-current" />
+                                  <span className="font-mono">{npc.affection}</span>
+                                </div>
+                              </div>
+                            );
+                          })}
+                          {hiddenCount > 0 && <div className="text-xs pl-1" style={{ color: 'var(--text-muted)' }}>✦ 還有 {hiddenCount} 人未顯示...</div>}
+                        </>
+                      ) : <p className="text-xs pl-1" style={{ color: 'var(--text-muted)' }}>此處目前沒有人...</p>;
+                    })()}
+                  </div>
+                </div>
+
+                {/* ── Widget 3: 場景 & 區域記憶 ── */}
+                <div className="rounded-[8px] border border-white/10 backdrop-blur-md p-4 shadow-xl transition-all duration-300" style={{ background: 'rgba(15,10,5,0.55)' }}>
+                  <div className="flex items-center gap-2 mb-4">
+                    <MapPin className="w-4 h-4 shrink-0" style={{ color: 'var(--color-amber)' }} />
+                    <span className="text-lg font-bold" style={{ color: 'var(--text-primary)' }}>場景記憶</span>
+                  </div>
+                  {(() => {
+                    const regionMems = memories.filter(m => { if (m.type !== 'region' || !m.isActive) return false; const locs = m.tags?.locations || []; if (locs.length === 0) return true; return locs.some((l: string) => l === currentLocation); });
+                    return regionMems.length > 0 ? (
+                      <div className="mb-3">
+                        <p className="text-[0.625rem] uppercase tracking-widest mb-1.5 font-semibold" style={{ color: 'var(--text-muted)' }}>區域</p>
+                        <ul className="space-y-1.5">
+                          {regionMems.map(mem => (
+                            <li key={mem.id} className="flex items-start gap-2 text-xs leading-relaxed" style={{ color: 'var(--text-muted)' }}>
+                              <span className="mt-1.5 w-1 h-1 rounded-full shrink-0" style={{ background: 'var(--color-amber)', opacity: 0.7 }}></span>
+                              <span>{mem.content}{mem.expiresAt && <em className="ml-1 opacity-60">（至 {mem.expiresAt}）</em>}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    ) : null;
+                  })()}
+                  {(() => {
+                    const sceneMems = memories.filter(m => m.type === 'scene' && m.isActive && (m.tags?.locations || []).some((l: string) => l === currentLocation));
+                    return (
+                      <div className="mb-3">
+                        <p className="text-[0.625rem] uppercase tracking-widest mb-1.5 font-semibold" style={{ color: 'var(--text-muted)' }}>場景</p>
+                        {sceneMems.length > 0 ? (
+                          <ul className="space-y-1.5">
+                            {sceneMems.map(mem => (
+                              <li key={mem.id} className="flex items-start gap-2 text-xs leading-relaxed" style={{ color: 'var(--text-muted)' }}>
+                                <span className="mt-1.5 w-1 h-1 rounded-full shrink-0" style={{ background: 'var(--color-sky)', opacity: 0.7 }}></span>
+                                <span>{mem.content}{mem.source === 'ai_generated' && <em className="ml-1 text-[0.625rem] opacity-50">AI</em>}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        ) : <p className="text-xs pl-1" style={{ color: 'var(--text-muted)' }}>此場景尚無記憶...</p>}
+                      </div>
+                    );
+                  })()}
+                  {(() => {
+                    const npcMems = memories.filter(m => m.type === 'npc' && m.isActive);
+                    return npcMems.length > 0 ? (
+                      <div>
+                        <p className="text-[0.625rem] uppercase tracking-widest mb-1.5 font-semibold" style={{ color: 'var(--text-muted)' }}>NPC</p>
+                        <ul className="space-y-1.5">
+                          {npcMems.map(mem => (
+                            <li key={mem.id} className="flex items-start gap-2 text-xs leading-relaxed" style={{ color: 'var(--text-muted)' }}>
+                              <span className="mt-1.5 w-1 h-1 rounded-full shrink-0" style={{ background: 'var(--color-emerald)', opacity: 0.7 }}></span>
+                              <span>
+                                {mem.tags?.npcs?.length > 0 && <strong className="mr-1" style={{ color: 'var(--text-title)' }}>[{mem.tags.npcs.join(',')}]</strong>}
+                                {mem.content}
+                              </span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    ) : null;
+                  })()}
+                </div>
+
+              </div>
+            </motion.div>
+          </>
         )}
       </AnimatePresence>
 

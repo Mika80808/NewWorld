@@ -3,6 +3,25 @@
 > 純歷史紀錄，對開發者友好。待做任務請見 TODO.md。
 > 每次 AI 改完功能，請在對應版本區塊補上一條記錄。
 
+### P1 行動端基本可用 2026-03-28 [Claude Code]
+
+**目標**：手機瀏覽器（≤640px）可正常操作，不做 App／PWA。
+
+#### **改動**：`src/App.tsx`、`src/index.css`
+- 新增 state：`isMobile`、`mobileLeftOpen`、`mobileRightOpen`
+- 新增 useEffect：resize 偵測、visualViewport 鍵盤頂起（`--keyboard-inset`）
+- 手機版（≤640px）隱藏桌面左右欄（`display: none`）
+- 新增頂部 Mobile Nav Bar（46px）：☰ 左抽屜 / 場景名稱+時段 / 地圖+故事集+ⓘ 右抽屜
+- 新增 HUD 橫條（30px）：HP 進度條、MP 進度條、天氣、金幣
+- 左抽屜（AnimatePresence 滑入）= 桌面左欄完整內容，裝備/消耗品改 inline 展開
+- 右抽屜（AnimatePresence 滑入）= 桌面右欄完整內容（世界記憶、場景人物、場景記憶）
+- 兩個抽屜不能同時開啟，開一邊時關另一邊
+- 輸入區套用 `.mobile-input-safe`（safe-area + keyboard-inset transform）
+- 字體 `text-[10px]` → `text-[0.625rem]`（全檔替換）
+- `src/index.css`：新增 `.mobile-input-safe`、`@media (max-width: 640px)` 字體縮小至 14px
+
+---
+
 ### ⚡ 快捷行動按需生成 2026-03-24 [Claude Sonnet 4.6]
 
 **目標**：將固定快捷回覆改為玩家按需觸發，減少主 GM AI 每回合的負擔。
