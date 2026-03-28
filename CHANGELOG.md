@@ -45,6 +45,7 @@
 - 輸入區套用 `.mobile-input-safe`（safe-area + keyboard-inset transform）
 - 字體 `text-[10px]` → `text-[0.625rem]`（全檔替換）
 - `src/index.css`：新增 `.mobile-input-safe`、`@media (max-width: 640px)` 字體縮小至 14px
+- MapModal 手機版上下佈局（地圖上半 55% + 資訊下半）：`isMobile` state、全螢幕 modal、SVG 地圖固定 55% 高度、資訊面板 `flex:1` 佔剩餘空間
 
 ---
 
