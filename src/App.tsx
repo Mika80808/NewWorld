@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { Settings, Send, RefreshCw, MoreVertical, Book, BookOpen, User, Package, Beaker, Users, Heart, MapPin, Zap, Coins, Calendar, Shield, CheckSquare, ChevronDown, ChevronRight, Map as MapIcon, Cloud, Sun, CloudRain, Snowflake, Moon, Wind, Sparkles, Brain, ScrollText, History, X, Edit2, Trash2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { GoogleGenAI } from "@google/genai";
+import { useAIRequest } from './hooks/useAIRequest';
 import { DiaryModal } from './components/DiaryModal';
 import { LorebookModal } from './components/LorebookModal';
 import { Npc, LorebookEntry, MemoryEntry, Message, NpcMemory, EquipmentItem, ItemEntry, GMConfig, SubGMConfig } from './types';
@@ -13,8 +13,9 @@ import { SettingsModal } from './components/SettingsModal';
 import { MapModal } from './components/MapModal';
 import { MessageCard } from './components/MessageCard';
 import { MONTHS_DATA } from './constants';
-import { useGameStore, SAVE_KEY } from './hooks/useGameStore';
+import { useGameStore } from './hooks/useGameStore';
 import { useCommandParser } from './hooks/useCommandParser';
+import * as gameDB from './db/gameDB';
 import { getTotalDaysFromTimeState, getQuestRemainingDays } from './utils/timeUtils';
 import { performanceMonitor } from './utils/performanceMonitor';
 import { debounce } from './utils/debounce';
@@ -143,6 +144,15 @@ export default function App() {
   const [consumablesPanelPos, setConsumablesPanelPos] = useState({ top: 0, left: 0 });
   const [isUpdatingLog, setIsUpdatingLog] = useState(false);
   const [hasNewDiary, setHasNewDiary] = useState(false);
+  const [summaryCollapsed, setSummaryCollapsed] = useState(true);
+  const [isQuestPanelOpen, setIsQuestPanelOpen] = useState(false);
+  const questBtnRef = useRef<HTMLDivElement>(null);
+  const questPanelRef = useRef<HTMLDivElement>(null);
+  const [questPanelPos, setQuestPanelPos] = useState({ top: 0, left: 0 });
+  // ── Mobile Layout State ──────────────────────────────────────────
+  const [isMobile, setIsMobile] = useState(() => window.innerWidth <= 640);
+  const [mobileLeftOpen, setMobileLeftOpen] = useState(false);
+  const [mobileRightOpen, setMobileRightOpen] = useState(false);
   // Sub GM 節流：每 3 回合最多觸發一次（不存檔，session 內計數）
   const subGMRoundsRef = useRef(0);
 
@@ -270,7 +280,6 @@ ${newPool.map((s, i) => `${i + 1}. ${s}`).join('\n')}`;
   const [editingMemoryContent, setEditingMemoryContent] = useState('');
   const [isMapOpen, setIsMapOpen] = useState(false);
   const [inputText, setInputText] = useState('');
-  const [isLoading, setIsLoading] = useState(false);
   const [isLoadingQuickOptions, setIsLoadingQuickOptions] = useState(false);
   const [showQuickMenu, setShowQuickMenu] = useState(false);
 
@@ -311,9 +320,17 @@ ${newPool.map((s, i) => `${i + 1}. ${s}`).join('\n')}`;
     return { provider: 'gemini', apiKey: '', model: 'gemini-2.5-flash', maxTokens: 512, useSameKey: true, lastSaved: '' };
   });
 
+  // ─── AI 請求（D7：timeout / abort / retry）────────────────────────────────
+  const { callAI, abort: abortAI, aiRequestStatus, setAiRequestStatus } = useAIRequest(mainGMConfig, subGMConfig);
+  // isLoading 由 aiRequestStatus 派生，其他地方不需改動
+  const isLoading = aiRequestStatus === 'loading';
+  // 儲存最後一次用戶輸入，供 abort 後重試用
+  const lastInputRef = useRef<string>('');
+
   // ─── 遊戲狀態（useGameStore）────────────────────────────────────────────────
   const store = useGameStore();
   const {
+    isStoreReady,
     timeState, setTimeState,
     profile, setProfile,
     systemPrompt, setSystemPrompt,
@@ -490,39 +507,7 @@ ${newPool.map((s, i) => `${i + 1}. ${s}`).join('\n')}`;
     drainToastQueue(messages);
   }, [showToast, drainToastQueue]);
 
-  // ─── AI 呼叫封裝（API 無關層）────────────────────────────────────────────────
-  // 所有 AI 呼叫統一走此函數，未來換 provider 只需改這裡
-  // role='main' → 使用主 GM 設定；role='sub'（預設）→ 使用助理 GM 設定
-  // onChunk → 走 streaming，無 onChunk → 走一次性 generateContent
-  const callAI = useCallback(async (
-    prompt: string,
-    options?: { role?: 'main' | 'sub'; maxTokens?: number; onChunk?: (chunk: string) => void }
-  ): Promise<string> => {
-    const { role = 'sub' } = options || {};
-    const cfg = role === 'main' ? mainGMConfig : subGMConfig;
-    const key = (role === 'sub' && subGMConfig.useSameKey) ? mainGMConfig.apiKey : cfg.apiKey;
-    if (!key.trim()) return '';
-    const model = cfg.model || 'gemini-2.5-flash';
-    const tokens = options?.maxTokens ?? cfg.maxTokens;
-    try {
-      const ai = new GoogleGenAI({ apiKey: key.trim() });
-      if (options?.onChunk) {
-        const response = await ai.models.generateContentStream({
-          model, contents: prompt, config: { maxOutputTokens: tokens },
-        });
-        let fullText = '';
-        for await (const chunk of response) {
-          if (chunk.text) { fullText += chunk.text; options.onChunk(chunk.text); }
-        }
-        return fullText;
-      } else {
-        const response = await ai.models.generateContent({
-          model, contents: prompt, config: { maxOutputTokens: tokens },
-        });
-        return response.text?.trim() || '';
-      }
-    } catch (err) { throw err; }
-  }, [mainGMConfig, subGMConfig]);
+  // callAI 已由 useAIRequest hook 提供（D7）
 
   // ─── 指令解析器（useCommandParser）─────────────────────────────────────────
   const { parseAndExecuteCommands, useItem, scanKeywords, isMemoryTriggered, tickMemoryCounters } =
@@ -594,6 +579,17 @@ ${newPool.map((s, i) => `${i + 1}. ${s}`).join('\n')}`;
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [isInventoryOpen, isConsumablesOpen]);
+
+  useEffect(() => {
+    if (!isQuestPanelOpen) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      const target = e.target as Node;
+      if (questBtnRef.current?.contains(target) || questPanelRef.current?.contains(target)) return;
+      setIsQuestPanelOpen(false);
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [isQuestPanelOpen]);
 
   const handleAddDiary = () => {
     const newId = Date.now();
@@ -901,8 +897,10 @@ ${poolText}
   // ─── 重置遊戲 ────────────────────────────────────────────────────────────────
   const handleResetGame = () => {
     if (window.confirm('確定要重置遊戲嗎？所有未匯出的進度將會遺失。')) {
-      localStorage.removeItem(SAVE_KEY);
-      window.location.reload();
+      gameDB.deleteSave(gameDB.SLOT_DEFAULT).finally(() => {
+        localStorage.removeItem('rpworld_last_saved');
+        window.location.reload();
+      });
     }
   };
 
@@ -1397,18 +1395,20 @@ ${recentContext}
     const text = typeof textToUse === 'string' ? textToUse : inputText;
     if (!text.trim() || isLoading) return;
 
+    lastInputRef.current = text;
     const userMessage = { id: Date.now(), role: 'user', text: text };
     const newMessages = historyToUse ? [...historyToUse, userMessage] : [...messages, userMessage];
     setMessages(newMessages);
     saveToStorage({ messages: newMessages });
     if (typeof textToUse !== 'string') setInputText('');
-    setIsLoading(true);
+    setAiRequestStatus('loading');
 
     let aiMessageId: number | null = null;
+    let didError = false;
     try {
       if (!mainGMConfig.apiKey.trim()) {
         showToast('❌ 請先在系統設定輸入 API Key');
-        setIsLoading(false);
+        setAiRequestStatus('idle');
         return;
       }
       const prompt = buildPrompt(text, historyToUse || messages, locationOverride);
@@ -1421,7 +1421,7 @@ ${recentContext}
       if (!fullText) {
         showToast('❌ AI 沒有回應，請檢查 API Key 或網路連線');
         if (aiMessageId !== null) setMessages(prev => prev.filter(m => m.id !== aiMessageId));
-        setIsLoading(false);
+        setAiRequestStatus('idle');
         return;
       }
 
@@ -1483,15 +1483,62 @@ ${recentContext}
         hasKeyEvent,
       );
     } catch (error) {
-      console.error('Error calling Gemini API:', error);
-      showToast('API 呼叫失敗，請檢查設定或網路連線');
+      didError = true;
       if (aiMessageId !== null) {
         setMessages(prev => prev.filter(m => m.id !== aiMessageId));
       }
+      if (error instanceof DOMException && error.name === 'AbortError') {
+        setAiRequestStatus('aborted');
+      } else if (error instanceof Error && error.message === 'REQUEST_TIMEOUT') {
+        showToast('⏱ 請求超時，可點「重試」再試一次');
+        setAiRequestStatus('timeout');
+      } else {
+        console.error('Error calling Gemini API:', error);
+        showToast('❌ API 呼叫失敗，請檢查設定或網路連線');
+        setAiRequestStatus('error');
+      }
     } finally {
-      setIsLoading(false);
+      if (!didError) setAiRequestStatus('idle');
     }
   };
+
+  // ─── D7：切背景偵測（手機回來後自動中斷未完成請求）───────────────────────
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible' && isLoading) {
+        abortAI();
+        setMessages(prev => prev.filter(m => !(m.role === 'assistant' && m.text === '')));
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }, [isLoading, abortAI]);
+
+  // ── Mobile: resize 偵測 ──────────────────────────────────────────
+  useEffect(() => {
+    const handler = () => setIsMobile(window.innerWidth <= 640);
+    window.addEventListener('resize', handler);
+    return () => window.removeEventListener('resize', handler);
+  }, []);
+
+  // ── Mobile: 鍵盤頂起（visualViewport）────────────────────────────
+  useEffect(() => {
+    if (!isMobile) return;
+    const vv = window.visualViewport;
+    if (!vv) return;
+    const handler = () => {
+      document.documentElement.style.setProperty(
+        '--keyboard-inset',
+        `${window.innerHeight - vv.height}px`
+      );
+    };
+    vv.addEventListener('resize', handler);
+    vv.addEventListener('scroll', handler);
+    return () => {
+      vv.removeEventListener('resize', handler);
+      vv.removeEventListener('scroll', handler);
+    };
+  }, [isMobile]);
 
   const handleRegenerate = (msgId: number) => {
     if (isLoading) return;
@@ -1514,319 +1561,515 @@ ${recentContext}
     handleSendMessage(userMsgText, historyToUse);
   };
 
+  // ─── D6：存檔尚未從 IndexedDB 載入時顯示 loading 畫面 ──────────────────────
+  if (!isStoreReady) {
+    return (
+      <div className="flex items-center justify-center h-screen" style={{ background: 'var(--bg-base)' }}>
+        <div className="flex flex-col items-center gap-3">
+          <RefreshCw className="w-8 h-8 animate-spin" style={{ color: 'var(--text-muted)' }} />
+          <span className="text-sm" style={{ color: 'var(--text-muted)' }}>載入存檔中…</span>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="flex flex-col h-screen font-sans overflow-hidden" style={{ color: 'var(--text-title)' }}>
+    <div className="flex flex-col font-sans overflow-hidden" style={{ color: 'var(--text-title)', height: '100dvh' }}>
       {/* Background image - fixed full screen */}
       <div className="fixed inset-0 pointer-events-none z-0" style={{ backgroundImage: `url('/background.jpg')`, backgroundSize: 'cover', backgroundPosition: 'center' }} />
       {/* Sky gradient overlay */}
       <div className="fixed inset-0 pointer-events-none z-0" style={{ background: getSkyGradient(timeState.hour, timeState.weather), opacity: 0.55, transition: 'background 2s ease' }} />
-      {/* Left/Right panel glass overlays - fixed at root level so they don't create containing blocks for child fixed elements */}
-      <div className="fixed inset-y-0 left-0 pointer-events-none" style={{ width: '12.5em', background: 'var(--bg-glass-left)', zIndex: 5 }} />
-      <div className="fixed inset-y-0 right-0 pointer-events-none" style={{ width: '15rem', background: 'var(--bg-glass-right)', backdropFilter: 'blur(20px) saturate(150%)', WebkitBackdropFilter: 'blur(20px) saturate(150%)', zIndex: 5 }} />
+      {/* panel glass overlays removed — individual widgets handle their own glass */}
+
+      {/* ── Mobile Nav Bar（手機專用）── */}
+      {isMobile && (
+        <div
+          className="relative z-20 flex items-center px-3 shrink-0"
+          style={{
+            height: '46px',
+            background: 'rgba(10,12,10,0.82)',
+            backdropFilter: 'blur(20px)',
+            WebkitBackdropFilter: 'blur(20px)',
+            borderBottom: '0.5px solid rgba(255,255,255,0.07)',
+          }}
+        >
+          {/* 左側：☰ 開啟左抽屜 */}
+          <button
+            onClick={() => { setMobileLeftOpen(prev => !prev); setMobileRightOpen(false); }}
+            className="flex items-center justify-center shrink-0"
+            style={{
+              width: '34px', height: '34px', borderRadius: '8px',
+              background: mobileLeftOpen ? 'rgba(192,160,96,0.15)' : 'rgba(255,255,255,0.05)',
+              border: `0.5px solid ${mobileLeftOpen ? 'rgba(192,160,96,0.35)' : 'rgba(255,255,255,0.09)'}`,
+            }}
+          >
+            <MoreVertical className="w-4 h-4" style={{ color: mobileLeftOpen ? 'var(--border-accent)' : 'var(--text-title)' }} />
+          </button>
+
+          {/* 左側：任務日誌 */}
+          <button
+            onClick={() => { setIsQuestModalOpen(true); setMobileLeftOpen(false); }}
+            className="flex items-center justify-center shrink-0 ml-1.5"
+            style={{ width: '34px', height: '34px', borderRadius: '8px', background: 'rgba(255,255,255,0.05)', border: '0.5px solid rgba(255,255,255,0.09)' }}
+          >
+            <BookOpen className="w-4 h-4" style={{ color: 'var(--text-title)' }} />
+          </button>
+
+          {/* 左側：日記 */}
+          <button
+            onClick={() => { setIsDiaryModalOpen(true); setHasNewDiary(false); setMobileLeftOpen(false); }}
+            className="flex items-center justify-center shrink-0 relative ml-1.5"
+            style={{ width: '34px', height: '34px', borderRadius: '8px', background: 'rgba(255,255,255,0.05)', border: '0.5px solid rgba(255,255,255,0.09)' }}
+          >
+            <Book className="w-4 h-4" style={{ color: 'var(--text-title)' }} />
+            {hasNewDiary && <span className="absolute top-1 right-1 w-2 h-2 rounded-full" style={{ background: 'var(--bg-mark)' }} />}
+          </button>
+
+          {/* 中央 spacer */}
+          <div className="flex-1" />
+
+          {/* 右側按鈕群 */}
+          <div className="flex items-center gap-1.5">
+            {/* 地圖 */}
+            <button
+              onClick={() => setIsMapOpen(true)}
+              className="flex items-center justify-center shrink-0"
+              style={{ width: '34px', height: '34px', borderRadius: '8px', background: 'rgba(255,255,255,0.05)', border: '0.5px solid rgba(255,255,255,0.09)' }}
+            >
+              <MapIcon className="w-4 h-4" style={{ color: 'var(--text-title)' }} />
+            </button>
+            {/* ⓘ 開啟右抽屜 */}
+            <button
+              onClick={() => { setMobileRightOpen(prev => !prev); setMobileLeftOpen(false); }}
+              className="flex items-center justify-center shrink-0"
+              style={{
+                width: '34px', height: '34px', borderRadius: '8px',
+                background: mobileRightOpen ? 'rgba(192,160,96,0.15)' : 'rgba(255,255,255,0.05)',
+                border: `0.5px solid ${mobileRightOpen ? 'rgba(192,160,96,0.35)' : 'rgba(255,255,255,0.09)'}`,
+              }}
+            >
+              <Brain className="w-4 h-4" style={{ color: mobileRightOpen ? 'var(--border-accent)' : 'var(--text-title)' }} />
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── Mobile HUD 橫條（手機專用）── */}
+      {false && isMobile && (
+        <div
+          className="relative z-20 flex items-center px-3 gap-3 shrink-0"
+          style={{
+            height: '30px',
+            background: 'rgba(6,8,6,0.75)',
+            backdropFilter: 'blur(12px)',
+            WebkitBackdropFilter: 'blur(12px)',
+            borderBottom: '0.5px solid rgba(255,255,255,0.04)',
+          }}
+        >
+          {/* HP */}
+          <div className="flex items-center gap-1">
+            <span style={{ fontSize: '9.5px', fontWeight: 500, color: 'var(--text-stat-label)' }}>HP</span>
+            <div style={{ width: '36px', height: '4px', background: 'rgba(255,255,255,0.1)', borderRadius: '2px', overflow: 'hidden' }}>
+              <div style={{ height: '100%', borderRadius: '2px', background: 'linear-gradient(90deg,#b83030,#ff5050)', width: `${Math.max(0, Math.min(100, (profile.hp / (profile.maxHp ?? 100)) * 100))}%` }} />
+            </div>
+            <span style={{ fontSize: '9.5px', fontWeight: 600, color: 'var(--text-stat-value)' }}>{profile.hp}</span>
+          </div>
+
+          {/* 分隔線 */}
+          <div style={{ width: '0.5px', height: '12px', background: 'rgba(255,255,255,0.1)' }} />
+
+          {/* MP */}
+          <div className="flex items-center gap-1">
+            <span style={{ fontSize: '9.5px', fontWeight: 500, color: 'var(--text-stat-label)' }}>MP</span>
+            <div style={{ width: '36px', height: '4px', background: 'rgba(255,255,255,0.1)', borderRadius: '2px', overflow: 'hidden' }}>
+              <div style={{ height: '100%', borderRadius: '2px', background: 'linear-gradient(90deg,#2060a8,#5090d0)', width: `${Math.max(0, Math.min(100, (profile.mp / (profile.maxMp ?? 100)) * 100))}%` }} />
+            </div>
+            <span style={{ fontSize: '9.5px', fontWeight: 600, color: 'var(--text-stat-value)' }}>{profile.mp}</span>
+          </div>
+
+          {/* 分隔線 */}
+          <div style={{ width: '0.5px', height: '12px', background: 'rgba(255,255,255,0.1)' }} />
+
+          {/* 天氣 */}
+          <div className="flex items-center gap-1" style={{ fontSize: '10px', color: 'var(--text-muted)' }}>
+            {getWeatherIcon()}
+            <span>{timeState.weather}</span>
+          </div>
+
+          {/* 金幣（推到最右） */}
+          <div className="flex items-center gap-1 ml-auto" style={{ fontSize: '10px', fontWeight: 500, color: 'var(--color-amber)' }}>
+            <Coins className="w-3 h-3" />
+            <span>{(profile.gold ?? 0).toLocaleString()} G</span>
+          </div>
+        </div>
+      )}
+
       {/* Main Content */}
       <div className="flex flex-1 overflow-hidden relative z-10">
 
         {/* Left Panel */}
         <div
-        className="w-50 flex flex-col px-0 py-4 space-y-4 overflow-y-auto"
-        style={{ borderRight: '2px solid var(--border-default)', boxShadow: '4px 0 24px rgba(0, 0, 0, 0.3)', zIndex: 20 }}>
-          {/* Adventure Log & Goals */}
-          <div className="px-4 py-3 transition-all" style={{ boxShadow: 'none' }}
-            onMouseEnter={e => { e.currentTarget.style.boxShadow = '0 5px 10px rgba(204, 173, 105, 0.6), 0 12px 40px rgba(65, 46, 109, 0.3)'; }}
-            onMouseLeave={e => { e.currentTarget.style.boxShadow = 'none'; }}>
-            <h3 className="flex items-center font-bold text-lg mb-2" style={{ color: 'var(--text-primary)' }}>
-              <ScrollText className="w-4 h-4 mr-2" /> 當前目標
-              {isUpdatingLog && <RefreshCw className="w-3 h-3 ml-2 animate-spin opacity-50" />}
-            </h3>
-            <ul className="text-sm space-y-1.5" style={{ color: 'var(--text-body)' }}>
-              {currentGoals.length > 0 ? (
-                currentGoals.map((goal, i) => (
-                  <li key={i} className="text-sm leading-relaxed pl-2 py-0.5 italic" style={{ color: 'var(--text-body)', borderLeft: '2px solid var(--border-default)' }}>{goal}</li>
-                ))
-              ) : (
-                <li className="text-sm ml-6 text-[var(--text-muted)] italic">暫無明確目標...</li>
-              )}
-            </ul>
-          </div>
+          className="w-[260px] shrink-0 flex flex-col px-3 py-4 gap-3 overflow-y-auto"
+          style={{ zIndex: 20, display: isMobile ? 'none' : undefined }}>
 
-            <div className="px-4 py-3 transition-all" style={{ boxShadow: 'none' }}
-            onMouseEnter={e => { e.currentTarget.style.boxShadow = '0 5px 10px rgba(204, 173, 105, 0.6), 0 12px 40px rgba(65, 46, 109, 0.3)'; }}
-            onMouseLeave={e => { e.currentTarget.style.boxShadow = 'none'; }}>
-            <h3 className="flex items-center font-bold text-lg mb-2" style={{ color: 'var(--text-primary)' }}>
-              <History className="w-4 h-4 mr-2" /> 冒險摘要
-            </h3>
-            <div className="pr-1">
-              {adventureLog.length > 0 ? (
-                <div className="text-sm leading-relaxed pl-2 py-0.5 italic" style={{ color: 'var(--text-body)', borderLeft: '2px solid var(--border-default)' }}>
-                  {adventureLog[0]}
-                </div>
-              ) : (
-                <div className="text-sm ml-6 text-[var(--text-muted)] italic">等待冒險展開...</div>
-              )}
-            </div>
-          </div>
-
+          {/* ── Widget: Note Paper ── */}
           <div
-            className="px-4 py-3 cursor-pointer transition-all relative group"
-            style={{ boxShadow: 'none' }}
-            onMouseEnter={e => { e.currentTarget.style.boxShadow = '0 5px 10px rgba(204, 173, 105, 0.6), 0 12px 40px rgba(65, 46, 109, 0.3)'; }}
-            onMouseLeave={e => { e.currentTarget.style.boxShadow = 'none'; }}
-            onClick={() => setIsQuestModalOpen(true)}
+            className="rounded-[8px] overflow-hidden relative"
+            style={{
+              background: 'rgba(248,242,226,0.90)',
+              border: '1px solid rgba(185,165,130,0.55)',
+              backdropFilter: 'blur(24px) saturate(180%)',
+              WebkitBackdropFilter: 'blur(24px) saturate(180%)',
+              boxShadow: `2px 2px 0 0 rgba(235,225,205,0.92), 4px 4px 0 0 rgba(220,210,190,0.82), 0 10px 28px rgba(0,0,0,0.32), inset 0 1px 0 rgba(255,255,255,0.55)`,
+            }}
           >
-            <div className="flex items-center justify-between text-lg mb-2">
-              <h3 className="flex items-center font-bold" style={{ color: 'var(--text-primary)' }}><Book className="w-4 h-4 mr-2" /> 任務日誌</h3>
-              <ChevronRight className="w-4 h-4 transition" style={{ color: 'var(--bg-elevated)', opacity: 0.5 }} />
-            </div>
-            <ul className="text-sm space-y-1" style={{ color: 'var(--text-body)' }}>
-              {quests.filter(q => q.status === 'active').length > 0 ? (
-                <>
-                  {quests.filter(q => q.status === 'active').slice(0, 3).map(q => (
-                    <li key={q.id} className="flex items-center gap-1.5 truncate">
-                      <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: 'var(--color-emerald)' }} />
-                      <span className="truncate">{q.title}</span>
-                    </li>
-                  ))}
-                  {quests.filter(q => q.status === 'active').length > 3 && (
-                    <li className="text-[var(--text-muted)] text-sm pl-3">…還有 {quests.filter(q => q.status === 'active').length - 3} 個</li>
-                  )}
-                </>
-              ) : (
-                <li className="text-sm ml-6 text-[var(--text-muted)] italic">目前沒有任務</li>
-              )}
-            </ul>
-          </div>
-
-          <div className="relative">
-            <div className="transition-all">
-              <button
-                ref={inventoryBtnRef}
-                onClick={() => {
-                  if (!isInventoryOpen && inventoryBtnRef.current) {
-                    const rect = inventoryBtnRef.current.getBoundingClientRect();
-                    setInventoryPanelPos({ top: rect.top, left: rect.right + 8 });
-                  }
-                  setIsInventoryOpen(!isInventoryOpen);
-                  if (isConsumablesOpen) setIsConsumablesOpen(false);
-                }}
-                className="w-full px-4 py-3 flex items-center justify-between transition-all"
-                style={{ boxShadow: 'none' }}
-                onMouseEnter={e => { e.currentTarget.style.boxShadow = '0 5px 10px rgba(204, 173, 105, 0.6), 0 12px 40px rgba(65, 46, 109, 0.3)'; }}
-                onMouseLeave={e => { e.currentTarget.style.boxShadow = 'none'; }}
-              >
-                <h3 className="flex items-center font-bold text-lg" style={{ color: 'var(--text-primary)' }}>
-                  <Package className="w-4 h-4 mr-2" /> 裝備 ({equipment.length})
+            {/* Ruled horizontal lines */}
+            <div className="absolute inset-0 pointer-events-none" style={{
+              backgroundImage: 'repeating-linear-gradient(transparent 0, transparent 27px, rgba(140,110,70,0.09) 27px, rgba(140,110,70,0.09) 28px)',
+              backgroundPosition: '0 52px',
+              zIndex: 0,
+            }} />
+            {/* Left margin line */}
+            <div className="absolute top-0 bottom-0 pointer-events-none" style={{
+              left: '38px', width: '1px',
+              background: 'linear-gradient(to bottom, transparent 8%, rgba(188,55,55,0.16) 16%, rgba(188,55,55,0.16) 84%, transparent 92%)',
+              zIndex: 0,
+            }} />
+            {/* Content layer */}
+            <div className="relative" style={{ zIndex: 1 }}>
+              <div className="px-4 pt-3 pb-1 flex items-center">
+                <h3 className="flex items-center font-bold text-lg" style={{ color: 'var(--text-note)' }}>
+                  <ScrollText className="w-4 h-4 mr-2" style={{ color: 'var(--text-note)' }} /> 當前目標
+                  {isUpdatingLog && <RefreshCw className="w-3 h-3 ml-2 animate-spin opacity-50" style={{ color: 'var(--text-note)' }} />}
                 </h3>
-                <ChevronRight className="w-4 h-4 transition-transform" style={{ color: isInventoryOpen ? 'var(--bg-elevated)' : 'var(--text-muted)', transform: isInventoryOpen ? 'rotate(90deg)' : undefined }} />
+              </div>
+              <ul className="px-4 pb-2 space-y-1.5">
+                {currentGoals.length > 0 ? currentGoals.map((goal, i) => (
+                  <li key={i} className="text-sm leading-relaxed flex items-start gap-2">
+                    <span className="flex-shrink-0 mt-0.5 text-xs" style={{ color: 'rgba(120,90,50,0.40)' }}>○</span>
+                    <span style={{ color: 'var(--text-note)' }}>{goal}</span>
+                  </li>
+                )) : (
+                  <li className="text-sm" style={{ color: 'var(--text-note-muted)' }}>暫無明確目標...</li>
+                )}
+              </ul>
+              <button className="w-full px-4 py-2 flex items-center transition-all" onClick={() => setSummaryCollapsed(prev => !prev)} style={{ background: 'transparent' }}>
+                {summaryCollapsed ? <ChevronRight className="w-3.5 h-3.5 mr-1.5 flex-shrink-0" style={{ color: 'var(--text-note)' }} /> : <ChevronDown className="w-3.5 h-3.5 mr-1.5 flex-shrink-0" style={{ color: 'var(--text-note)' }} />}
+                <span className="text-sm font-bold" style={{ color: 'var(--text-note)' }}>冒險摘要</span>
               </button>
-            </div>
-
-            <AnimatePresence>
-              {isInventoryOpen && (
-                <motion.div
-                  ref={inventoryPanelRef}
-                  initial={{ opacity: 0, x: -10, scale: 0.95 }}
-                  animate={{ opacity: 1, x: 0, scale: 1 }}
-                  exit={{ opacity: 0, x: -10, scale: 0.95 }}
-                  transition={{ duration: 0.2, ease: "easeOut" }}
-                  className="fixed w-72 backdrop-blur-xl rounded-[8px] z-[200] flex flex-col overflow-hidden"
-                  style={{ maxHeight: '60vh', top: inventoryPanelPos.top, left: inventoryPanelPos.left, border: `1px solid var(--border-default)`, background: 'color-mix(in srgb, var(--bg-elevated) 95%, transparent)' }}
-                >
-                  <div className="sticky top-0 backdrop-blur-md p-3 flex justify-between items-center z-10" style={{ background: 'color-mix(in srgb, var(--bg-elevated) 90%, transparent)', borderBottom: `1px solid rgba(0, 0, 0, 0.1)` }}>
-                    <h3 className="font-bold flex items-center text-sm" style={{ color: 'var(--bg-elevated)' }}><Package className="w-4 h-4 mr-2" /> 裝備清單</h3>
-                    <button onClick={() => setIsInventoryOpen(false)} className="text-[var(--text-muted)] hover:bg-white/5 transition-colors p-1 rounded-full" style={{ color: 'var(--text-muted)' }}>
-                      <X className="w-4 h-4" />
-                    </button>
-                  </div>
-                  <div className="p-3 space-y-2 overflow-y-auto custom-scrollbar flex-1">
-                    {equipment.length > 0 ? equipment.map(item => (
-                      <div
-                        key={item.id}
-                        className="p-2.5 rounded-[8px] border cursor-pointer transition-all"
-                        style={{ borderColor: `color-mix(in srgb, var(--bg-elevated) 50%, transparent)` }}
-                        onClick={() => setSelectedInventoryItem(selectedInventoryItem === item.id ? null : item.id)}
-                      >
-                        <div className="flex justify-between items-center mb-1">
-                          <span className="text-sm font-medium" style={{ color: 'var(--text-title)' }}>{item.name}</span>
+              <AnimatePresence>
+                {!summaryCollapsed && (
+                  <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.2 }} className="overflow-hidden">
+                    <div className="px-4 pb-3">
+                      {adventureLog.length > 0 ? (
+                        <div className="text-sm leading-relaxed flex items-start gap-2">
+                          <span className="flex-shrink-0 mt-0.5 text-xs" style={{ color: 'rgba(120,90,50,0.35)' }}>∵</span>
+                          <span style={{ color: 'var(--text-note)', opacity: 0.85 }}>{adventureLog[0]}</span>
                         </div>
-                        <div className="text-sm leading-relaxed" style={{ color: 'color-mix(in srgb, var(--text-body) 80%, transparent)' }}>{item.description}</div>
-
-                        <AnimatePresence>
-                          {selectedInventoryItem === item.id && (
-                            <motion.div
-                              initial={{ height: 0, opacity: 0 }}
-                              animate={{ height: 'auto', opacity: 1 }}
-                              exit={{ height: 0, opacity: 0 }}
-                              className="flex space-x-2 mt-2.5 pt-2.5 overflow-hidden"
-                              style={{ borderTop: `1px solid color-mix(in srgb, var(--bg-elevated) 50%, transparent)` }}
-                            >
-                              <button
-                                className="flex-1 text-sm py-1.5 rounded-[8px] transition font-medium"
-                                style={{ background: 'color-mix(in srgb, var(--bg-elevated) 30%, transparent)', color: 'var(--text-title)' }}
-                                onMouseEnter={e => e.currentTarget.style.background = 'color-mix(in srgb, var(--bg-elevated) 60%, transparent)'}
-                                onMouseLeave={e => e.currentTarget.style.background = 'color-mix(in srgb, var(--bg-elevated) 30%, transparent)'}
-                                onClick={(e) => { e.stopPropagation(); showToast(`裝備了 ${item.name}`); setSelectedInventoryItem(null); }}
-                              >
-                                裝備
-                              </button>
-                              <button
-                                className="flex-1 text-sm py-1.5 rounded-[8px] transition font-medium"
-                                style={{ background: 'color-mix(in srgb, var(--bg-elevated) 30%, transparent)', color: 'var(--text-title)' }}
-                                onMouseEnter={e => e.currentTarget.style.background = 'color-mix(in srgb, var(--bg-elevated) 60%, transparent)'}
-                                onMouseLeave={e => e.currentTarget.style.background = 'color-mix(in srgb, var(--bg-elevated) 30%, transparent)'}
-                                onClick={(e) => { e.stopPropagation(); showToast(`卸下了 ${item.name}`); setSelectedInventoryItem(null); }}
-                              >
-                                卸下
-                              </button>
-                              <button
-                                className="flex-1 border text-sm py-1.5 rounded-[8px] transition font-medium"
-                                style={{ background: 'color-mix(in srgb, var(--color-rose) 10%, transparent)', color: 'var(--text-danger)', borderColor: 'color-mix(in srgb, var(--color-rose) 20%, transparent)' }}
-                                onMouseEnter={e => e.currentTarget.style.background = 'color-mix(in srgb, var(--color-rose) 20%, transparent)'}
-                                onMouseLeave={e => e.currentTarget.style.background = 'color-mix(in srgb, var(--color-rose) 10%, transparent)'}
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setEquipment(prev => prev.filter(i => i.id !== item.id));
-                                  showToast(`丟棄了 ${item.name}`);
-                                  setSelectedInventoryItem(null);
-                                }}
-                              >
-                                丟棄
-                              </button>
-                            </motion.div>
-                          )}
-                        </AnimatePresence>
-                      </div>
-                    )) : (
-                      <div className="text-center text-[var(--text-muted)] text-sm py-8 italic">背包空空如也...</div>
-                    )}
-                  </div>
-                </motion.div>
-              )}
-            </AnimatePresence>
+                      ) : (
+                        <div className="text-sm" style={{ color: 'var(--text-note-muted)' }}>等待冒險展開...</div>
+                      )}
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
           </div>
 
-          <div className="relative">
-            <div className="transition-all">
-              <button
-                ref={consumablesBtnRef}
-                onClick={() => {
-                  if (!isConsumablesOpen && consumablesBtnRef.current) {
-                    const rect = consumablesBtnRef.current.getBoundingClientRect();
-                    setConsumablesPanelPos({ top: rect.top, left: rect.right + 8 });
-                  }
-                  setIsConsumablesOpen(!isConsumablesOpen);
-                  if (isInventoryOpen) setIsInventoryOpen(false);
-                }}
-                className="w-full px-4 py-3 flex items-center justify-between transition-all"
-                style={{ boxShadow: 'none' }}
-                onMouseEnter={e => { e.currentTarget.style.boxShadow = '0 5px 10px rgba(204, 173, 105, 0.6), 0 12px 40px rgba(65, 46, 109, 0.3)'; }}
-                onMouseLeave={e => { e.currentTarget.style.boxShadow = 'none'; }}
-              >
-                <h3 className="flex items-center font-bold text-lg" style={{ color: 'var(--text-primary)' }}>
-                  <Beaker className="w-4 h-4 mr-2" /> 消耗品 ({items.reduce((acc, item) => acc + item.quantity, 0)})
-                </h3>
-                <ChevronRight className="w-4 h-4 transition-transform" style={{ color: isConsumablesOpen ? 'var(--bg-elevated)' : 'var(--text-muted)', transform: isConsumablesOpen ? 'rotate(90deg)' : undefined }} />
-              </button>
-            </div>
-            
-            <AnimatePresence>
-              {isConsumablesOpen && (
-                <motion.div
-                  ref={consumablesPanelRef}
-                  initial={{ opacity: 0, x: -10, scale: 0.95 }}
-                  animate={{ opacity: 1, x: 0, scale: 1 }}
-                  exit={{ opacity: 0, x: -10, scale: 0.95 }}
-                  transition={{ duration: 0.2, ease: "easeOut" }}
-                  className="fixed w-72 backdrop-blur-xl rounded-[8px] z-[200] flex flex-col overflow-hidden"
-                  style={{ maxHeight: '60vh', top: consumablesPanelPos.top, left: consumablesPanelPos.left, border: `1px solid var(--border-default)`, background: 'color-mix(in srgb, var(--bg-elevated) 95%, transparent)' }}
-                >
-                  <div className="sticky top-0 backdrop-blur-md p-3 flex justify-between items-center z-10" style={{ background: 'color-mix(in srgb, var(--bg-elevated) 90%, transparent)', borderBottom: `1px solid rgba(0, 0, 0, 0.1)` }}>
-                    <h3 className="font-bold flex items-center text-sm" style={{ color: 'var(--bg-elevated)' }}><Beaker className="w-4 h-4 mr-2" /> 消耗品清單</h3>
-                    <button onClick={() => setIsConsumablesOpen(false)} className="hover:bg-white/5 transition-colors p-1 rounded-full" style={{ color: 'var(--text-muted)' }}>
-                      <X className="w-4 h-4" />
-                    </button>
-                  </div>
-                  <div className="p-3 space-y-2 overflow-y-auto custom-scrollbar flex-1">
-                    {items.length > 0 ? items.map(item => (
-                      <div
-                        key={item.id}
-                        className="p-2.5 rounded-[8px] border cursor-pointer transition-all"
-                        style={{ borderColor: `color-mix(in srgb, var(--bg-elevated) 50%, transparent)` }}
-                        onClick={() => setSelectedConsumableItem(selectedConsumableItem === item.id ? null : item.id)}
-                      >
-                        <div className="flex justify-between items-center mb-1">
-                          <span className="text-sm font-medium" style={{ color: 'var(--text-title)' }}>{item.name}</span>
-                          <span className="text-sm font-mono px-1.5 py-0.5 rounded-[8px]" style={{ background: 'var(--bg-elevated)', color: 'var(--text-body)' }}>x{item.quantity}</span>
-                        </div>
-                        <div className="text-sm leading-relaxed" style={{ color: 'color-mix(in srgb, var(--text-body) 80%, transparent)' }}>{item.description}</div>
-
-                        <AnimatePresence>
-                          {selectedConsumableItem === item.id && (
-                            <motion.div
-                              initial={{ height: 0, opacity: 0 }}
-                              animate={{ height: 'auto', opacity: 1 }}
-                              exit={{ height: 0, opacity: 0 }}
-                              className="flex space-x-2 mt-2.5 pt-2.5 overflow-hidden"
-                              style={{ borderTop: `1px solid color-mix(in srgb, var(--bg-elevated) 50%, transparent)` }}
-                            >
-                              <button
-                                className="flex-1 border text-sm py-1.5 rounded-[8px] transition font-medium"
-                                style={{ background: 'color-mix(in srgb, var(--color-emerald) 10%, transparent)', color: 'var(--color-emerald)', borderColor: 'color-mix(in srgb, var(--color-emerald) 20%, transparent)' }}
-                                onMouseEnter={e => e.currentTarget.style.background = 'color-mix(in srgb, var(--color-emerald) 20%, transparent)'}
-                                onMouseLeave={e => e.currentTarget.style.background = 'color-mix(in srgb, var(--color-emerald) 10%, transparent)'}
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  useItem(item.name);
-                                  setSelectedConsumableItem(null);
-                                  handleSendMessage(`（我使用了 ${item.name}（${item.description}））`);
-                                }}
-                              >
-                                使用
-                              </button>
-                              <button
-                                className="flex-1 border text-sm py-1.5 rounded-[8px] transition font-medium"
-                                style={{ background: 'color-mix(in srgb, var(--color-rose) 10%, transparent)', color: 'var(--text-danger)', borderColor: 'color-mix(in srgb, var(--color-rose) 20%, transparent)' }}
-                                onMouseEnter={e => e.currentTarget.style.background = 'color-mix(in srgb, var(--color-rose) 20%, transparent)'}
-                                onMouseLeave={e => e.currentTarget.style.background = 'color-mix(in srgb, var(--color-rose) 10%, transparent)'}
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setItems(prev => prev.filter(i => i.id !== item.id));
-                                  showToast(`丟棄了 ${item.name}`);
-                                  setSelectedConsumableItem(null);
-                                }}
-                              >
-                                丟棄
-                              </button>
-                            </motion.div>
-                          )}
-                        </AnimatePresence>
-                      </div>
-                    )) : (
-                      <div className="text-center text-[var(--text-muted)] text-sm py-8 italic">沒有任何消耗品...</div>
-                    )}
-                  </div>
-                </motion.div>
-              )}
-            </AnimatePresence>
-          </div>
-
+          {/* ── Widget: Quest Log ── */}
           <div
-            className="px-4 py-3 cursor-pointer transition-all"
-            style={{ boxShadow: 'none' }}
-            onMouseEnter={e => { e.currentTarget.style.boxShadow = '0 5px 10px rgba(204, 173, 105, 0.6), 0 12px 40px rgba(65, 46, 109, 0.3)'; }}
-            onMouseLeave={e => { e.currentTarget.style.boxShadow = 'none'; }}
+            ref={questBtnRef}
+            className="rounded-[8px] px-4 py-3 cursor-pointer transition-all shadow-xl"
+            style={{
+              background: isQuestPanelOpen ? 'color-mix(in srgb, var(--bg-elevated) 95%, transparent)' : 'color-mix(in srgb, var(--bg-elevated) 80%, transparent)',
+              border: `1px solid ${isQuestPanelOpen ? 'var(--border-accent)' : 'color-mix(in srgb, var(--border-default) 60%, transparent)'}`,
+              backdropFilter: 'blur(24px) saturate(160%)',
+              WebkitBackdropFilter: 'blur(24px) saturate(160%)',
+            }}
+            onClick={() => {
+              if (!isQuestPanelOpen && questBtnRef.current) {
+                const rect = questBtnRef.current.getBoundingClientRect();
+                setQuestPanelPos({ top: rect.top, left: rect.right + 8 });
+              }
+              setIsQuestPanelOpen(prev => !prev);
+            }}
+            onMouseEnter={e => (e.currentTarget as HTMLDivElement).style.background = 'color-mix(in srgb, var(--bg-elevated) 95%, transparent)'}
+            onMouseLeave={e => (e.currentTarget as HTMLDivElement).style.background = isQuestPanelOpen ? 'color-mix(in srgb, var(--bg-elevated) 95%, transparent)' : 'color-mix(in srgb, var(--bg-elevated) 80%, transparent)'}
+          >
+            <div className="flex items-center justify-between">
+              <h3 className="flex items-center font-bold text-base" style={{ color: 'var(--text-primary)' }}>
+                <BookOpen className="w-4 h-4 mr-2" /> 任務日誌
+              </h3>
+              <div className="flex items-center gap-2">
+                {quests.filter(q => q.status === 'active').length > 0 && (
+                  <span className="text-xs font-bold px-2 py-0.5 rounded-full" style={{ background: 'var(--color-success)', color: '#fff' }}>
+                    {quests.filter(q => q.status === 'active').length}
+                  </span>
+                )}
+                <ChevronRight className="w-3.5 h-3.5" style={{ color: 'var(--text-muted)' }} />
+              </div>
+            </div>
+          </div>
+
+          {/* ── Widget: 裝備 ── */}
+          <button
+            ref={inventoryBtnRef}
+            onClick={() => {
+              if (!isInventoryOpen && inventoryBtnRef.current) {
+                const rect = inventoryBtnRef.current.getBoundingClientRect();
+                setInventoryPanelPos({ top: rect.top, left: rect.right + 8 });
+              }
+              setIsInventoryOpen(!isInventoryOpen);
+              if (isConsumablesOpen) setIsConsumablesOpen(false);
+            }}
+            className="w-full rounded-[8px] px-4 py-3 shadow-xl flex items-center gap-3 transition-all"
+            style={{
+              background: isInventoryOpen ? 'color-mix(in srgb, var(--bg-elevated) 95%, transparent)' : 'color-mix(in srgb, var(--bg-elevated) 80%, transparent)',
+              border: `1px solid ${isInventoryOpen ? 'var(--border-accent)' : 'color-mix(in srgb, var(--border-default) 60%, transparent)'}`,
+              backdropFilter: 'blur(24px) saturate(160%)',
+              WebkitBackdropFilter: 'blur(24px) saturate(160%)',
+            }}
+            onMouseEnter={e => (e.currentTarget as HTMLButtonElement).style.background = 'color-mix(in srgb, var(--bg-elevated) 95%, transparent)'}
+            onMouseLeave={e => (e.currentTarget as HTMLButtonElement).style.background = isInventoryOpen ? 'color-mix(in srgb, var(--bg-elevated) 95%, transparent)' : 'color-mix(in srgb, var(--bg-elevated) 80%, transparent)'}
+          >
+            <div className="relative shrink-0">
+              <Package className="w-4 h-4" style={{ color: 'var(--text-primary)' }} />
+              {equipment.length > 0 && (
+                <span className="absolute -top-1.5 -right-2 text-[0.625rem] font-bold px-1 min-w-[16px] text-center rounded-full" style={{ background: 'var(--tab-active)', color: '#fff', lineHeight: '16px' }}>
+                  {equipment.length}
+                </span>
+              )}
+            </div>
+            <span className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>裝備</span>
+          </button>
+
+          {/* ── Widget: 消耗品 ── */}
+          <button
+            ref={consumablesBtnRef}
+            onClick={() => {
+              if (!isConsumablesOpen && consumablesBtnRef.current) {
+                const rect = consumablesBtnRef.current.getBoundingClientRect();
+                setConsumablesPanelPos({ top: rect.top, left: rect.right + 8 });
+              }
+              setIsConsumablesOpen(!isConsumablesOpen);
+              if (isInventoryOpen) setIsInventoryOpen(false);
+            }}
+            className="w-full rounded-[8px] px-4 py-3 shadow-xl flex items-center gap-3 transition-all"
+            style={{
+              background: isConsumablesOpen ? 'color-mix(in srgb, var(--bg-elevated) 95%, transparent)' : 'color-mix(in srgb, var(--bg-elevated) 80%, transparent)',
+              border: `1px solid ${isConsumablesOpen ? 'var(--border-accent)' : 'color-mix(in srgb, var(--border-default) 60%, transparent)'}`,
+              backdropFilter: 'blur(24px) saturate(160%)',
+              WebkitBackdropFilter: 'blur(24px) saturate(160%)',
+            }}
+            onMouseEnter={e => (e.currentTarget as HTMLButtonElement).style.background = 'color-mix(in srgb, var(--bg-elevated) 95%, transparent)'}
+            onMouseLeave={e => (e.currentTarget as HTMLButtonElement).style.background = isConsumablesOpen ? 'color-mix(in srgb, var(--bg-elevated) 95%, transparent)' : 'color-mix(in srgb, var(--bg-elevated) 80%, transparent)'}
+          >
+            <div className="relative shrink-0">
+              <Beaker className="w-4 h-4" style={{ color: 'var(--text-primary)' }} />
+              {items.reduce((acc, item) => acc + item.quantity, 0) > 0 && (
+                <span className="absolute -top-1.5 -right-2 text-[0.625rem] font-bold px-1 min-w-[16px] text-center rounded-full" style={{ background: 'var(--tab-active)', color: '#fff', lineHeight: '16px' }}>
+                  {items.reduce((acc, item) => acc + item.quantity, 0)}
+                </span>
+              )}
+            </div>
+            <span className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>消耗品</span>
+          </button>
+
+          {/* ── Widget: 日記 ── */}
+          <button
+            className="w-full rounded-[8px] px-4 py-3 shadow-xl flex items-center gap-3 transition-all"
+            style={{
+              background: 'color-mix(in srgb, var(--bg-elevated) 80%, transparent)',
+              border: '1px solid color-mix(in srgb, var(--border-default) 60%, transparent)',
+              backdropFilter: 'blur(24px) saturate(160%)',
+              WebkitBackdropFilter: 'blur(24px) saturate(160%)',
+            }}
+            onMouseEnter={e => (e.currentTarget as HTMLButtonElement).style.background = 'color-mix(in srgb, var(--bg-elevated) 95%, transparent)'}
+            onMouseLeave={e => (e.currentTarget as HTMLButtonElement).style.background = 'color-mix(in srgb, var(--bg-elevated) 80%, transparent)'}
             onClick={() => { setIsDiaryModalOpen(true); setHasNewDiary(false); }}
           >
-            <h3 className="flex items-center font-bold text-lg" style={{ color: 'var(--text-primary)' }}>
-              <Book className="w-4 h-4 mr-2" />日記
-              {hasNewDiary && <span className="ml-2 text-xs font-bold" style={{ color: 'var(--bg-mark)' }}>【新日記】</span>}
-            </h3>
-          </div>
+            <div className="relative shrink-0">
+              <Book className="w-4 h-4" style={{ color: 'var(--text-primary)' }} />
+              {hasNewDiary && (
+                <span className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full" style={{ background: 'var(--bg-mark)' }} />
+              )}
+            </div>
+            <span className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>日記</span>
+          </button>
 
+          {/* Inventory floating panel */}
+          <AnimatePresence>
+            {isInventoryOpen && (
+              <motion.div
+                ref={inventoryPanelRef}
+                initial={{ opacity: 0, x: -10, scale: 0.95 }}
+                animate={{ opacity: 1, x: 0, scale: 1 }}
+                exit={{ opacity: 0, x: -10, scale: 0.95 }}
+                transition={{ duration: 0.2, ease: "easeOut" }}
+                className="fixed w-72 backdrop-blur-xl rounded-[8px] z-[200] flex flex-col overflow-hidden"
+                style={{ maxHeight: '60vh', top: inventoryPanelPos.top, left: inventoryPanelPos.left, border: `1px solid var(--border-default)`, background: 'color-mix(in srgb, var(--bg-elevated) 95%, transparent)' }}
+              >
+                <div className="sticky top-0 backdrop-blur-md p-3 flex justify-between items-center z-10" style={{ background: 'color-mix(in srgb, var(--bg-elevated) 90%, transparent)', borderBottom: `1px solid rgba(0, 0, 0, 0.1)` }}>
+                  <h3 className="font-bold flex items-center text-sm" style={{ color: 'var(--bg-elevated)' }}><Package className="w-4 h-4 mr-2" /> 裝備清單</h3>
+                  <button onClick={() => setIsInventoryOpen(false)} className="text-[var(--text-muted)] hover:bg-white/5 transition-colors p-1 rounded-full" style={{ color: 'var(--text-muted)' }}>
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+                <div className="p-3 space-y-2 overflow-y-auto custom-scrollbar flex-1">
+                  {equipment.length > 0 ? equipment.map(item => (
+                    <div
+                      key={item.id}
+                      className="p-2.5 rounded-[8px] border cursor-pointer transition-all"
+                      style={{ borderColor: `color-mix(in srgb, var(--bg-elevated) 50%, transparent)` }}
+                      onClick={() => setSelectedInventoryItem(selectedInventoryItem === item.id ? null : item.id)}
+                    >
+                      <div className="flex justify-between items-center mb-1">
+                        <span className="text-sm font-medium" style={{ color: 'var(--text-title)' }}>{item.name}</span>
+                      </div>
+                      <div className="text-sm leading-relaxed" style={{ color: 'color-mix(in srgb, var(--text-body) 80%, transparent)' }}>{item.description}</div>
+                      <AnimatePresence>
+                        {selectedInventoryItem === item.id && (
+                          <motion.div
+                            initial={{ height: 0, opacity: 0 }}
+                            animate={{ height: 'auto', opacity: 1 }}
+                            exit={{ height: 0, opacity: 0 }}
+                            className="flex space-x-2 mt-2.5 pt-2.5 overflow-hidden"
+                            style={{ borderTop: `1px solid color-mix(in srgb, var(--bg-elevated) 50%, transparent)` }}
+                          >
+                            <button
+                              className="flex-1 text-sm py-1.5 rounded-[8px] transition font-medium"
+                              style={{ background: 'color-mix(in srgb, var(--bg-elevated) 30%, transparent)', color: 'var(--text-title)' }}
+                              onMouseEnter={e => e.currentTarget.style.background = 'color-mix(in srgb, var(--bg-elevated) 60%, transparent)'}
+                              onMouseLeave={e => e.currentTarget.style.background = 'color-mix(in srgb, var(--bg-elevated) 30%, transparent)'}
+                              onClick={(e) => { e.stopPropagation(); showToast(`裝備了 ${item.name}`); setSelectedInventoryItem(null); }}
+                            >
+                              裝備
+                            </button>
+                            <button
+                              className="flex-1 text-sm py-1.5 rounded-[8px] transition font-medium"
+                              style={{ background: 'color-mix(in srgb, var(--bg-elevated) 30%, transparent)', color: 'var(--text-title)' }}
+                              onMouseEnter={e => e.currentTarget.style.background = 'color-mix(in srgb, var(--bg-elevated) 60%, transparent)'}
+                              onMouseLeave={e => e.currentTarget.style.background = 'color-mix(in srgb, var(--bg-elevated) 30%, transparent)'}
+                              onClick={(e) => { e.stopPropagation(); showToast(`卸下了 ${item.name}`); setSelectedInventoryItem(null); }}
+                            >
+                              卸下
+                            </button>
+                            <button
+                              className="flex-1 border text-sm py-1.5 rounded-[8px] transition font-medium"
+                              style={{ background: 'color-mix(in srgb, var(--color-rose) 10%, transparent)', color: 'var(--text-danger)', borderColor: 'color-mix(in srgb, var(--color-rose) 20%, transparent)' }}
+                              onMouseEnter={e => e.currentTarget.style.background = 'color-mix(in srgb, var(--color-rose) 20%, transparent)'}
+                              onMouseLeave={e => e.currentTarget.style.background = 'color-mix(in srgb, var(--color-rose) 10%, transparent)'}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setEquipment(prev => prev.filter(i => i.id !== item.id));
+                                showToast(`丟棄了 ${item.name}`);
+                                setSelectedInventoryItem(null);
+                              }}
+                            >
+                              丟棄
+                            </button>
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
+                    </div>
+                  )) : (
+                    <div className="text-center text-[var(--text-muted)] text-sm py-8">背包空空如也...</div>
+                  )}
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          {/* Consumables floating panel */}
+          <AnimatePresence>
+            {isConsumablesOpen && (
+              <motion.div
+                ref={consumablesPanelRef}
+                initial={{ opacity: 0, x: -10, scale: 0.95 }}
+                animate={{ opacity: 1, x: 0, scale: 1 }}
+                exit={{ opacity: 0, x: -10, scale: 0.95 }}
+                transition={{ duration: 0.2, ease: "easeOut" }}
+                className="fixed w-72 backdrop-blur-xl rounded-[8px] z-[200] flex flex-col overflow-hidden"
+                style={{ maxHeight: '60vh', top: consumablesPanelPos.top, left: consumablesPanelPos.left, border: `1px solid var(--border-default)`, background: 'color-mix(in srgb, var(--bg-elevated) 95%, transparent)' }}
+              >
+                <div className="sticky top-0 backdrop-blur-md p-3 flex justify-between items-center z-10" style={{ background: 'color-mix(in srgb, var(--bg-elevated) 90%, transparent)', borderBottom: `1px solid rgba(0, 0, 0, 0.1)` }}>
+                  <h3 className="font-bold flex items-center text-sm" style={{ color: 'var(--bg-elevated)' }}><Beaker className="w-4 h-4 mr-2" /> 消耗品清單</h3>
+                  <button onClick={() => setIsConsumablesOpen(false)} className="hover:bg-white/5 transition-colors p-1 rounded-full" style={{ color: 'var(--text-muted)' }}>
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+                <div className="p-3 space-y-2 overflow-y-auto custom-scrollbar flex-1">
+                  {items.length > 0 ? items.map(item => (
+                    <div
+                      key={item.id}
+                      className="p-2.5 rounded-[8px] border cursor-pointer transition-all"
+                      style={{ borderColor: `color-mix(in srgb, var(--bg-elevated) 50%, transparent)` }}
+                      onClick={() => setSelectedConsumableItem(selectedConsumableItem === item.id ? null : item.id)}
+                    >
+                      <div className="flex justify-between items-center mb-1">
+                        <span className="text-sm font-medium" style={{ color: 'var(--text-title)' }}>{item.name}</span>
+                        <span className="text-sm font-mono px-1.5 py-0.5 rounded-[8px]" style={{ background: 'var(--bg-elevated)', color: 'var(--text-body)' }}>x{item.quantity}</span>
+                      </div>
+                      <div className="text-sm leading-relaxed" style={{ color: 'color-mix(in srgb, var(--text-body) 80%, transparent)' }}>{item.description}</div>
+                      <AnimatePresence>
+                        {selectedConsumableItem === item.id && (
+                          <motion.div
+                            initial={{ height: 0, opacity: 0 }}
+                            animate={{ height: 'auto', opacity: 1 }}
+                            exit={{ height: 0, opacity: 0 }}
+                            className="flex space-x-2 mt-2.5 pt-2.5 overflow-hidden"
+                            style={{ borderTop: `1px solid color-mix(in srgb, var(--bg-elevated) 50%, transparent)` }}
+                          >
+                            <button
+                              className="flex-1 border text-sm py-1.5 rounded-[8px] transition font-medium"
+                              style={{ background: 'color-mix(in srgb, var(--color-emerald) 10%, transparent)', color: 'var(--color-emerald)', borderColor: 'color-mix(in srgb, var(--color-emerald) 20%, transparent)' }}
+                              onMouseEnter={e => e.currentTarget.style.background = 'color-mix(in srgb, var(--color-emerald) 20%, transparent)'}
+                              onMouseLeave={e => e.currentTarget.style.background = 'color-mix(in srgb, var(--color-emerald) 10%, transparent)'}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                useItem(item.name);
+                                setSelectedConsumableItem(null);
+                                handleSendMessage(`（我使用了 ${item.name}（${item.description}））`);
+                              }}
+                            >
+                              使用
+                            </button>
+                            <button
+                              className="flex-1 border text-sm py-1.5 rounded-[8px] transition font-medium"
+                              style={{ background: 'color-mix(in srgb, var(--color-rose) 10%, transparent)', color: 'var(--text-danger)', borderColor: 'color-mix(in srgb, var(--color-rose) 20%, transparent)' }}
+                              onMouseEnter={e => e.currentTarget.style.background = 'color-mix(in srgb, var(--color-rose) 20%, transparent)'}
+                              onMouseLeave={e => e.currentTarget.style.background = 'color-mix(in srgb, var(--color-rose) 10%, transparent)'}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setItems(prev => prev.filter(i => i.id !== item.id));
+                                showToast(`丟棄了 ${item.name}`);
+                                setSelectedConsumableItem(null);
+                              }}
+                            >
+                              丟棄
+                            </button>
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
+                    </div>
+                  )) : (
+                    <div className="text-center text-[var(--text-muted)] text-sm py-8">沒有任何消耗品...</div>
+                  )}
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          {/* ── Widget: Pinned NPCs ── */}
           {npcs.filter(n => n.isPinned).length > 0 && (
-            <div className="overflow-hidden px-4 py-3 transition-all" style={{ boxShadow: 'none' }}
-            onMouseEnter={e => { e.currentTarget.style.boxShadow = '0 8px 20px rgba(99, 102, 241, 0.6), 0 12px 40px rgba(34, 211, 238, 0.3)'; }}
-            onMouseLeave={e => { e.currentTarget.style.boxShadow = 'none'; }}>
-              <h3 className="font-bold mb-3" style={{ color: 'var(--text-primary)' }}>✦ 關注</h3>
+            <div className="rounded-[8px] px-4 py-3 shadow-xl overflow-hidden"
+              style={{
+                background: 'color-mix(in srgb, var(--bg-elevated) 80%, transparent)',
+                border: '1px solid color-mix(in srgb, var(--border-default) 60%, transparent)',
+                backdropFilter: 'blur(24px) saturate(160%)',
+                WebkitBackdropFilter: 'blur(24px) saturate(160%)',
+              }}>
+              <h3 className="font-bold mb-3 text-sm" style={{ color: 'var(--text-primary)' }}>✦ 關注</h3>
               <div className="space-y-2">
                 {npcs.filter(n => n.isPinned).map(npc => (
                   <div
@@ -1852,24 +2095,44 @@ ${recentContext}
 
           <div className="flex-1"></div>
 
-          <div className="grid grid-cols-2 gap-2 mt-auto px-3">
-            {[
-              { label: '個人資訊', action: () => setIsProfileModalOpen(true) },
-              { label: '故事集', action: () => setIsLorebookModalOpen(true) },
-              { label: '系統', action: () => setIsSettingsModalOpen(true) },
-              { label: 'Prompt', action: () => setIsSystemPromptModalOpen(true) },
-            ].map(item => (
-              <div
-                key={item.label}
-                className="p-2 rounded-[5px] cursor-pointer transition-all flex items-center justify-center"
-                style={{ boxShadow: '0 2px 8px rgba(0, 0, 0, 0.44)' }}
-                onMouseEnter={e => { e.currentTarget.style.boxShadow = '0 6px 10px rgba(204, 173, 105, 0.3), 0 12px 40px rgba(10, 10, 10, 0.71)'; }}
-                onMouseLeave={e => { e.currentTarget.style.boxShadow = '0 2px 8px rgba(0, 0, 0, 0.44)'; }}
-                onClick={item.action}
-              >
-                <span className="flex items-center text-sm" style={{ color: 'var(--text-main)' }}>{item.label}</span>
-              </div>
-            ))}
+          <div
+            className="rounded-[8px] p-2 mt-auto"
+            style={{
+              background: 'rgba(0,0,0,0.58)',
+              backdropFilter: 'blur(20px) saturate(150%)',
+              WebkitBackdropFilter: 'blur(20px) saturate(150%)',
+              border: '1px solid rgba(255,255,255,0.07)',
+              boxShadow: '0 4px 20px rgba(0,0,0,0.55)',
+            }}
+          >
+            <div className="grid grid-cols-2 gap-1.5">
+              {[
+                { label: '個人資訊', action: () => setIsProfileModalOpen(true) },
+                { label: '故事集', action: () => setIsLorebookModalOpen(true) },
+                { label: '系統', action: () => setIsSettingsModalOpen(true) },
+                { label: 'Prompt', action: () => setIsSystemPromptModalOpen(true) },
+              ].map(item => (
+                <div
+                  key={item.label}
+                  className="p-1.5 rounded-[5px] cursor-pointer transition-all flex items-center justify-center"
+                  style={{
+                    background: 'rgba(255,255,255,0.04)',
+                    border: '1px solid rgba(255,255,255,0.06)',
+                  }}
+                  onMouseEnter={e => {
+                    e.currentTarget.style.background = 'rgba(255,255,255,0.10)';
+                    e.currentTarget.style.border = '1px solid rgba(255,255,255,0.12)';
+                  }}
+                  onMouseLeave={e => {
+                    e.currentTarget.style.background = 'rgba(255,255,255,0.04)';
+                    e.currentTarget.style.border = '1px solid rgba(255,255,255,0.06)';
+                  }}
+                  onClick={item.action}
+                >
+                  <span className="flex items-center text-xs" style={{ color: 'var(--text-main)' }}>{item.label}</span>
+                </div>
+              ))}
+            </div>
           </div>
 
           {lastSavedAt && (() => {
@@ -1887,16 +2150,23 @@ ${recentContext}
         {/* Center Panel */}
         <div className="flex-1 flex flex-col relative">
           {/* Scene Bar */}
-          <div className="p-3 flex items-center justify-end absolute top-0 w-full z-30">
+          <div className="p-3 flex items-center justify-end absolute top-0 w-full z-30" style={{ display: isMobile ? 'none' : undefined }}>
             <div className="flex space-x-2">
               <button
                 onClick={() => setIsMapOpen(true)}
-                className="px-5 py-1 mr-3 rounded-[8px] text-base font-medium transition flex items-center"
-                style={{ background: 'color-mix(in srgb, var(--bg-elevated) 80%, transparent)', color: 'var(--text-primary)', border: `2px solid color-mix(in srgb, var(--border-default), transparent)` }}
-                onMouseEnter={e => e.currentTarget.style.background = 'color-mix(in srgb, var(--bg-elevated) 40%, transparent)'}
-                onMouseLeave={e => e.currentTarget.style.background = 'color-mix(in srgb, var(--bg-elevated) 20%, transparent)'}
+                className="px-5 py-1.5 mr-3 rounded-[8px] text-base font-medium transition flex items-center"
+                style={{
+                  background: 'rgba(10,12,16,0.55)',
+                  color: 'var(--text-primary)',
+                  border: `1px solid rgba(255,255,255,0.12)`,
+                  backdropFilter: 'blur(16px) saturate(160%)',
+                  WebkitBackdropFilter: 'blur(16px) saturate(160%)',
+                  boxShadow: '0 4px 16px rgba(0,0,0,0.35)',
+                }}
+                onMouseEnter={e => (e.currentTarget.style.background = 'rgba(30,32,40,0.7)')}
+                onMouseLeave={e => (e.currentTarget.style.background = 'rgba(10,12,16,0.55)')}
               >
-                <MapIcon className="w-3.5 h-3.5 mr-1" />
+                <MapIcon className="w-3.5 h-3.5 mr-1.5" />
                 世界地圖
               </button>
             </div>
@@ -1931,7 +2201,7 @@ ${recentContext}
                 onCopy={(text) => {
                   const copyText = (text: string) => {
                     if (navigator.clipboard?.writeText) {
-                      navigator.clipboard.writeText(text).then(() => showToast('已複製訊息')).catch(() => {
+                      navigator.clipboard.writeText(text).then(() => showToast('已複製')).catch(() => {
                         const ta = document.createElement('textarea');
                         ta.value = text;
                         ta.style.position = 'fixed';
@@ -1940,7 +2210,7 @@ ${recentContext}
                         ta.select();
                         document.execCommand('copy');
                         document.body.removeChild(ta);
-                        showToast('已複製訊息');
+                        showToast('已複製');
                       });
                     } else {
                       const ta = document.createElement('textarea');
@@ -1951,7 +2221,7 @@ ${recentContext}
                       ta.select();
                       document.execCommand('copy');
                       document.body.removeChild(ta);
-                      showToast('已複製訊息');
+                      showToast('已複製');
                     }
                   };
                   copyText(text);
@@ -1966,7 +2236,7 @@ ${recentContext}
                   const newMessages = messages.filter(m => m.id !== msgId);
                   setMessages(newMessages);
                   saveToStorage({ messages: newMessages });
-                  showToast('已刪除訊息');
+                  showToast('已刪除');
                   setActiveMenuId(null);
                 }}
                 onEditChange={setEditMessageText}
@@ -1976,7 +2246,7 @@ ${recentContext}
                   setMessages(newMessages);
                   saveToStorage({ messages: newMessages });
                   setEditingMessageId(null);
-                  showToast('已更新訊息');
+                  showToast('已更新');
                 }}
                 renderMarkdown={renderMarkdown}
                 stripBareCommands={stripBareCommands}
@@ -1987,10 +2257,8 @@ ${recentContext}
           </div>
 
           {/* Input Area */}
-          <div className="absolute bottom-0 w-full pt-4 pb-4 px-6 flex flex-col items-center z-30">
-            <div className="absolute inset-0 pointer-events-none -z-10" style={{ height: '200%', top: '-100%', background: 'linear-gradient(to top, #182a3a 20%, transparent 60%)' }} />
-
-            <div className="w-full max-w-3xl">
+          <div className={`absolute bottom-0 w-full z-30 flex justify-center px-4 pt-2 pb-2${isMobile ? ' mobile-input-safe' : ''}`}>
+            <div className="w-full md:w-4/5 rounded-[8px] px-4 pt-2 pb-1 backdrop-blur-xl border border-white/8" style={{ background: 'rgba(10,12,16,0.72)', boxShadow: '0 -4px 32px rgba(0,0,0,0.5)' }}>
               {/* ⚡ Quick Options Popup Menu */}
               {showQuickMenu && quickOptions.length > 0 && (
                 <div className="flex flex-col gap-1.5 mb-3 animate-in fade-in slide-in-from-bottom-2 duration-200">
@@ -2040,7 +2308,7 @@ ${recentContext}
 
                 <textarea
                   className="w-full bg-transparent pl-2 pr-2 outline-none resize-none max-h-32 disabled:opacity-80"
-                  style={{ color: 'var(--text-main)', lineHeight: '20px', paddingTop: '10px', paddingBottom: '10px' }}
+                  style={{ color: 'var(--text-main)', lineHeight: '20px', paddingTop: '8px', paddingBottom: '8px' }}
                   placeholder={isLoading ? "..." : "輸入你的行動或對話..."}
                   rows={1}
                   value={inputText}
@@ -2058,58 +2326,149 @@ ${recentContext}
                     el.style.height = Math.min(el.scrollHeight, 128) + 'px';
                   }}
                 ></textarea>
-                <button
-                  className="px-3 transition"
-                  style={{ height: '40px', display: 'flex', alignItems: 'center', color: isLoading || !inputText.trim() ? 'var(--bg-elevated)' : 'var(--bg-elevated)', cursor: isLoading || !inputText.trim() ? 'not-allowed' : 'pointer' }}
-                  onMouseEnter={e => { if (!isLoading && inputText.trim()) (e.currentTarget as HTMLButtonElement).style.color = 'var(--text-body)'; }}
-                  onMouseLeave={e => (e.currentTarget as HTMLButtonElement).style.color = 'var(--text-muted)'}
-                  onClick={handleSendMessage}
-                  disabled={isLoading || !inputText.trim()}
-                >
-                  {isLoading ? <RefreshCw className="w-5 h-5 animate-spin" /> : <Send className="w-5 h-5" />}
-                </button>
+                {isLoading ? (
+                  /* 中止按鈕（D7）*/
+                  <button
+                    className="px-3 transition"
+                    style={{ height: '40px', display: 'flex', alignItems: 'center', color: 'var(--color-rose)', cursor: 'pointer' }}
+                    onClick={abortAI}
+                    title="中止請求"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                ) : (
+                  /* 送出按鈕 */
+                  <button
+                    className="px-3 transition"
+                    style={{ height: '40px', display: 'flex', alignItems: 'center', color: !inputText.trim() ? 'var(--text-muted)' : 'var(--btn-primary)', cursor: !inputText.trim() ? 'not-allowed' : 'pointer', opacity: !inputText.trim() ? 0.4 : 1 }}
+                    onMouseEnter={e => { if (inputText.trim()) (e.currentTarget as HTMLButtonElement).style.color = 'var(--btn-primary-hover)'; }}
+                    onMouseLeave={e => { if (inputText.trim()) (e.currentTarget as HTMLButtonElement).style.color = 'var(--btn-primary)'; }}
+                    onClick={handleSendMessage}
+                    disabled={!inputText.trim()}
+                  >
+                    <Send className="w-5 h-5" />
+                  </button>
+                )}
               </div>
 
+              {/* D7：中斷 / 超時 / 錯誤 重試列 */}
+              {(aiRequestStatus === 'aborted' || aiRequestStatus === 'timeout' || aiRequestStatus === 'error') && (
+                <div className="mt-1 flex items-center gap-2 text-xs" style={{ color: 'var(--text-muted)' }}>
+                  <span>
+                    {aiRequestStatus === 'aborted'  && '已中斷'}
+                    {aiRequestStatus === 'timeout'  && '請求超時'}
+                    {aiRequestStatus === 'error'    && '發生錯誤'}
+                  </span>
+                  {lastInputRef.current && (
+                    <button
+                      className="px-2 py-0.5 rounded text-xs transition"
+                      style={{ background: 'var(--btn-primary)', color: 'var(--btn--text)' }}
+                      onMouseEnter={e => (e.currentTarget.style.background = 'var(--btn-primary-hover)')}
+                      onMouseLeave={e => (e.currentTarget.style.background = 'var(--btn-primary)')}
+                      onClick={() => { setAiRequestStatus('idle'); handleSendMessage(lastInputRef.current); }}
+                    >重試</button>
+                  )}
+                  <button
+                    className="px-2 py-0.5 rounded text-xs"
+                    style={{ color: 'var(--text-muted)' }}
+                    onClick={() => setAiRequestStatus('idle')}
+                  >取消</button>
+                </div>
+              )}
+
               {/* Status Bar */}
-              <div className="mt-3 flex items-center justify-between text-sm font-mono px-2" style={{ color: 'var(--text-stat-label)' }}>
-                <div className="flex items-center space-x-4">
-                  <span className="flex items-center" title={`${currentMonthData.name}：${currentMonthData.elegant}`}>
-                    <Calendar className="w-3.5 h-3.5 mr-1.5" /> 
+              <div className="mt-1 flex items-center justify-between text-xs font-mono gap-2 flex-wrap" style={{ color: 'var(--text-stat-label)' }}>
+                <div className="flex items-center gap-3 flex-wrap">
+                  <span className="flex items-center whitespace-nowrap" title={`${currentMonthData.name}：${currentMonthData.elegant}`}>
+                    <Calendar className="w-3 h-3 mr-1" />
                     {timeState.year}年 {timeState.month}月 {timeState.day}日
                   </span>
-                  <span className="flex items-center">
+                  <span className="flex items-center whitespace-nowrap">
                     {getWeatherIcon()} {timeState.weather}
                   </span>
-                  <span className="flex items-center">
-                    {getCelestialIcon()} 
+                  <span className="flex items-center whitespace-nowrap">
+                    {getCelestialIcon()}
                     {String(timeState.hour).padStart(2, '0')}:{String(timeState.minute).padStart(2, '0')}
                   </span>
-                  <span className="flex items-center"><MapPin className="w-3.5 h-3.5 mr-1.5" /> {currentLocation}</span>
+                  <span className="flex items-center whitespace-nowrap"><MapPin className="w-3 h-3 mr-1" /> {currentLocation}</span>
                 </div>
-                <div className="flex items-center space-x-4">
-                  <span className="flex items-center" style={{ color: 'var(--text-stat-label)' }}><Heart className="w-3.5 h-3.5 mr-1.5 fill-current" style={{ color: 'var(--color-rose)' }} /> HP {profile.hp}</span>
-                  <span className="flex items-center" style={{ color: 'var(--text-stat-label)' }}><Zap className="w-3.5 h-3.5 mr-1.5 fill-current" style={{ color: 'var(--color-blue)' }} /> MP {profile.mp}</span>
-                  <span className="flex items-center" style={{ color: 'var(--text-stat-label)' }}><Shield className="w-3.5 h-3.5 mr-1.5" style={{ color: 'var(--text-body)' }} /> {profile.job}</span>
-                  <span className="flex items-center" style={{ color: 'var(--text-stat-label)' }}><Coins className="w-3.5 h-3.5 mr-1.5" /> {(profile.gold ?? 0).toLocaleString()} G</span>
+                <div className="flex items-center gap-3">
+                  <span className="flex items-center whitespace-nowrap"><Heart className="w-3 h-3 mr-1 fill-current" style={{ color: 'var(--color-rose)' }} /> HP {profile.hp}</span>
+                  <span className="flex items-center whitespace-nowrap"><Zap className="w-3 h-3 mr-1 fill-current" style={{ color: 'var(--color-blue)' }} /> MP {profile.mp}</span>
+                  <span className="flex items-center whitespace-nowrap"><Shield className="w-3 h-3 mr-1" style={{ color: 'var(--text-body)' }} /> {profile.job}</span>
+                  <span className="flex items-center whitespace-nowrap"><Coins className="w-3 h-3 mr-1" /> {(profile.gold ?? 0).toLocaleString()} G</span>
                 </div>
               </div>
             </div>
           </div>
         </div>
 
-        {/* Right Panel */}
+        {/* Right Panel — 3 Independent Widgets */}
         <div
-             className="w-60 flex flex-col p-4 space-y-6 overflow-y-auto z-10"
-              style={{
-               borderLeft: '2px solid var(--border-default)',
-               boxShadow: '-4px 0 24px rgba(0, 0, 0, 0.3)'
-     }}
-   >
-          <div>
-            <h3 className="font-bold mb-3 pb-2" style={{ color: 'var(--text-primary)', borderBottom: `0.5px solid var(--bg-elevated)` }}>✦ 當前場景人物</h3>
+          className="w-[260px] shrink-0 flex flex-col p-3 gap-3 overflow-y-auto z-10"
+          style={{ display: isMobile ? 'none' : undefined }}
+        >
+
+          {/* ── Widget 1: 世界記憶 ────────────────────────────── */}
+          <div
+            className="rounded-[8px] border border-white/10 backdrop-blur-md p-4 shadow-xl transition-all duration-300 group/wm"
+            style={{ background: 'rgba(10,10,20,0.55)' }}
+            onMouseEnter={e => (e.currentTarget.style.boxShadow = '0 0 0 1px rgba(253,210,137,0.18), 0 8px 32px rgba(0,0,0,0.5)')}
+            onMouseLeave={e => (e.currentTarget.style.boxShadow = '0 10px 32px rgba(0,0,0,0.4)')}
+          >
+            {/* Widget header */}
+            <div className="flex items-center gap-2 mb-4">
+              <Sparkles className="w-4 h-4 shrink-0" style={{ color: 'var(--color-amber)' }} />
+              <span className="text-lg font-bold" style={{ color: 'var(--text-primary)' }}>世界記憶</span>
+            </div>
+
+            {/* Monthly event card */}
+            <div className="rounded-[4px] border border-white/10 shadow-[0_8px_32px_rgba(0,0,0,0.3)] backdrop-blur-md relative overflow-hidden mb-3" style={{ background: `linear-gradient(135deg, #1e1477, var(--bg-elevated))` }}>
+              <div className="absolute -right-6 -bottom-6 opacity-10 group-hover/wm:opacity-20 transition-all duration-700 rotate-12 group-hover/wm:scale-110">
+                <Sparkles className="w-[72px] h-[72px]" style={{ color: 'white' }} />
+              </div>
+              <div className="absolute top-0 left-0 w-full h-[1px]" style={{ background: `linear-gradient(to right, transparent, rgba(255,255,255,0.15), transparent)` }}></div>
+              <div className="px-4 py-2.5 relative z-10">
+                <div className="flex items-center gap-2 mb-1.5">
+                  <div className="p-1.5 rounded-[8px] bg-white/5 border border-white/10">
+                    <Calendar className="w-3 h-3" style={{ color: 'var(--text-muted)' }} />
+                  </div>
+                  <span className="text-xs font-bold tracking-[0.15em] uppercase" style={{ color: 'var(--text-body)' }}>{currentMonthData.elegant}</span>
+                </div>
+                <p className="text-xs leading-relaxed font-light pl-1" style={{ color: 'color-mix(in srgb, var(--text-body) 85%, transparent)', borderLeft: `1px solid rgba(255,255,255,0.15)` }}>
+                  {currentMonthData.desc}
+                </p>
+              </div>
+            </div>
+
+            {/* World memory entries */}
+            <div className="space-y-1.5">
+              {memories.filter(m => m.type === 'world' && m.isActive).map(mem => (
+                <div key={mem.id} className="flex items-start gap-2 text-xs leading-relaxed py-1 pl-2" style={{ borderLeft: `2px solid var(--border-default)` }}>
+                  {mem.importance === 'critical' && <Sparkles className="w-3 h-3 mt-0.5 shrink-0" style={{ color: 'var(--color-amber)' }} />}
+                  <span style={{ color: 'var(--text-muted)' }}>{mem.content}</span>
+                </div>
+              ))}
+              {memories.filter(m => m.type === 'world' && m.isActive).length === 0 && (
+                <p className="text-xs pl-1" style={{ color: 'var(--text-muted)' }}>尚無世界記憶</p>
+              )}
+            </div>
+          </div>
+
+          {/* ── Widget 2: 當前場景人物 ────────────────────────── */}
+          <div
+            className="rounded-[8px] border border-white/10 backdrop-blur-md p-4 shadow-xl transition-all duration-300"
+            style={{ background: 'rgba(10,15,10,0.55)' }}
+            onMouseEnter={e => (e.currentTarget.style.boxShadow = '0 0 0 1px rgba(180,255,180,0.12), 0 8px 32px rgba(0,0,0,0.5)')}
+            onMouseLeave={e => (e.currentTarget.style.boxShadow = '0 10px 32px rgba(0,0,0,0.4)')}
+          >
+            <div className="flex items-center gap-2 mb-4">
+              <Users className="w-4 h-4 shrink-0" style={{ color: 'var(--text-title)' }} />
+              <span className="text-lg font-bold" style={{ color: 'var(--text-primary)' }}>當前場景人物</span>
+            </div>
+
             <div className="space-y-2">
               {(() => {
-                // ─── Phase 3: Limit scene NPC display to 8 people (UI layer only) ────
                 const sceneNpcs = npcs.filter(n =>
                   appearingNpcs.includes(n.name) ||
                   n.location === currentLocation ||
@@ -2125,84 +2484,49 @@ ${recentContext}
                       const displayJob    = lore?.job    ?? npc.job    ?? '';
                       const displayGender = lore?.gender ?? '';
                       return (
-                      <div
-                        key={npc.id}
-                        className="backdrop-blur-md border border-white/5 p-3 rounded-[10px] flex justify-between items-center cursor-pointer transition-all duration-300 shadow-lg group/npc overflow-hidden relative"
-                        onClick={() => setSelectedNpc(npc)}
-                      >
-                        <div className="absolute top-0 left-0 w-1 h-full opacity-0 group-hover/npc:opacity-40 transition-opacity" style={{ background: `linear-gradient(to bottom, transparent, var(--bg-elevated), transparent)` }}></div>
-                        <div className="flex flex-col">
-                          <span className="text-sm font-medium" style={{ color: 'var(--text-title)' }}>{npc.name}</span>
-                          <span className="text-sm uppercase tracking-tighter" style={{ color: 'var(--text-body)' }}>{displayGender ? `${displayGender}・${displayJob}` : displayJob}</span>
+                        <div
+                          key={npc.id}
+                          className="backdrop-blur-md border border-white/5 p-2.5 rounded-[4px] flex justify-between items-center cursor-pointer transition-all duration-300 shadow-lg group/npc overflow-hidden relative hover:border-white/15"
+                          onClick={() => setSelectedNpc(npc)}
+                        >
+                          <div className="absolute top-0 left-0 w-1 h-full opacity-0 group-hover/npc:opacity-40 transition-opacity" style={{ background: `linear-gradient(to bottom, transparent, var(--bg-elevated), transparent)` }}></div>
+                          <div className="flex flex-col">
+                            <span className="text-sm font-medium" style={{ color: 'var(--text-title)' }}>{npc.name}</span>
+                            <span className="text-xs uppercase tracking-tighter" style={{ color: 'var(--text-body)' }}>{displayGender ? `${displayGender}・${displayJob}` : displayJob}</span>
+                          </div>
+                          <div className="text-xs flex items-center px-2 py-1 rounded-full bg-black/20 border border-white/5" style={{ color: affectionColor(npc.affection) }}>
+                            <Heart className="w-3 h-3 mr-1 fill-current" />
+                            <span className="font-mono">{npc.affection}</span>
+                          </div>
                         </div>
-                        <div className="text-sm flex items-center px-2 py-1 rounded-full bg-black/20 border border-white/5" style={{ color: affectionColor(npc.affection) }}>
-                          <Heart className="w-3 h-3 mr-1 fill-current" />
-                          <span className="font-mono">{npc.affection}</span>
-                        </div>
-                      </div>
                       );
                     })}
                     {hiddenCount > 0 && (
-                      <div className="text-xs italic" style={{ color: 'var(--text-muted)' }}>
+                      <div className="text-xs pl-1" style={{ color: 'var(--text-muted)' }}>
                         ✦ 還有 {hiddenCount} 人未顯示...
                       </div>
                     )}
                   </>
                 ) : (
-                  <div className="text-sm ml-4 text-[var(--text-muted)] italic">此處目前沒有人...</div>
+                  <p className="text-xs pl-1" style={{ color: 'var(--text-muted)' }}>此處目前沒有人...</p>
                 );
               })()}
             </div>
           </div>
 
-          <div>
-            <h3 className="font-bold mb-3 pb-2" style={{ color: 'var(--text-primary)', borderBottom: `0.5px solid var(--bg-elevated)` }}>✦ 當前場景記憶</h3>
-            
-            <div className="mb-4">
-              <h4 className="text-base mb-2 uppercase tracking-wider flex items-center" style={{ color: 'var(--text-tab)' }}>✦ 世界記憶</h4>
-              <div className="space-y-2">
-                <div className="px-5 py-[10px] mb-2 rounded-[10px] border border-white/10 shadow-[0_8px_32px_rgba(0,0,0,0.3)] backdrop-blur-md relative overflow-hidden group" style={{ background: `linear-gradient(135deg, #1e1477, var(--bg-elevated))` }}>
-                  <div className="absolute -right-6 -bottom-6 opacity-10 group-hover:opacity-20 transition-all duration-700 rotate-12 group-hover:scale-110">
-                    <Sparkles className="w-[80px] h-[80px]" style={{ color: 'white' }} />
-                  </div>
-                  <div className="absolute top-0 left-0 w-full h-[1px]" style={{ background: `linear-gradient(to right, transparent, rgba(255,255,255,0.15), transparent)` }}></div>
-
-                  <div className="flex items-center space-x-2.5 mb-2 relative z-10">
-                    <div className="p-1.5 rounded-[8px] bg-white/5 border border-white/10 shadow-inner">
-                      <Calendar className="w-3.5 h-3.5" style={{ color: 'var(--text-muted)' }} />
-                    </div>
-                    <span className="text-sm font-bold tracking-[0.15em] uppercase" style={{ color: 'var(--text-body)' }}>{currentMonthData.elegant}</span>
-                  </div>
-                  <p className="text-sm leading-relaxed relative z-10 font-light italic pl-1 mb-2" style={{ color: 'color-mix(in srgb, var(--text-body) 90%, transparent)', borderLeft: `1px solid rgba(255,255,255,0.15)` }}>
-                    {currentMonthData.desc}
-                  </p>
-                </div>
-
-                {memories.filter(m => m.type === 'world' && m.isActive).map(mem => (
-                  <div key={mem.id} className="memory-card backdrop-blur-sm p-3 text-sm text-[var(--text-muted)] transition-all duration-300 shadow-sm group/mem" style={{ borderLeft: `2px solid var(--border-default)` }}>
-                    <div className="flex items-start gap-2">
-                      {mem.importance === 'critical' && <Sparkles className="w-3 h-3 mt-0.5 shrink-0" style={{ color: 'var(--color-amber)' }} />}
-                      <div className="flex-1">
-                        <span className="leading-relaxed">{mem.content}</span>
-                        {mem.tags?.factions?.length > 0 && (
-                          <div className="mt-1.5 flex flex-wrap gap-1">
-                            {mem.tags.factions.map((f: string) => (
-                              <span key={f} className="text-[0.5625rem] px-1.5 py-0.5 rounded-[8px] uppercase tracking-tighter font-bold" style={{ background: 'color-mix(in srgb, var(--bg-elevated) 10%, transparent)', color: 'color-mix(in srgb, var(--bg-elevated) 70%, transparent)', border: `1px solid color-mix(in srgb, var(--bg-elevated) 20%, transparent)` }}>
-                                {f}
-                              </span>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                ))}
-                {memories.filter(m => m.type === 'world').length === 0 && (
-                  <div className="text-sm ml-4 text-[var(--text-muted)] italic">尚無世界記憶</div>
-                )}
-              </div>
+          {/* ── Widget 3: 場景 & 區域記憶 ────────────────────── */}
+          <div
+            className="rounded-[8px] border border-white/10 backdrop-blur-md p-4 shadow-xl transition-all duration-300"
+            style={{ background: 'rgba(15,10,5,0.55)' }}
+            onMouseEnter={e => (e.currentTarget.style.boxShadow = '0 0 0 1px rgba(253,200,100,0.14), 0 8px 32px rgba(0,0,0,0.5)')}
+            onMouseLeave={e => (e.currentTarget.style.boxShadow = '0 10px 32px rgba(0,0,0,0.4)')}
+          >
+            <div className="flex items-center gap-2 mb-4">
+              <MapPin className="w-4 h-4 shrink-0" style={{ color: 'var(--color-amber)' }} />
+              <span className="text-lg font-bold" style={{ color: 'var(--text-primary)' }}>場景記憶</span>
             </div>
 
+            {/* Region memories */}
             {(() => {
               const regionMems = memories.filter(m => {
                 if (m.type !== 'region' || !m.isActive) return false;
@@ -2211,73 +2535,64 @@ ${recentContext}
                 return locs.some((l: string) => l === currentLocation);
               });
               return regionMems.length > 0 ? (
-                <div className="mb-4">
-                  <h4 className="text-sm mb-2 uppercase tracking-wider flex items-center gap-1" style={{ color: 'var(--text-tab)' }}>
-                    ✦ 區域記憶
-                  </h4>
-                  <div className="space-y-1">
+                <div className="mb-3">
+                  <p className="text-[0.625rem] uppercase tracking-widest mb-1.5 font-semibold" style={{ color: 'var(--text-muted)' }}>區域</p>
+                  <ul className="space-y-1.5">
                     {regionMems.map(mem => (
-                      <div key={mem.id} className="memory-card backdrop-blur-sm p-3 text-sm text-[var(--text-muted)] transition-all duration-300 shadow-sm" style={{ borderLeft: `2px solid var(--bg-elevated)` }}>
-                        <div className="leading-relaxed">
-                          {mem.content}
-                          {mem.expiresAt && <span className="ml-1.5 italic" style={{ color: 'color-mix(in srgb, var(--bg-elevated) 60%, transparent)' }}>（至 {mem.expiresAt}）</span>}
-                        </div>
-                      </div>
+                      <li key={mem.id} className="flex items-start gap-2 text-xs leading-relaxed" style={{ color: 'var(--text-muted)' }}>
+                        <span className="mt-1.5 w-1 h-1 rounded-full shrink-0" style={{ background: 'var(--color-amber)', opacity: 0.7 }}></span>
+                        <span>{mem.content}{mem.expiresAt && <em className="ml-1 opacity-60">（至 {mem.expiresAt}）</em>}</span>
+                      </li>
                     ))}
-                  </div>
+                  </ul>
                 </div>
               ) : null;
             })()}
 
+            {/* Scene memories */}
             {(() => {
               const sceneMems = memories.filter(m =>
                 m.type === 'scene' && m.isActive &&
                 (m.tags?.locations || []).some((l: string) => l === currentLocation)
               );
               return (
-                <div className="mb-4">
-                  <h4 className="text-sm mb-2 uppercase tracking-wider flex items-center gap-1" style={{ color: 'var(--text-tab)' }}>
-                    ✦ 場景記憶
-                  </h4>
-                    {sceneMems.length > 0 ? (
-                      <div className="space-y-1">
-                        {sceneMems.map(mem => (
-                          <div key={mem.id} className="memory-card backdrop-blur-sm p-3 text-sm text-[var(--text-muted)] transition-all duration-300 shadow-sm" style={{ borderLeft: `2px solid var(--bg-elevated)` }}>
-                            <div className="leading-relaxed">
-                              {mem.content}
-                              {mem.source === 'ai_generated' && <span className="ml-1.5 text-[0.5625rem] uppercase tracking-tighter font-bold" style={{ color: 'color-mix(in srgb, var(--bg-elevated) 40%, transparent)' }}>（AI）</span>}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    ) : (
-                    <div className="text-sm ml-4 text-[var(--text-muted)] italic">此場景尚無記憶...</div>
+                <div className="mb-3">
+                  <p className="text-[0.625rem] uppercase tracking-widest mb-1.5 font-semibold" style={{ color: 'var(--text-muted)' }}>場景</p>
+                  {sceneMems.length > 0 ? (
+                    <ul className="space-y-1.5">
+                      {sceneMems.map(mem => (
+                        <li key={mem.id} className="flex items-start gap-2 text-xs leading-relaxed" style={{ color: 'var(--text-muted)' }}>
+                          <span className="mt-1.5 w-1 h-1 rounded-full shrink-0" style={{ background: 'var(--color-sky)', opacity: 0.7 }}></span>
+                          <span>{mem.content}{mem.source === 'ai_generated' && <em className="ml-1 text-[0.625rem] opacity-50">AI</em>}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="text-xs pl-1" style={{ color: 'var(--text-muted)' }}>此場景尚無記憶...</p>
                   )}
                 </div>
               );
             })()}
 
+            {/* NPC memories */}
             {(() => {
               const npcMems = memories.filter(m => m.type === 'npc' && m.isActive);
               return npcMems.length > 0 ? (
                 <div>
-                  <h4 className="text-sm mb-2 uppercase tracking-wider flex items-center gap-1" style={{ color: 'var(--bg-elevated)' }}>
-                    ✦ NPC 記憶
-                  </h4>
-                  <div className="space-y-1">
+                  <p className="text-[0.625rem] uppercase tracking-widest mb-1.5 font-semibold" style={{ color: 'var(--text-muted)' }}>NPC</p>
+                  <ul className="space-y-1.5">
                     {npcMems.map(mem => (
-                      <div key={mem.id} className="memory-card backdrop-blur-sm p-3 text-sm text-[var(--text-muted)] transition-all duration-300 shadow-sm" style={{ borderLeft: `2px solid var(--bg-elevated)` }}>
-                        <div className="leading-relaxed">
+                      <li key={mem.id} className="flex items-start gap-2 text-xs leading-relaxed" style={{ color: 'var(--text-muted)' }}>
+                        <span className="mt-1.5 w-1 h-1 rounded-full shrink-0" style={{ background: 'var(--color-emerald)', opacity: 0.7 }}></span>
+                        <span>
                           {mem.tags?.npcs?.length > 0 && (
-                            <span className="font-bold mr-1.5" style={{ color: 'var(--bg-elevated)' }}>
-                              [{mem.tags.npcs.join(',')}]
-                            </span>
+                            <strong className="mr-1" style={{ color: 'var(--text-title)' }}>[{mem.tags.npcs.join(',')}]</strong>
                           )}
                           {mem.content}
-                        </div>
-                      </div>
+                        </span>
+                      </li>
                     ))}
-                  </div>
+                  </ul>
                 </div>
               ) : null;
             })()}
@@ -2384,6 +2699,538 @@ ${recentContext}
         onTravel={handleTravel}
         showToast={showToast}
       />
+
+      {/* ── Quest Side Panel ── */}
+      <AnimatePresence>
+        {isQuestPanelOpen && (
+          <motion.div
+            ref={questPanelRef}
+            initial={{ opacity: 0, x: -10, scale: 0.97 }}
+            animate={{ opacity: 1, x: 0, scale: 1 }}
+            exit={{ opacity: 0, x: -10, scale: 0.97 }}
+            transition={{ duration: 0.18, ease: 'easeOut' }}
+            className="fixed z-[200] flex flex-col overflow-hidden rounded-[8px]"
+            style={{
+              top: questPanelPos.top,
+              left: questPanelPos.left,
+              width: '340px',
+              maxHeight: '70vh',
+              background: 'color-mix(in srgb, var(--bg-elevated) 95%, transparent)',
+              border: '1px solid var(--border-default)',
+              backdropFilter: 'blur(24px) saturate(160%)',
+              WebkitBackdropFilter: 'blur(24px) saturate(160%)',
+              boxShadow: '0 8px 40px rgba(0,0,0,0.5)',
+            }}
+          >
+            {/* Header */}
+            <div className="px-4 py-3 flex items-center justify-between flex-shrink-0" style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+              <div className="flex items-center gap-2">
+                <BookOpen className="w-4 h-4" style={{ color: 'var(--text-primary)' }} />
+                <span className="font-bold text-base" style={{ color: 'var(--text-primary)' }}>任務日誌</span>
+              </div>
+              <div className="flex items-center gap-3 text-xs mr-2">
+                {[{ count: quests.filter(q=>q.status==='active'&&!q.isGoalMet).length, color:'var(--color-success)', label:'進行' },
+                  { count: quests.filter(q=>q.status==='active'&&q.isGoalMet).length, color:'var(--color-amber)', label:'待報' },
+                  { count: quests.filter(q=>q.status==='completed').length, color:'var(--color-sky)', label:'完成' }].map(({count,color,label})=> count > 0 && (
+                  <span key={label} className="flex items-center gap-1">
+                    <span className="w-1.5 h-1.5 rounded-full" style={{ background: color }} />
+                    <span style={{ color }}>{count} {label}</span>
+                  </span>
+                ))}
+              </div>
+              <button onClick={() => setIsQuestPanelOpen(false)} className="p-1 rounded-full hover:bg-white/5 transition" style={{ color: 'var(--text-muted)' }}><X className="w-3.5 h-3.5" /></button>
+            </div>
+            {/* Quest list */}
+            <div className="flex-1 overflow-y-auto p-3 space-y-2 custom-scrollbar">
+              {quests.length === 0 && <p className="text-sm text-center py-6" style={{ color: 'var(--text-muted)' }}>尚無任務...</p>}
+              {quests.filter(q=>q.status==='active'&&q.isGoalMet).map(q => (
+                <div key={q.id} className="rounded-[8px] p-3 text-sm" style={{ background: 'var(--bg-quest-pending)', border: '1px solid var(--border-quest-pending)' }}>
+                  <div className="flex items-start justify-between gap-2 mb-1">
+                    <span className="font-bold leading-snug" style={{ color: 'var(--text-title)' }}>{q.title}</span>
+                    <span className="text-xs px-1.5 py-0.5 rounded-full whitespace-nowrap" style={{ color: 'var(--color-amber)', background: 'color-mix(in srgb, var(--color-amber) 15%, transparent)' }}>待回報</span>
+                  </div>
+                  <p className="leading-relaxed" style={{ color: 'var(--text-body)' }}>{q.description}</p>
+                </div>
+              ))}
+              {quests.filter(q=>q.status==='active'&&!q.isGoalMet).map(q => (
+                <div key={q.id} className="rounded-[8px] p-3 text-sm" style={{ background: 'var(--bg-quest-active)', border: '1px solid var(--border-quest-active)' }}>
+                  <div className="flex items-start justify-between gap-2 mb-1">
+                    <span className="font-bold leading-snug" style={{ color: 'var(--text-title)' }}>{q.title}</span>
+                    <span className="text-xs px-1.5 py-0.5 rounded-full whitespace-nowrap" style={{ color: 'var(--color-success)', background: 'color-mix(in srgb, var(--color-success) 15%, transparent)' }}>進行中</span>
+                  </div>
+                  <p className="text-xs mb-1" style={{ color: 'color-mix(in srgb, var(--color-amber) 80%, transparent)' }}>委託：{q.giver||'—'}</p>
+                  <p className="leading-relaxed" style={{ color: 'var(--text-body)' }}>{q.description}</p>
+                </div>
+              ))}
+              {quests.filter(q=>q.status==='completed').map(q => (
+                <div key={q.id} className="rounded-[8px] p-3 text-sm opacity-60" style={{ border: '1px solid color-mix(in srgb, var(--border-default) 30%, transparent)' }}>
+                  <span className="font-bold line-through" style={{ color: 'var(--text-muted)' }}>{q.title}</span>
+                </div>
+              ))}
+              {quests.filter(q=>q.status==='failed').map(q => (
+                <div key={q.id} className="rounded-[8px] p-3 text-sm opacity-60" style={{ background: 'var(--bg-quest-failed)', border: '1px solid var(--border-quest-failed)' }}>
+                  <span className="font-bold" style={{ color: 'var(--color-taupe)' }}>{q.title}</span>
+                </div>
+              ))}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* ── Mobile 左側抽屜 ─────────────────────────────────── */}
+      <AnimatePresence>
+        {isMobile && mobileLeftOpen && (
+          <>
+            {/* Overlay */}
+            <motion.div
+              key="left-overlay"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.2 }}
+              className="fixed inset-0 z-[40]"
+              style={{ background: 'rgba(0,0,0,0.55)' }}
+              onClick={() => setMobileLeftOpen(false)}
+            />
+            {/* Drawer */}
+            <motion.div
+              key="left-drawer"
+              initial={{ x: '-100%' }}
+              animate={{ x: 0 }}
+              exit={{ x: '-100%' }}
+              transition={{ duration: 0.25, ease: [0.32, 0.72, 0, 1] }}
+              className="fixed top-0 left-0 bottom-0 z-[50] flex flex-col overflow-hidden"
+              style={{
+                width: 'min(80vw, 300px)',
+                background: 'rgba(12,14,12,0.97)',
+                backdropFilter: 'blur(28px)',
+                WebkitBackdropFilter: 'blur(28px)',
+                borderRight: '0.5px solid rgba(255,255,255,0.07)',
+              }}
+            >
+              {/* Drawer Header */}
+              <div
+                className="flex items-center justify-between px-4 shrink-0"
+                style={{
+                  height: '56px',
+                  paddingTop: 'env(safe-area-inset-top, 0px)',
+                  borderBottom: '0.5px solid rgba(255,255,255,0.07)',
+                }}
+              >
+                <span className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>選單</span>
+                <button
+                  onClick={() => setMobileLeftOpen(false)}
+                  className="flex items-center justify-center"
+                  style={{ width: '28px', height: '28px', borderRadius: '6px', background: 'rgba(255,255,255,0.05)', border: '0.5px solid rgba(255,255,255,0.08)' }}
+                >
+                  <X className="w-3.5 h-3.5" style={{ color: 'var(--text-muted)' }} />
+                </button>
+              </div>
+
+              {/* Drawer Body */}
+              <div className="flex-1 overflow-y-auto px-3 py-3 flex flex-col gap-3">
+
+                {/* ── Widget: Note Paper ── */}
+                <div
+                  className="rounded-[8px] overflow-hidden relative"
+                  style={{
+                    background: 'rgba(248,242,226,0.90)',
+                    border: '1px solid rgba(185,165,130,0.55)',
+                    backdropFilter: 'blur(24px) saturate(180%)',
+                    WebkitBackdropFilter: 'blur(24px) saturate(180%)',
+                    boxShadow: `2px 2px 0 0 rgba(235,225,205,0.92), 4px 4px 0 0 rgba(220,210,190,0.82), 0 10px 28px rgba(0,0,0,0.32), inset 0 1px 0 rgba(255,255,255,0.55)`,
+                  }}
+                >
+                  <div className="absolute inset-0 pointer-events-none" style={{ backgroundImage: 'repeating-linear-gradient(transparent 0, transparent 27px, rgba(140,110,70,0.09) 27px, rgba(140,110,70,0.09) 28px)', backgroundPosition: '0 52px', zIndex: 0 }} />
+                  <div className="absolute top-0 bottom-0 pointer-events-none" style={{ left: '38px', width: '1px', background: 'linear-gradient(to bottom, transparent 8%, rgba(188,55,55,0.16) 16%, rgba(188,55,55,0.16) 84%, transparent 92%)', zIndex: 0 }} />
+                  <div className="relative" style={{ zIndex: 1 }}>
+                    <div className="px-4 pt-3 pb-1 flex items-center">
+                      <h3 className="flex items-center font-bold text-lg" style={{ color: 'var(--text-note)' }}>
+                        <ScrollText className="w-4 h-4 mr-2" style={{ color: 'var(--text-note)' }} /> 當前目標
+                        {isUpdatingLog && <RefreshCw className="w-3 h-3 ml-2 animate-spin opacity-50" style={{ color: 'var(--text-note)' }} />}
+                      </h3>
+                    </div>
+                    <ul className="px-4 pb-2 space-y-1.5">
+                      {currentGoals.length > 0 ? currentGoals.map((goal, i) => (
+                        <li key={i} className="text-sm leading-relaxed flex items-start gap-2">
+                          <span className="flex-shrink-0 mt-0.5 text-xs" style={{ color: 'rgba(120,90,50,0.40)' }}>○</span>
+                          <span style={{ color: 'var(--text-note)' }}>{goal}</span>
+                        </li>
+                      )) : (
+                        <li className="text-sm" style={{ color: 'var(--text-note-muted)' }}>暫無明確目標...</li>
+                      )}
+                    </ul>
+                    <button className="w-full px-4 py-2 flex items-center transition-all" onClick={() => setSummaryCollapsed(prev => !prev)} style={{ background: 'transparent' }}>
+                      {summaryCollapsed ? <ChevronRight className="w-3.5 h-3.5 mr-1.5 flex-shrink-0" style={{ color: 'var(--text-note)' }} /> : <ChevronDown className="w-3.5 h-3.5 mr-1.5 flex-shrink-0" style={{ color: 'var(--text-note)' }} />}
+                      <span className="text-sm font-bold" style={{ color: 'var(--text-note)' }}>冒險摘要</span>
+                    </button>
+                    <AnimatePresence>
+                      {!summaryCollapsed && (
+                        <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.2 }} className="overflow-hidden">
+                          <div className="px-4 pb-3">
+                            {adventureLog.length > 0 ? (
+                              <div className="text-sm leading-relaxed flex items-start gap-2">
+                                <span className="flex-shrink-0 mt-0.5 text-xs" style={{ color: 'rgba(120,90,50,0.35)' }}>∵</span>
+                                <span style={{ color: 'var(--text-note)', opacity: 0.85 }}>{adventureLog[0]}</span>
+                              </div>
+                            ) : (
+                              <div className="text-sm" style={{ color: 'var(--text-note-muted)' }}>等待冒險展開...</div>
+                            )}
+                          </div>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+                  </div>
+                </div>
+
+                {/* ── Widget: 裝備（inline expand）── */}
+                <div>
+                  <button
+                    onClick={() => { setIsInventoryOpen(prev => !prev); if (isConsumablesOpen) setIsConsumablesOpen(false); }}
+                    className="w-full rounded-[8px] px-4 py-3 shadow-xl flex items-center gap-3 transition-all"
+                    style={{
+                      background: isInventoryOpen ? 'color-mix(in srgb, var(--bg-elevated) 95%, transparent)' : 'color-mix(in srgb, var(--bg-elevated) 80%, transparent)',
+                      border: `1px solid ${isInventoryOpen ? 'var(--border-accent)' : 'color-mix(in srgb, var(--border-default) 60%, transparent)'}`,
+                      backdropFilter: 'blur(24px) saturate(160%)',
+                      WebkitBackdropFilter: 'blur(24px) saturate(160%)',
+                    }}
+                  >
+                    <div className="relative shrink-0">
+                      <Package className="w-4 h-4" style={{ color: 'var(--text-primary)' }} />
+                      {equipment.length > 0 && (
+                        <span className="absolute -top-1.5 -right-2 text-[0.625rem] font-bold px-1 min-w-[16px] text-center rounded-full" style={{ background: 'var(--tab-active)', color: '#fff', lineHeight: '16px' }}>
+                          {equipment.length}
+                        </span>
+                      )}
+                    </div>
+                    <span className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>裝備</span>
+                    <ChevronDown className="w-3.5 h-3.5 ml-auto" style={{ color: 'var(--text-muted)', transform: isInventoryOpen ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }} />
+                  </button>
+                  <AnimatePresence>
+                    {isInventoryOpen && (
+                      <motion.div
+                        initial={{ height: 0, opacity: 0 }}
+                        animate={{ height: 'auto', opacity: 1 }}
+                        exit={{ height: 0, opacity: 0 }}
+                        transition={{ duration: 0.2 }}
+                        className="overflow-hidden"
+                      >
+                        <div className="mt-1 rounded-[8px] border p-2 space-y-2" style={{ borderColor: 'var(--border-default)', background: 'color-mix(in srgb, var(--bg-elevated) 80%, transparent)' }}>
+                          {equipment.length > 0 ? equipment.map(item => (
+                            <div key={item.id} className="p-2.5 rounded-[8px] border cursor-pointer transition-all" style={{ borderColor: 'color-mix(in srgb, var(--bg-elevated) 50%, transparent)' }} onClick={() => setSelectedInventoryItem(selectedInventoryItem === item.id ? null : item.id)}>
+                              <div className="text-sm font-medium" style={{ color: 'var(--text-title)' }}>{item.name}</div>
+                              <div className="text-sm leading-relaxed" style={{ color: 'color-mix(in srgb, var(--text-body) 80%, transparent)' }}>{item.description}</div>
+                              <AnimatePresence>
+                                {selectedInventoryItem === item.id && (
+                                  <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="flex space-x-2 mt-2.5 pt-2.5 overflow-hidden" style={{ borderTop: '1px solid color-mix(in srgb, var(--bg-elevated) 50%, transparent)' }}>
+                                    <button className="flex-1 text-sm py-1.5 rounded-[8px] transition font-medium" style={{ background: 'color-mix(in srgb, var(--bg-elevated) 30%, transparent)', color: 'var(--text-title)' }} onClick={(e) => { e.stopPropagation(); showToast(`裝備了 ${item.name}`); setSelectedInventoryItem(null); }}>裝備</button>
+                                    <button className="flex-1 text-sm py-1.5 rounded-[8px] transition font-medium" style={{ background: 'color-mix(in srgb, var(--bg-elevated) 30%, transparent)', color: 'var(--text-title)' }} onClick={(e) => { e.stopPropagation(); showToast(`卸下了 ${item.name}`); setSelectedInventoryItem(null); }}>卸下</button>
+                                    <button className="flex-1 border text-sm py-1.5 rounded-[8px] transition font-medium" style={{ background: 'color-mix(in srgb, var(--color-rose) 10%, transparent)', color: 'var(--text-danger)', borderColor: 'color-mix(in srgb, var(--color-rose) 20%, transparent)' }} onClick={(e) => { e.stopPropagation(); setEquipment(prev => prev.filter(i => i.id !== item.id)); showToast(`丟棄了 ${item.name}`); setSelectedInventoryItem(null); }}>丟棄</button>
+                                  </motion.div>
+                                )}
+                              </AnimatePresence>
+                            </div>
+                          )) : <div className="text-center text-sm py-4" style={{ color: 'var(--text-muted)' }}>背包空空如也...</div>}
+                        </div>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </div>
+
+                {/* ── Widget: 消耗品（inline expand）── */}
+                <div>
+                  <button
+                    onClick={() => { setIsConsumablesOpen(prev => !prev); if (isInventoryOpen) setIsInventoryOpen(false); }}
+                    className="w-full rounded-[8px] px-4 py-3 shadow-xl flex items-center gap-3 transition-all"
+                    style={{
+                      background: isConsumablesOpen ? 'color-mix(in srgb, var(--bg-elevated) 95%, transparent)' : 'color-mix(in srgb, var(--bg-elevated) 80%, transparent)',
+                      border: `1px solid ${isConsumablesOpen ? 'var(--border-accent)' : 'color-mix(in srgb, var(--border-default) 60%, transparent)'}`,
+                      backdropFilter: 'blur(24px) saturate(160%)',
+                      WebkitBackdropFilter: 'blur(24px) saturate(160%)',
+                    }}
+                  >
+                    <div className="relative shrink-0">
+                      <Beaker className="w-4 h-4" style={{ color: 'var(--text-primary)' }} />
+                      {items.reduce((acc, item) => acc + item.quantity, 0) > 0 && (
+                        <span className="absolute -top-1.5 -right-2 text-[0.625rem] font-bold px-1 min-w-[16px] text-center rounded-full" style={{ background: 'var(--tab-active)', color: '#fff', lineHeight: '16px' }}>
+                          {items.reduce((acc, item) => acc + item.quantity, 0)}
+                        </span>
+                      )}
+                    </div>
+                    <span className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>消耗品</span>
+                    <ChevronDown className="w-3.5 h-3.5 ml-auto" style={{ color: 'var(--text-muted)', transform: isConsumablesOpen ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }} />
+                  </button>
+                  <AnimatePresence>
+                    {isConsumablesOpen && (
+                      <motion.div
+                        initial={{ height: 0, opacity: 0 }}
+                        animate={{ height: 'auto', opacity: 1 }}
+                        exit={{ height: 0, opacity: 0 }}
+                        transition={{ duration: 0.2 }}
+                        className="overflow-hidden"
+                      >
+                        <div className="mt-1 rounded-[8px] border p-2 space-y-2" style={{ borderColor: 'var(--border-default)', background: 'color-mix(in srgb, var(--bg-elevated) 80%, transparent)' }}>
+                          {items.length > 0 ? items.map(item => (
+                            <div key={item.id} className="p-2.5 rounded-[8px] border cursor-pointer transition-all" style={{ borderColor: 'color-mix(in srgb, var(--bg-elevated) 50%, transparent)' }} onClick={() => setSelectedConsumableItem(selectedConsumableItem === item.id ? null : item.id)}>
+                              <div className="flex justify-between items-center mb-1">
+                                <span className="text-sm font-medium" style={{ color: 'var(--text-title)' }}>{item.name}</span>
+                                <span className="text-sm font-mono px-1.5 py-0.5 rounded-[8px]" style={{ background: 'var(--bg-elevated)', color: 'var(--text-body)' }}>x{item.quantity}</span>
+                              </div>
+                              <div className="text-sm leading-relaxed" style={{ color: 'color-mix(in srgb, var(--text-body) 80%, transparent)' }}>{item.description}</div>
+                              <AnimatePresence>
+                                {selectedConsumableItem === item.id && (
+                                  <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="flex space-x-2 mt-2.5 pt-2.5 overflow-hidden" style={{ borderTop: '1px solid color-mix(in srgb, var(--bg-elevated) 50%, transparent)' }}>
+                                    <button className="flex-1 border text-sm py-1.5 rounded-[8px] transition font-medium" style={{ background: 'color-mix(in srgb, var(--color-emerald) 10%, transparent)', color: 'var(--color-emerald)', borderColor: 'color-mix(in srgb, var(--color-emerald) 20%, transparent)' }} onClick={(e) => { e.stopPropagation(); useItem(item.name); setSelectedConsumableItem(null); handleSendMessage(`（我使用了 ${item.name}（${item.description}））`); }}>使用</button>
+                                    <button className="flex-1 border text-sm py-1.5 rounded-[8px] transition font-medium" style={{ background: 'color-mix(in srgb, var(--color-rose) 10%, transparent)', color: 'var(--text-danger)', borderColor: 'color-mix(in srgb, var(--color-rose) 20%, transparent)' }} onClick={(e) => { e.stopPropagation(); setItems(prev => prev.filter(i => i.id !== item.id)); showToast(`丟棄了 ${item.name}`); setSelectedConsumableItem(null); }}>丟棄</button>
+                                  </motion.div>
+                                )}
+                              </AnimatePresence>
+                            </div>
+                          )) : <div className="text-center text-sm py-4" style={{ color: 'var(--text-muted)' }}>沒有任何消耗品...</div>}
+                        </div>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </div>
+
+                {/* ── Widget: Pinned NPCs ── */}
+                {npcs.filter(n => n.isPinned).length > 0 && (
+                  <div className="rounded-[8px] px-4 py-3 shadow-xl overflow-hidden" style={{ background: 'color-mix(in srgb, var(--bg-elevated) 80%, transparent)', border: '1px solid color-mix(in srgb, var(--border-default) 60%, transparent)', backdropFilter: 'blur(24px) saturate(160%)', WebkitBackdropFilter: 'blur(24px) saturate(160%)' }}>
+                    <h3 className="font-bold mb-3 text-sm" style={{ color: 'var(--text-primary)' }}>✦ 關注</h3>
+                    <div className="space-y-2">
+                      {npcs.filter(n => n.isPinned).map(npc => (
+                        <div key={npc.id} className="backdrop-blur-md p-3 rounded-[10px] flex justify-between items-center cursor-pointer transition-all duration-300 shadow-md border border-white/5 relative overflow-hidden group/pinned" onClick={() => setSelectedNpc(npc)}>
+                          <div className="absolute top-0 left-0 w-1 h-full opacity-40" style={{ background: 'var(--border-accent)' }}></div>
+                          <div>
+                            <div className="text-sm font-bold" style={{ color: 'var(--text-title)' }}>{npc.name}</div>
+                            <div className="text-sm uppercase tracking-tighter" style={{ color: 'var(--text-body)' }}>{npc.job}</div>
+                          </div>
+                          <div className="flex flex-col items-end">
+                            <div className="text-sm flex items-center bg-black/20 px-2 py-0.5 rounded-full border border-white/10" style={{ color: affectionColor(npc.affection) }}>
+                              <Heart className="w-3 h-3 mr-1 fill-current" /> {npc.affection}
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* 底部快捷按鈕 */}
+                <div className="rounded-[8px] p-2 mt-auto" style={{ background: 'rgba(0,0,0,0.58)', backdropFilter: 'blur(20px) saturate(150%)', WebkitBackdropFilter: 'blur(20px) saturate(150%)', border: '1px solid rgba(255,255,255,0.07)', boxShadow: '0 4px 20px rgba(0,0,0,0.55)' }}>
+                  <div className="grid grid-cols-2 gap-1.5">
+                    {[
+                      { label: '個人資訊', action: () => setIsProfileModalOpen(true) },
+                      { label: '故事集', action: () => setIsLorebookModalOpen(true) },
+                      { label: '系統', action: () => setIsSettingsModalOpen(true) },
+                      { label: 'Prompt', action: () => setIsSystemPromptModalOpen(true) },
+                    ].map(item => (
+                      <div key={item.label} className="p-1.5 rounded-[5px] cursor-pointer transition-all flex items-center justify-center" style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)' }}
+                        onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.10)'; e.currentTarget.style.border = '1px solid rgba(255,255,255,0.12)'; }}
+                        onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.04)'; e.currentTarget.style.border = '1px solid rgba(255,255,255,0.06)'; }}
+                        onClick={item.action}
+                      >
+                        <span className="flex items-center text-xs" style={{ color: 'var(--text-main)' }}>{item.label}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+
+      {/* ── Mobile 右側抽屜 ─────────────────────────────────── */}
+      <AnimatePresence>
+        {isMobile && mobileRightOpen && (
+          <>
+            {/* Overlay */}
+            <motion.div
+              key="right-overlay"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.2 }}
+              className="fixed inset-0 z-[40]"
+              style={{ background: 'rgba(0,0,0,0.55)' }}
+              onClick={() => setMobileRightOpen(false)}
+            />
+            {/* Drawer */}
+            <motion.div
+              key="right-drawer"
+              initial={{ x: '100%' }}
+              animate={{ x: 0 }}
+              exit={{ x: '100%' }}
+              transition={{ duration: 0.25, ease: [0.32, 0.72, 0, 1] }}
+              className="fixed top-0 right-0 bottom-0 z-[50] flex flex-col overflow-hidden"
+              style={{
+                width: 'min(80vw, 300px)',
+                background: 'rgba(12,14,12,0.97)',
+                backdropFilter: 'blur(28px)',
+                WebkitBackdropFilter: 'blur(28px)',
+                borderLeft: '0.5px solid rgba(255,255,255,0.07)',
+              }}
+            >
+              {/* Drawer Header */}
+              <div
+                className="flex items-center justify-between px-4 shrink-0"
+                style={{
+                  height: '56px',
+                  paddingTop: 'env(safe-area-inset-top, 0px)',
+                  borderBottom: '0.5px solid rgba(255,255,255,0.07)',
+                }}
+              >
+                <span className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>資訊面板</span>
+                <button
+                  onClick={() => setMobileRightOpen(false)}
+                  className="flex items-center justify-center"
+                  style={{ width: '28px', height: '28px', borderRadius: '6px', background: 'rgba(255,255,255,0.05)', border: '0.5px solid rgba(255,255,255,0.08)' }}
+                >
+                  <X className="w-3.5 h-3.5" style={{ color: 'var(--text-muted)' }} />
+                </button>
+              </div>
+
+              {/* Drawer Body — 桌面右欄內容 */}
+              <div className="flex-1 overflow-y-auto p-3 flex flex-col gap-3">
+
+                {/* ── Widget 1: 世界記憶 ── */}
+                <div className="rounded-[8px] border border-white/10 backdrop-blur-md p-4 shadow-xl transition-all duration-300 group/wm" style={{ background: 'rgba(10,10,20,0.55)' }}>
+                  <div className="flex items-center gap-2 mb-4">
+                    <Sparkles className="w-4 h-4 shrink-0" style={{ color: 'var(--color-amber)' }} />
+                    <span className="text-lg font-bold" style={{ color: 'var(--text-primary)' }}>世界記憶</span>
+                  </div>
+                  <div className="rounded-[4px] border border-white/10 shadow-[0_8px_32px_rgba(0,0,0,0.3)] backdrop-blur-md relative overflow-hidden mb-3" style={{ background: `linear-gradient(135deg, #1e1477, var(--bg-elevated))` }}>
+                    <div className="absolute -right-6 -bottom-6 opacity-10 group-hover/wm:opacity-20 transition-all duration-700 rotate-12 group-hover/wm:scale-110">
+                      <Sparkles className="w-[72px] h-[72px]" style={{ color: 'white' }} />
+                    </div>
+                    <div className="absolute top-0 left-0 w-full h-[1px]" style={{ background: `linear-gradient(to right, transparent, rgba(255,255,255,0.15), transparent)` }}></div>
+                    <div className="px-4 py-2.5 relative z-10">
+                      <div className="flex items-center gap-2 mb-1.5">
+                        <div className="p-1.5 rounded-[8px] bg-white/5 border border-white/10"><Calendar className="w-3 h-3" style={{ color: 'var(--text-muted)' }} /></div>
+                        <span className="text-xs font-bold tracking-[0.15em] uppercase" style={{ color: 'var(--text-body)' }}>{currentMonthData.elegant}</span>
+                      </div>
+                      <p className="text-xs leading-relaxed font-light pl-1" style={{ color: 'color-mix(in srgb, var(--text-body) 85%, transparent)', borderLeft: `1px solid rgba(255,255,255,0.15)` }}>{currentMonthData.desc}</p>
+                    </div>
+                  </div>
+                  <div className="space-y-1.5">
+                    {memories.filter(m => m.type === 'world' && m.isActive).map(mem => (
+                      <div key={mem.id} className="flex items-start gap-2 text-xs leading-relaxed py-1 pl-2" style={{ borderLeft: `2px solid var(--border-default)` }}>
+                        {mem.importance === 'critical' && <Sparkles className="w-3 h-3 mt-0.5 shrink-0" style={{ color: 'var(--color-amber)' }} />}
+                        <span style={{ color: 'var(--text-muted)' }}>{mem.content}</span>
+                      </div>
+                    ))}
+                    {memories.filter(m => m.type === 'world' && m.isActive).length === 0 && (
+                      <p className="text-xs pl-1" style={{ color: 'var(--text-muted)' }}>尚無世界記憶</p>
+                    )}
+                  </div>
+                </div>
+
+                {/* ── Widget 2: 當前場景人物 ── */}
+                <div className="rounded-[8px] border border-white/10 backdrop-blur-md p-4 shadow-xl transition-all duration-300" style={{ background: 'rgba(10,15,10,0.55)' }}>
+                  <div className="flex items-center gap-2 mb-4">
+                    <Users className="w-4 h-4 shrink-0" style={{ color: 'var(--text-title)' }} />
+                    <span className="text-lg font-bold" style={{ color: 'var(--text-primary)' }}>當前場景人物</span>
+                  </div>
+                  <div className="space-y-2">
+                    {(() => {
+                      const sceneNpcs = npcs.filter(n => appearingNpcs.includes(n.name) || n.location === currentLocation || n.isPinned);
+                      const hiddenCount = Math.max(0, sceneNpcs.length - 8);
+                      const displayedNpcs = sceneNpcs.slice(0, 8);
+                      return sceneNpcs.length > 0 ? (
+                        <>
+                          {displayedNpcs.map(npc => {
+                            const lore = lorebookEntries.find(e => e.category === 'NPC' && e.title === npc.name);
+                            const displayJob    = lore?.job    ?? npc.job    ?? '';
+                            const displayGender = lore?.gender ?? '';
+                            return (
+                              <div key={npc.id} className="backdrop-blur-md border border-white/5 p-2.5 rounded-[4px] flex justify-between items-center cursor-pointer transition-all duration-300 shadow-lg group/npc overflow-hidden relative hover:border-white/15" onClick={() => setSelectedNpc(npc)}>
+                                <div className="absolute top-0 left-0 w-1 h-full opacity-0 group-hover/npc:opacity-40 transition-opacity" style={{ background: `linear-gradient(to bottom, transparent, var(--bg-elevated), transparent)` }}></div>
+                                <div className="flex flex-col">
+                                  <span className="text-sm font-medium" style={{ color: 'var(--text-title)' }}>{npc.name}</span>
+                                  <span className="text-xs uppercase tracking-tighter" style={{ color: 'var(--text-body)' }}>{displayGender ? `${displayGender}・${displayJob}` : displayJob}</span>
+                                </div>
+                                <div className="text-xs flex items-center px-2 py-1 rounded-full bg-black/20 border border-white/5" style={{ color: affectionColor(npc.affection) }}>
+                                  <Heart className="w-3 h-3 mr-1 fill-current" />
+                                  <span className="font-mono">{npc.affection}</span>
+                                </div>
+                              </div>
+                            );
+                          })}
+                          {hiddenCount > 0 && <div className="text-xs pl-1" style={{ color: 'var(--text-muted)' }}>✦ 還有 {hiddenCount} 人未顯示...</div>}
+                        </>
+                      ) : <p className="text-xs pl-1" style={{ color: 'var(--text-muted)' }}>此處目前沒有人...</p>;
+                    })()}
+                  </div>
+                </div>
+
+                {/* ── Widget 3: 場景 & 區域記憶 ── */}
+                <div className="rounded-[8px] border border-white/10 backdrop-blur-md p-4 shadow-xl transition-all duration-300" style={{ background: 'rgba(15,10,5,0.55)' }}>
+                  <div className="flex items-center gap-2 mb-4">
+                    <MapPin className="w-4 h-4 shrink-0" style={{ color: 'var(--color-amber)' }} />
+                    <span className="text-lg font-bold" style={{ color: 'var(--text-primary)' }}>場景記憶</span>
+                  </div>
+                  {(() => {
+                    const regionMems = memories.filter(m => { if (m.type !== 'region' || !m.isActive) return false; const locs = m.tags?.locations || []; if (locs.length === 0) return true; return locs.some((l: string) => l === currentLocation); });
+                    return regionMems.length > 0 ? (
+                      <div className="mb-3">
+                        <p className="text-[0.625rem] uppercase tracking-widest mb-1.5 font-semibold" style={{ color: 'var(--text-muted)' }}>區域</p>
+                        <ul className="space-y-1.5">
+                          {regionMems.map(mem => (
+                            <li key={mem.id} className="flex items-start gap-2 text-xs leading-relaxed" style={{ color: 'var(--text-muted)' }}>
+                              <span className="mt-1.5 w-1 h-1 rounded-full shrink-0" style={{ background: 'var(--color-amber)', opacity: 0.7 }}></span>
+                              <span>{mem.content}{mem.expiresAt && <em className="ml-1 opacity-60">（至 {mem.expiresAt}）</em>}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    ) : null;
+                  })()}
+                  {(() => {
+                    const sceneMems = memories.filter(m => m.type === 'scene' && m.isActive && (m.tags?.locations || []).some((l: string) => l === currentLocation));
+                    return (
+                      <div className="mb-3">
+                        <p className="text-[0.625rem] uppercase tracking-widest mb-1.5 font-semibold" style={{ color: 'var(--text-muted)' }}>場景</p>
+                        {sceneMems.length > 0 ? (
+                          <ul className="space-y-1.5">
+                            {sceneMems.map(mem => (
+                              <li key={mem.id} className="flex items-start gap-2 text-xs leading-relaxed" style={{ color: 'var(--text-muted)' }}>
+                                <span className="mt-1.5 w-1 h-1 rounded-full shrink-0" style={{ background: 'var(--color-sky)', opacity: 0.7 }}></span>
+                                <span>{mem.content}{mem.source === 'ai_generated' && <em className="ml-1 text-[0.625rem] opacity-50">AI</em>}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        ) : <p className="text-xs pl-1" style={{ color: 'var(--text-muted)' }}>此場景尚無記憶...</p>}
+                      </div>
+                    );
+                  })()}
+                  {(() => {
+                    const npcMems = memories.filter(m => m.type === 'npc' && m.isActive);
+                    return npcMems.length > 0 ? (
+                      <div>
+                        <p className="text-[0.625rem] uppercase tracking-widest mb-1.5 font-semibold" style={{ color: 'var(--text-muted)' }}>NPC</p>
+                        <ul className="space-y-1.5">
+                          {npcMems.map(mem => (
+                            <li key={mem.id} className="flex items-start gap-2 text-xs leading-relaxed" style={{ color: 'var(--text-muted)' }}>
+                              <span className="mt-1.5 w-1 h-1 rounded-full shrink-0" style={{ background: 'var(--color-emerald)', opacity: 0.7 }}></span>
+                              <span>
+                                {mem.tags?.npcs?.length > 0 && <strong className="mr-1" style={{ color: 'var(--text-title)' }}>[{mem.tags.npcs.join(',')}]</strong>}
+                                {mem.content}
+                              </span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    ) : null;
+                  })()}
+                </div>
+
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
 
       {/* Toast Notification */}
       {toastMessage && (
