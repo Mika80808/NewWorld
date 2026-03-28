@@ -1,5 +1,8 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { Settings, Send, RefreshCw, MoreVertical, Book, BookOpen, User, Package, Beaker, Users, Heart, MapPin, Zap, Coins, Calendar, Shield, CheckSquare, ChevronDown, ChevronRight, Map as MapIcon, Cloud, Sun, CloudRain, Snowflake, Moon, Wind, Sparkles, Brain, ScrollText, History, X, Edit2, Trash2 } from 'lucide-react';
+import { supabase } from './lib/supabase';
+import type { SaveSlot } from './lib/supabase';
+import type { User as SupabaseUser } from '@supabase/supabase-js';
 import { motion, AnimatePresence } from 'motion/react';
 import { useAIRequest } from './hooks/useAIRequest';
 import { DiaryModal } from './components/DiaryModal';
@@ -149,6 +152,11 @@ export default function App() {
   const questBtnRef = useRef<HTMLDivElement>(null);
   const questPanelRef = useRef<HTMLDivElement>(null);
   const [questPanelPos, setQuestPanelPos] = useState({ top: 0, left: 0 });
+  // ─── Auth State（Supabase）───────────────────────────────────────────────────
+  const [authUser, setAuthUser] = useState<SupabaseUser | null>(null);
+  const [authLoading, setAuthLoading] = useState(true);
+  const [currentSlotName, setCurrentSlotName] = useState<string>('存檔一');
+
   // ── Mobile Layout State ──────────────────────────────────────────
   const [isMobile, setIsMobile] = useState(() => window.innerWidth <= 640);
   const [mobileLeftOpen, setMobileLeftOpen] = useState(false);
@@ -410,6 +418,18 @@ ${newPool.map((s, i) => `${i + 1}. ${s}`).join('\n')}`;
       getReport: () => console.log(performanceMonitor.generateReport()),
       clear: () => performanceMonitor.clear(),
     };
+  }, []);
+
+  // ─── Auth 初始化（Supabase）──────────────────────────────────────────────────
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data }) => {
+      setAuthUser(data.session?.user ?? null);
+      setAuthLoading(false);
+    });
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
+      setAuthUser(session?.user ?? null);
+    });
+    return () => listener.subscription.unsubscribe();
   }, []);
 
   // ─── 時間工具 ────────────────────────────────────────────────────────────────
@@ -838,12 +858,27 @@ ${poolText}
   };
 
   // ─── 每次 AI 回應結束後自動存檔 ─────────────────────────────────────────────
+  const authUserRef = useRef<SupabaseUser | null>(null);
+  const currentSlotNameRef = useRef<string>('存檔一');
+  useEffect(() => { authUserRef.current = authUser; }, [authUser]);
+  useEffect(() => { currentSlotNameRef.current = currentSlotName; }, [currentSlotName]);
+
   useEffect(() => {
     if (!isLoading && !isUpdatingLog && messages.length > 0 && messages[messages.length - 1]?.role === 'assistant') {
-      saveToStorage();
-      const now = new Date();
-      localStorage.setItem('rpworld_last_saved', now.toISOString());
-      setLastSavedAt(now);
+      saveToStorage().then(async () => {
+        const now = new Date();
+        localStorage.setItem('rpworld_last_saved', now.toISOString());
+        setLastSavedAt(now);
+        // 雲端同步（非同步、不阻塞）
+        if (authUserRef.current && currentSlotNameRef.current) {
+          const fullState = {
+            profile, systemPrompt, diaryEntries, lorebookEntries, npcs, appearingNpcs,
+            equipment, items, currentLocation, messages, memories, quickOptions,
+            timeState, quests, adventureLog, currentGoals,
+          };
+          saveToCloud(currentSlotNameRef.current, fullState).catch(() => {});
+        }
+      });
     }
   }, [isLoading, isUpdatingLog]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -902,6 +937,55 @@ ${poolText}
         window.location.reload();
       });
     }
+  };
+
+  // ─── Google 登入 / 登出 ──────────────────────────────────────────────────────
+  const handleGoogleLogin = async () => {
+    await supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: { redirectTo: window.location.origin },
+    });
+  };
+
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
+    setAuthUser(null);
+  };
+
+  // ─── 雲端存檔函式 ─────────────────────────────────────────────────────────────
+  const saveToCloud = async (slotName: string, data: object) => {
+    if (!authUser) return;
+    const { error } = await supabase.from('saves').upsert({
+      user_id: authUser.id,
+      slot_name: slotName,
+      save_data: data,
+      schema_version: 2,
+      updated_at: new Date().toISOString(),
+    }, { onConflict: 'user_id,slot_name' });
+    if (error) showToast('☁️ 雲端存檔失敗');
+    else showToast('☁️ 已同步雲端');
+  };
+
+  const loadFromCloud = async (slotName: string) => {
+    if (!authUser) return null;
+    const { data, error } = await supabase
+      .from('saves')
+      .select('save_data, schema_version')
+      .eq('user_id', authUser.id)
+      .eq('slot_name', slotName)
+      .single();
+    if (error || !data) return null;
+    return data as { save_data: Record<string, unknown>; schema_version: number };
+  };
+
+  const listCloudSaves = async (): Promise<SaveSlot[]> => {
+    if (!authUser) return [];
+    const { data } = await supabase
+      .from('saves')
+      .select('id, slot_name, save_data, schema_version, updated_at')
+      .eq('user_id', authUser.id)
+      .order('updated_at', { ascending: false });
+    return (data ?? []) as SaveSlot[];
   };
 
   const handleAddNpcMemory = (npcId: number, text: string, importance: 'core' | 'normal' = 'normal') => {
@@ -2136,8 +2220,8 @@ ${recentContext}
             const timeStr = lastSavedAt.toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
             const dateStr = lastSavedAt.toLocaleDateString('zh-TW', { month: 'numeric', day: 'numeric' });
             return (
-              <p className="text-center text-xs text-[var(--text-muted)] mt-1.5">
-                上次存檔 {isToday ? timeStr : `${dateStr} ${timeStr}`}
+              <p className="text-center text-xs mt-1.5" style={{ color: 'var(--text-muted)' }}>
+                [{currentSlotName}] 上次存檔 {isToday ? timeStr : `${dateStr} ${timeStr}`}
               </p>
             );
           })()}
@@ -2682,6 +2766,30 @@ ${recentContext}
         handleExportSave={handleExportSave}
         handleImportSave={handleImportSave}
         handleResetGame={handleResetGame}
+        authUser={authUser}
+        authLoading={authLoading}
+        currentSlotName={currentSlotName}
+        setCurrentSlotName={setCurrentSlotName}
+        onGoogleLogin={handleGoogleLogin}
+        onLogout={handleLogout}
+        onSaveToCloud={saveToCloud}
+        onLoadFromCloud={async (slotName) => {
+          const result = await loadFromCloud(slotName);
+          if (result) {
+            loadFromData(result.save_data as Parameters<typeof loadFromData>[0]);
+            setCurrentSlotName(slotName);
+            showToast(`☁️ 已載入「${slotName}」`);
+            setIsSettingsModalOpen(false);
+          } else {
+            showToast('☁️ 雲端存檔讀取失敗');
+          }
+        }}
+        onListCloudSaves={listCloudSaves}
+        getFullState={() => ({
+          profile, systemPrompt, diaryEntries, lorebookEntries, npcs, appearingNpcs,
+          equipment, items, currentLocation, messages, memories, quickOptions,
+          timeState, quests, adventureLog, currentGoals,
+        })}
       />
 
       {/* Map Modal */}

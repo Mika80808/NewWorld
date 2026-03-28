@@ -103,8 +103,11 @@
 - [ ] 向量語意搜尋記憶
   - 進階記憶檢索，以語意相似度取代關鍵字判斷是否注入。
 
+- [x] P2｜Supabase Auth + 多存檔槽雲端同步
+  2026-03-28 [Claude Sonnet 4.6]: 安裝 `@supabase/supabase-js`，新增 `src/lib/supabase.ts`（client 初始化、SaveSlot 型別），App.tsx 加入 authUser/authLoading/currentSlotName state、Google OAuth 登入/登出、saveToCloud/loadFromCloud/listCloudSaves 函式、AI 回應後自動雲端同步，SettingsModal 新增帳號區塊（登入/登出/頭像）與存檔槽 Modal（列出最多 5 槽、載入/覆蓋儲存/重新命名），左欄顯示目前存檔槽名稱。
+
 - [ ] Firebase 雲端儲存
-  - 取代 localStorage，支援跨裝置同步。（目前已決定暫緩）
+  - 取代 localStorage，支援跨裝置同步。（已由 Supabase 取代）
 
 - [ ] 多配色主題
   - 用 `data-theme` + CSS variables 切換主題。

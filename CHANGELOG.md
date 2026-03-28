@@ -3,6 +3,32 @@
 > 純歷史紀錄，對開發者友好。待做任務請見 TODO.md。
 > 每次 AI 改完功能，請在對應版本區塊補上一條記錄。
 
+### P2 Supabase Auth + 多存檔槽雲端同步 2026-03-28 [Claude Sonnet 4.6]
+
+**目標**：Google OAuth 登入後自動同步存檔至 Supabase，支援最多 5 個存檔槽管理。
+
+#### **新增檔案**
+- `src/lib/supabase.ts`：Supabase client 初始化（`createClient`），`SaveSlot` 型別定義
+- `.env.local`：`VITE_SUPABASE_URL`、`VITE_SUPABASE_ANON_KEY`（不 commit）
+
+#### **改動**：`src/App.tsx`
+- 新增 imports：`supabase`、`SaveSlot`、`User as SupabaseUser`
+- 新增 state：`authUser`、`authLoading`、`currentSlotName`
+- 新增 refs：`authUserRef`、`currentSlotNameRef`（避免 stale closure）
+- 新增 useEffect：`supabase.auth.getSession()` 初始化 + `onAuthStateChange` 監聽
+- 新增函式：`handleGoogleLogin`（Google OAuth redirect）、`handleLogout`
+- 新增函式：`saveToCloud`、`loadFromCloud`、`listCloudSaves`
+- 修改 auto-save useEffect：`saveToStorage()` 後非同步呼叫 `saveToCloud`
+- 左欄「上次存檔」顯示加入存檔槽名稱 `[currentSlotName]`
+- SettingsModal 補傳 auth 相關 props
+
+#### **改動**：`src/components/SettingsModal.tsx`
+- `SettingsModalProps` 新增 auth 相關 props（`authUser`、`authLoading`、`currentSlotName`、`setCurrentSlotName`、`onGoogleLogin`、`onLogout`、`onSaveToCloud`、`onLoadFromCloud`、`onListCloudSaves`、`getFullState`）
+- 最上方新增「帳號」區塊：未登入顯示 Google 登入按鈕；已登入顯示頭像、名稱、「管理存檔」按鈕、登出按鈕
+- 「管理存檔」點擊切換至存檔槽面板：列出最多 5 槽（存檔一〜五），每槽顯示雲端最後更新時間，操作：載入、覆蓋儲存、重新命名
+
+---
+
 ### P1 行動端基本可用 2026-03-28 [Claude Code]
 
 **目標**：手機瀏覽器（≤640px）可正常操作，不做 App／PWA。
