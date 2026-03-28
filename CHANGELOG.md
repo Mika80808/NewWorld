@@ -18,6 +18,7 @@
 - 兩個抽屜不能同時開啟，開一邊時關另一邊
 - 輸入區套用 `.mobile-input-safe`（safe-area + keyboard-inset transform）
 - 字體 `text-[10px]` → `text-[0.625rem]`（全檔替換）
+- MapModal 手機版上下佈局（地圖上半 55% + 資訊下半 flex:1）
 - `src/index.css`：新增 `.mobile-input-safe`、`@media (max-width: 640px)` 字體縮小至 14px
 
 ---
