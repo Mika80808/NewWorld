@@ -58,7 +58,8 @@
 ## 群組 E｜長期功能
 > 不阻塞主線開發，可隨時插入。
 
-- [ ] P1｜行動端（Mobile Web）基本可用
+- [x] P1｜行動端（Mobile Web）基本可用
+  2026-03-28 [Claude Code]: 新增 isMobile state + resize 監聽、Mobile Nav Bar（☰/地圖/Lorebook/ⓘ）、HUD 橫條（HP/MP/天氣/金幣）、左右 Drawer（AnimatePresence 滑入）、safe-area padding、visualViewport 鍵盤處理、text-[10px] → text-[0.625rem]
 
   目標：手機瀏覽器可正常開啟、操作、存檔，不做 App／PWA。
   桌面與手機共用同一套組件，響應式切換布局。

@@ -143,6 +143,17 @@
 .font-game-serif { font-family: 'Noto Serif TC', serif; line-height: 1.9; letter-spacing: 0.02em; }
 .font-game-spell { font-family: 'Yuji Syuku', serif; line-height: 2; letter-spacing: 0.05em; }
 
+/* ── Mobile Safe Area ─────────────────────────────────── */
+.mobile-input-safe {
+  padding-bottom: max(0.25rem, env(safe-area-inset-bottom));
+  transform: translateY(calc(-1 * var(--keyboard-inset, 0px)));
+  transition: transform 0.15s ease;
+}
+
+@media (max-width: 640px) {
+  :root { font-size: 14px; }
+}
+
 /* ── 動畫 ───────────────────────────────────────────────── */
 @keyframes blink-dot {
   0%, 80%, 100% { opacity: 0.2; transform: translateY(0); }
