@@ -1,8 +1,8 @@
 $ErrorActionPreference = "Stop"
 
 # 設定路徑
-$ZipPath = "E:\MIKA\Downloads\RP-world.zip" # 請確認您的下載路徑是否正確
-$ExtractPath = "E:\MIKA\RP-world"
+$ZipPath = "G:\AI\New-world.zip" # 請確認您的下載路徑是否正確
+$ExtractPath = "G:\AI\New-world"
 
 Write-Host "開始同步專案..." -ForegroundColor Cyan
 

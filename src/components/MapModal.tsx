@@ -98,6 +98,13 @@ export const MapModal: React.FC<MapModalProps> = ({
 
   const handlePointerUp = useCallback(() => { isDragging.current = false; }, []);
 
+  const [isMobile, setIsMobile] = React.useState(() => window.innerWidth <= 640);
+  React.useEffect(() => {
+    const handler = () => setIsMobile(window.innerWidth <= 640);
+    window.addEventListener('resize', handler);
+    return () => window.removeEventListener('resize', handler);
+  }, []);
+
   if (!isOpen) return null;
 
   // ── Data ────────────────────────────────────────────────────────────────────
@@ -262,10 +269,19 @@ export const MapModal: React.FC<MapModalProps> = ({
           animation: pinBounce 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
         }
       `}</style>
-    <div className="fixed inset-0 bg-black/85 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+    <div className={`fixed inset-0 bg-black/85 backdrop-blur-sm z-50 flex items-center justify-center${isMobile ? '' : ' p-4'}`}>
       <div
-        className="w-full max-w-5xl rounded-[10px] shadow-[0_0_80px_rgba(0,0,0,0.8)] flex flex-col overflow-hidden h-[87vh]"
-        style={{ background: 'var(--bg-elevated)', border: '0.5px solid var(--border-default)', borderTop: '1.5px solid #fde68a' }}
+        className="flex flex-col overflow-hidden"
+        style={{
+          background: 'var(--bg-elevated)',
+          border: '0.5px solid var(--border-default)',
+          borderTop: '1.5px solid #fde68a',
+          borderRadius: isMobile ? '0' : '10px',
+          boxShadow: '0 0 80px rgba(0,0,0,0.8)',
+          width: isMobile ? '100%' : undefined,
+          maxWidth: isMobile ? '100%' : '64rem',
+          height: isMobile ? '100%' : '87vh',
+        }}
       >
         {/* ── Header ──────────────────────────────────────────────────────── */}
         <div className="px-5 py-3 flex items-center gap-3 shrink-0" style={{ borderBottom: '0.5px solid var(--border-default)' }}>
@@ -276,7 +292,7 @@ export const MapModal: React.FC<MapModalProps> = ({
             <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5" style={{ color: 'var(--text-muted)' }} />
             <input
               type="text"
-              placeholder="搜尋地點..."
+              placeholder={isMobile ? "搜尋..." : "搜尋地點..."}
               value={searchQuery}
               onChange={e => setSearchQuery(e.target.value)}
               className="w-full pl-8 pr-3 py-1.5 text-sm rounded-none outline-none bg-transparent"
@@ -295,10 +311,17 @@ export const MapModal: React.FC<MapModalProps> = ({
         </div>
 
         {/* ── Body ────────────────────────────────────────────────────────── */}
-        <div className="flex-1 overflow-hidden flex min-h-0">
+        <div className={`flex-1 overflow-hidden min-h-0 ${isMobile ? 'flex flex-col' : 'flex'}`}>
 
           {/* ── SVG Map ─────────────────────────────────────────────────── */}
-          <div className="flex-[3] relative overflow-hidden select-none" style={{ background: MAP_PALETTE.paper }}>
+          <div
+            className="relative overflow-hidden select-none"
+            style={{
+              background: MAP_PALETTE.paper,
+              flex: isMobile ? 'none' : '3',
+              height: isMobile ? '55%' : undefined,
+            }}
+          >
             <svg
               width="100%" height="100%"
               viewBox={`0 0 ${SVG_W} ${SVG_H}`}
@@ -552,8 +575,14 @@ export const MapModal: React.FC<MapModalProps> = ({
 
           {/* ── Right Panel ─────────────────────────────────────────────── */}
           <div
-            className="w-64 flex flex-col overflow-hidden shrink-0"
-            style={{ background: 'transparent' }}
+            className="flex flex-col overflow-hidden shrink-0"
+            style={{
+              background: 'transparent',
+              width: isMobile ? '100%' : '16rem',
+              flex: isMobile ? '1' : undefined,
+              borderTop: isMobile ? '0.5px solid var(--border-default)' : undefined,
+              borderLeft: isMobile ? undefined : '0.5px solid var(--border-default)',
+            }}
           >
             {selectedNode ? (
               <>
