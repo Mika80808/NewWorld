@@ -1,14 +1,13 @@
 /**
- * useGameStore.ts — 遊戲狀態中心（D5 + D6）
+ * useGameStore.ts — 遊戲狀態中心（D5 + Supabase）
  *
  * D5：新增 schemaVersion + saveDataMapper + runMigrations，
  *     統一 loadFromData 與 useState 初始化邏輯。
- * D6：saveToStorage 改為寫入 IndexedDB（async，fire-and-forget 安全），
- *     useState 初始值統一用 saveDataMapper({}) 預設值，
- *     useEffect 非同步從 IndexedDB 載入真實存檔（含 localStorage 一次性遷移），
- *     暴露 isStoreReady 讓 App.tsx 在載入前顯示 loading 畫面。
+ * Supabase：移除 IndexedDB（gameDB），改由 App.tsx 呼叫 useAuth.saveToCloud。
+ *     buildSaveSnapshot 組裝快照供 App.tsx 傳給 saveToCloud。
+ *     setIsStoreReady 由 App.tsx 在雲端載入完成後控制。
  */
-import { useState, useEffect, useRef } from 'react';
+import { useState } from 'react';
 import {
   TimeState, Profile, Quest, Npc, NpcMemory, LorebookEntry, SystemPrompt,
   DiaryEntry, Message, MemoryEntry, EquipmentItem, ItemEntry,
@@ -17,18 +16,16 @@ import {
   INITIAL_SYSTEM_PROMPT, INITIAL_LOREBOOK_ENTRIES,
   INITIAL_MESSAGES,
 } from '../constants';
-import * as gameDB from '../db/gameDB';
 
-// ─── 存檔 Key（向下相容，IndexedDB 遷移後可選保留或移除）─────────────────────
+// ─── 存檔 Key（保留供 localStorage metadata 使用）──────────────────────────────
 export const SAVE_KEY = 'rpworld_save';
 
 // ─── Schema 版本 ──────────────────────────────────────────────────────────────
-// 每次有破壞性欄位變更時 +1，並在 MIGRATIONS 新增對應函數
-const CURRENT_SCHEMA = 2;
+export const CURRENT_SCHEMA = 2;
 
 // ─── 型別：儲存快照 ───────────────────────────────────────────────────────────
 export interface GameSaveData {
-  schemaVersion: number;          // D5 新增
+  schemaVersion: number;
   profile: Profile;
   systemPrompt: SystemPrompt;
   diaryEntries: DiaryEntry[];
@@ -95,12 +92,10 @@ function mapNpcs(raw: unknown): Npc[] {
 }
 
 // ─── Version migrations ───────────────────────────────────────────────────────
-// V0→V1：無結構變更（placeholder）
 function migrateV0toV1(data: Record<string, unknown>): Record<string, unknown> {
   return data;
 }
 
-// V1→V2：inventory → equipment，consumables → items
 function migrateV1toV2(data: Record<string, unknown>): Record<string, unknown> {
   const out = { ...data };
   if (!(Array.isArray(out.equipment) && (out.equipment as unknown[]).length > 0)) {
@@ -134,7 +129,6 @@ function runMigrations(raw: Record<string, unknown>): Record<string, unknown> {
 }
 
 // ─── saveDataMapper：唯一欄位映射入口 ────────────────────────────────────────
-// 接受任意 unknown 形狀（含空物件），回傳完整、型別安全的 GameSaveData。
 export function saveDataMapper(raw: Record<string, unknown>): GameSaveData {
   const d = runMigrations(raw);
 
@@ -190,7 +184,7 @@ const DEFAULTS = saveDataMapper({});
 // ─── Hook ─────────────────────────────────────────────────────────────────────
 export function useGameStore() {
 
-  // ── State（全部初始值為預設值，useEffect 非同步覆寫真實存檔）─────────────────
+  // ── State（全部初始值為預設值，由 App.tsx 非同步覆寫真實存檔）─────────────────
   const [isStoreReady,    setIsStoreReady]    = useState(false);
   const [timeState,       setTimeState]       = useState<TimeState>(DEFAULTS.timeState);
   const [profile,         setProfile]         = useState<Profile>(DEFAULTS.profile);
@@ -236,71 +230,34 @@ export function useGameStore() {
     setCompressCount(d.compressCount);
   };
 
-  // ── D6：非同步初始化（IndexedDB，含 localStorage 一次性遷移）────────────────
-  const initDoneRef = useRef(false);
-  useEffect(() => {
-    if (initDoneRef.current) return;   // StrictMode 防重複
-    initDoneRef.current = true;
-
-    (async () => {
-      try {
-        let raw = await gameDB.readSave(gameDB.SLOT_DEFAULT);
-
-        if (!raw) {
-          // 舊存檔在 localStorage → 遷移至 IndexedDB
-          const lsRaw = localStorage.getItem(SAVE_KEY);
-          if (lsRaw) {
-            try {
-              raw = JSON.parse(lsRaw) as Record<string, unknown>;
-              const mapped = saveDataMapper(raw);
-              await gameDB.writeSave(gameDB.SLOT_DEFAULT, mapped);
-              localStorage.removeItem(SAVE_KEY);  // 遷移成功後清除
-            } catch {
-              // IndexedDB 寫入失敗：保留 localStorage，繼續使用 raw
-            }
-          }
-        }
-
-        if (raw) loadFromData(raw);
-      } catch (err) {
-        console.error('[useGameStore] IndexedDB 讀取失敗，嘗試 localStorage fallback', err);
-        try {
-          const lsRaw = localStorage.getItem(SAVE_KEY);
-          if (lsRaw) loadFromData(JSON.parse(lsRaw));
-        } catch { /* ignore */ }
-      } finally {
-        setIsStoreReady(true);
-      }
-    })();
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // ── saveToStorage：寫入 IndexedDB（async，fire-and-forget 安全）────────────
-  const saveToStorage = (snapshot?: Partial<GameSaveData>): Promise<void> => {
-    const saveData: GameSaveData = {
+  // ── buildSaveSnapshot：組裝完整 GameSaveData，供 App.tsx 傳給 saveToCloud ─────
+  const buildSaveSnapshot = (snapshot?: Partial<GameSaveData>): GameSaveData => {
+    return {
       schemaVersion: CURRENT_SCHEMA,
-      profile, systemPrompt, diaryEntries, lorebookEntries,
-      npcs, appearingNpcs,
-      equipment, items,
-      currentLocation, messages, memories, quickOptions,
-      timeState, quests,
-      adventureLog, currentGoals,
-      summaryPool, compressCount,
-      ...snapshot,
+      profile:         snapshot?.profile         ?? profile,
+      systemPrompt:    snapshot?.systemPrompt    ?? systemPrompt,
+      diaryEntries:    snapshot?.diaryEntries    ?? diaryEntries,
+      lorebookEntries: snapshot?.lorebookEntries ?? lorebookEntries,
+      npcs:            snapshot?.npcs            ?? npcs,
+      appearingNpcs:   snapshot?.appearingNpcs   ?? appearingNpcs,
+      equipment:       snapshot?.equipment       ?? equipment,
+      items:           snapshot?.items           ?? items,
+      currentLocation: snapshot?.currentLocation ?? currentLocation,
+      messages:        snapshot?.messages        ?? messages,
+      memories:        snapshot?.memories        ?? memories,
+      quickOptions:    snapshot?.quickOptions    ?? quickOptions,
+      timeState:       snapshot?.timeState       ?? timeState,
+      quests:          snapshot?.quests          ?? quests,
+      adventureLog:    snapshot?.adventureLog    ?? adventureLog,
+      currentGoals:    snapshot?.currentGoals    ?? currentGoals,
+      summaryPool:     snapshot?.summaryPool     ?? summaryPool,
+      compressCount:   snapshot?.compressCount   ?? compressCount,
     };
-
-    // 更新最後存檔時間（metadata，localStorage）
-    localStorage.setItem('rpworld_last_saved', new Date().toISOString());
-
-    return gameDB.writeSave(gameDB.SLOT_DEFAULT, saveData).catch(err => {
-      // IndexedDB 失敗時 fallback 寫入 localStorage
-      console.error('[saveToStorage] IndexedDB 失敗，fallback 至 localStorage', err);
-      try { localStorage.setItem(SAVE_KEY, JSON.stringify(saveData)); } catch { /* ignore */ }
-    });
   };
 
   return {
     // 初始化狀態
-    isStoreReady,
+    isStoreReady, setIsStoreReady,
     // 時間
     timeState, setTimeState,
     // 玩家
@@ -334,7 +291,7 @@ export function useGameStore() {
     summaryPool, setSummaryPool,
     compressCount, setCompressCount,
     // 儲存 / 載入
-    saveToStorage,
+    buildSaveSnapshot,
     loadFromData,
   };
 }

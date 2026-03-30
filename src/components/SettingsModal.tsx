@@ -1,5 +1,6 @@
 import React, { useState, useRef } from 'react';
 import { Settings, Download, Upload, RotateCcw, Eye, EyeOff } from 'lucide-react';
+import { User } from '@supabase/supabase-js';
 import { GMConfig, SubGMConfig } from '../types';
 
 const GEMINI_MODELS = [
@@ -21,6 +22,10 @@ interface SettingsModalProps {
   handleExportSave: () => void;
   handleImportSave: (e: React.ChangeEvent<HTMLInputElement>) => void;
   handleResetGame: () => void;
+  authUser?: User | null;
+  onLogout?: () => void;
+  onOpenSaveSlots?: () => void;
+  isCloudSaving?: boolean;
 }
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({
@@ -28,6 +33,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   mainGMConfig, setMainGMConfig,
   subGMConfig, setSubGMConfig,
   handleExportSave, handleImportSave, handleResetGame,
+  authUser, onLogout, onOpenSaveSlots, isCloudSaving,
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [showMainKey, setShowMainKey] = useState(false);
@@ -78,6 +84,58 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         </div>
 
         <div className="p-4 space-y-4 overflow-y-auto max-h-[80vh]">
+
+          {/* ── 帳號 ── */}
+          <div className="mb-4 pb-4" style={{ borderBottom: '1px solid var(--border-default)' }}>
+            <p className="text-xs mb-3 font-medium" style={{ color: 'var(--text-muted)' }}>👤 帳號</p>
+            {authUser ? (
+              <div className="flex flex-col gap-3">
+                <div className="flex items-center gap-3">
+                  {authUser.user_metadata?.avatar_url ? (
+                    <img
+                      src={authUser.user_metadata.avatar_url}
+                      alt="avatar"
+                      className="w-8 h-8 rounded-full object-cover"
+                      onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                    />
+                  ) : (
+                    <span className="text-2xl">👤</span>
+                  )}
+                  <div className="flex flex-col">
+                    <span className="text-sm font-medium" style={{ color: 'var(--text-body)' }}>
+                      {authUser.user_metadata?.full_name ?? '玩家'}
+                    </span>
+                    <span className="text-xs" style={{ color: 'var(--text-muted)' }}>
+                      {authUser.email}
+                    </span>
+                  </div>
+                  {isCloudSaving && (
+                    <span className="ml-auto text-xs" style={{ color: 'var(--text-muted)' }}>
+                      ☁️ 同步中...
+                    </span>
+                  )}
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    onClick={onOpenSaveSlots}
+                    className="flex-1 py-1.5 text-xs rounded-[6px] transition"
+                    style={{ background: 'var(--bg-ui-card)', color: 'var(--text-body)', border: '1px solid var(--border-default)' }}
+                  >
+                    管理存檔槽
+                  </button>
+                  <button
+                    onClick={onLogout}
+                    className="flex-1 py-1.5 text-xs rounded-[6px] transition"
+                    style={{ background: 'var(--bg-ui-card)', color: 'var(--text-muted)', border: '1px solid var(--border-default)' }}
+                  >
+                    登出
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <p className="text-xs" style={{ color: 'var(--text-muted)' }}>未登入</p>
+            )}
+          </div>
 
           {/* ── 主 GM ── */}
           <div className="rounded-[8px] p-4 space-y-3" style={sectionStyle}>
