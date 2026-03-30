@@ -5,6 +5,24 @@
 
 ---
 
+### App.tsx 高價值拆分重構 2026-03-30 [Claude Code]
+
+**目標**：將 App.tsx 的三個高價值區塊拆出，降低主檔行數（3463 → 2959 行）。
+
+#### **新增檔案**
+- `src/utils/markdownParser.tsx`（103 行）：`renderMarkdown`、`stripBareCommands`、`BARE_CMD_PATTERN`、`FONT_CLASS_MAP` — 原 App.tsx 第 24–127 行原封不動搬移
+- `src/utils/promptBuilder.ts`（378 行）：`buildPrompt(deps, userInput, messages, locationOverride)` — 以 `BuildPromptDeps` 介面注入所有外部依賴，避免直接引用 App.tsx state
+- `src/components/SaveSlotsModal.tsx`（112 行）：存檔槽管理 Modal — 接收 `onLoadSlot`/`onDeleteSlot`/`onCreateSlot` 三個 handler，所有雲端操作邏輯留在 App.tsx
+
+#### **改動**：`src/App.tsx`
+- 移除 Markdown Parser 區塊（~104 行），改 import `renderMarkdown`、`stripBareCommands`
+- 移除 `buildPrompt` 函式體（~343 行），改以 `buildPromptWrapper` 薄包裝呼叫 `buildPrompt(deps, ...)`
+- 移除存檔槽 Modal JSX（~84 行），改以 `<SaveSlotsModal>` 組件替換
+- 新增 `handleLoadSlot`、`handleDeleteSlot`、`handleCreateSlot` 三個 handler（含 `window.confirm`/`window.prompt` 及雲端操作邏輯）
+- 移除 `getTotalDaysFromTimeState`、`getQuestRemainingDays` import（已移入 promptBuilder.ts）
+
+---
+
 ### P2 Supabase 強制登入 + 雲端存檔主線 2026-03-30 [Claude Code]
 
 **目標**：強制 Google 登入，所有存檔讀寫走 Supabase `saves` 表，IndexedDB 廢棄不用。
