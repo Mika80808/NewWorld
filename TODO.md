@@ -95,6 +95,9 @@
 - [x] P2｜Supabase 強制登入 + 雲端存檔主線
   2026-03-30 [Claude Code]: 新增 useAuth.ts、supabase.ts，強制 Google 登入，存檔主線改為 Supabase，buildSaveSnapshot 取代 saveToStorage，setIsStoreReady 由 App.tsx 控制，登入後自動載入雲端存檔，存檔槽 Modal（最多 5 槽），匯出/匯入改讀雲端，重置遊戲清除雲端存檔，SettingsModal 加帳號區塊
 
+- [x] App.tsx 高價值拆分重構
+  2026-03-30 [Claude Code]: 新增 markdownParser.tsx（renderMarkdown/stripBareCommands 等 ~103 行）、promptBuilder.ts（buildPrompt ~378 行）、SaveSlotsModal.tsx（存檔槽 Modal ~112 行），App.tsx 從 ~3463 行降至 ~2959 行
+
 - [ ] P3｜指令 DSL 版本化
   - 例如 `COMMANDS v2`，維護向下相容 parser。
 
