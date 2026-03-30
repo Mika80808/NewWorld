@@ -7,7 +7,7 @@ import { CommandAST } from './commandParser';
 import { advanceTimeAndResolveQuestDeadlines } from './timeUtils';
 import {
   TimeState, Profile, Quest, MemoryEntry, Npc, ItemEntry,
-  LorebookEntry, Message,
+  LorebookEntry, Message, PendingQuestFailure,
 } from '../types';
 
 // ─── 狀態變更對象型別 ──────────────────────────────────────────────────────────
@@ -44,6 +44,7 @@ export interface ReduceResult {
   stateChanges: StateChanges;
   feedback: Feedback;
   asyncTasks: AsyncTask[];
+  newFailures: PendingQuestFailure[];
 }
 
 // ─── 當前狀態讀取依賴 ──────────────────────────────────────────────────────────
@@ -81,6 +82,7 @@ export function reduceCommands(
     cmdResults: [],
   };
   const asyncTasks: AsyncTask[] = [];
+  let newFailures: PendingQuestFailure[] = [];
 
   // 數值累積變數（最後一次性應用）
   let hpDelta = 0;
@@ -390,7 +392,7 @@ export function reduceCommands(
 
   // 應用時間推進
   if (timeDeltaMinutes > 0) {
-    const { newTimeState, updatedQuests, cmdResults } = advanceTimeAndResolveQuestDeadlines(
+    const { newTimeState, updatedQuests, cmdResults, newFailures: timeFailures } = advanceTimeAndResolveQuestDeadlines(
       currentState.timeState,
       timeDeltaMinutes,
       workingQuests
@@ -398,6 +400,7 @@ export function reduceCommands(
     stateChanges.timeState = newTimeState;
     workingQuests = updatedQuests;
     feedback.cmdResults.push(...cmdResults);
+    newFailures = timeFailures;
   }
 
   // 應用好感度變更
@@ -418,5 +421,5 @@ export function reduceCommands(
   stateChanges.memories = workingMemories;
   stateChanges.lorebookEntries = workingLorebookEntries;
 
-  return { stateChanges, feedback, asyncTasks };
+  return { stateChanges, feedback, asyncTasks, newFailures };
 }

@@ -1,6 +1,7 @@
 import {
   Profile, SystemPrompt, Npc, LorebookEntry, MemoryEntry,
   Message, EquipmentItem, ItemEntry, Quest, TimeState, DiaryEntry,
+  PendingQuestFailure,
 } from '../types'
 import { getTotalDaysFromTimeState, getQuestRemainingDays } from './timeUtils'
 
@@ -17,6 +18,7 @@ export interface BuildPromptDeps {
   timeState: TimeState
   currentLocation: string
   diaryEntries: DiaryEntry[]
+  pendingQuestFailures: PendingQuestFailure[]
   // 外部函式依賴
   scanKeywords: (keywords: string[], depth?: number) => boolean
   isMemoryTriggered: (mem: MemoryEntry, userInput: string, location: string) => boolean
@@ -31,7 +33,7 @@ export function buildPrompt(
   const {
     profile, systemPrompt, npcs, appearingNpcs, lorebookEntries,
     memories, equipment, items, quests, timeState, diaryEntries,
-    scanKeywords, isMemoryTriggered,
+    pendingQuestFailures, scanKeywords, isMemoryTriggered,
   } = deps
 
   const loc = locationOverride ?? deps.currentLocation
@@ -298,7 +300,19 @@ ${pinnedNpcs.length > 0 ? pinnedNpcs.map(n => {
 
 }).join('\n') : '（無）'}
 
----
+${pendingQuestFailures.length > 0 ? `---
+[逾期任務待處理]
+以下任務已逾期失敗，請以各委託人的視角做出反應。
+每個委託人請輸出：
+1. AFFINITY:委託人名稱:-N（依委託人個性與任務重要性自行決定扣分幅度，可為 0）
+2. NPC_THOUGHT:委託人名稱:（第一人稱，反映對玩家失信的看法或情緒）
+
+${pendingQuestFailures.map(f =>
+  `- 任務「${f.questTitle}」委託人：${f.giver}（逾期於 ${f.failedAt}）`
+).join('\n')}
+
+注意：若委託人不在當前場景，請照常輸出以上指令，前端會處理好感度與記憶寫入，NPC 的情緒反應可延後到下次相遇時自然呈現。
+` : ''}---
 [Active Diary]
 ${(() => {
   const triggered = diaryEntries.filter(e => {

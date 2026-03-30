@@ -190,3 +190,9 @@ export interface GMConfig {
 export interface SubGMConfig extends GMConfig {
   useSameKey: boolean; // true（預設）時使用主 GM 的 apiKey
 }
+
+export interface PendingQuestFailure {
+  questTitle: string   // 任務名稱
+  giver: string        // 委託人名稱
+  failedAt: string     // 遊戲內時間，例如 '3/22'
+}

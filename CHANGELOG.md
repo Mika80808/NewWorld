@@ -5,6 +5,41 @@
 
 ---
 
+### 任務失敗機制 2026-03-30 [Claude Code]
+
+**目標**：任務逾期後通知 GM AI，讓委託人 NPC 自動扣好感度並留下記憶。
+
+#### **改動**：`src/types.ts`
+- 新增 `PendingQuestFailure` 介面（`questTitle`、`giver`、`failedAt`）
+
+#### **改動**：`src/utils/timeUtils.ts`
+- `advanceTimeAndResolveQuestDeadlines` 回傳值新增 `newFailures: PendingQuestFailure[]`
+
+#### **改動**：`src/utils/commandReducer.ts`
+- `ReduceResult` 新增 `newFailures: PendingQuestFailure[]`
+- 時間推進區塊接收 `newFailures` 並納入回傳
+
+#### **改動**：`src/hooks/useCommandParser.ts`
+- `ParseResult` 新增 `newFailures: PendingQuestFailure[]`
+- `parseAndExecuteCommands` 從 `reduceCommands` 接收並透傳 `newFailures`
+
+#### **改動**：`src/hooks/useGameStore.ts`
+- `CURRENT_SCHEMA` 升至 3，新增 `migrateV2toV3`（補填 `pendingQuestFailures: []`）
+- `GameSaveData` 新增 `pendingQuestFailures` 欄位
+- `saveDataMapper`、`loadFromData`、`buildSaveSnapshot` 全部對應更新
+- 新增 state `pendingQuestFailures / setPendingQuestFailures` 並暴露
+
+#### **改動**：`src/utils/promptBuilder.ts`
+- `BuildPromptDeps` 新增 `pendingQuestFailures`
+- 在 `[Active Diary]` 前插入 `[逾期任務待處理]` 區塊（有待處理失敗任務時才輸出）
+
+#### **改動**：`src/App.tsx`
+- 從 `useGameStore` 解構 `pendingQuestFailures / setPendingQuestFailures`
+- `buildPromptWrapper` 傳入 `pendingQuestFailures`
+- `handleSendMessage` 完成後：累積 `newFailures` → 送出下一回合前注入 prompt → GM 回應後清空
+
+---
+
 ### App.tsx 高價值拆分重構 2026-03-30 [Claude Code]
 
 **目標**：將 App.tsx 的三個高價值區塊拆出，降低主檔行數（3463 → 2959 行）。

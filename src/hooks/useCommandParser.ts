@@ -6,7 +6,7 @@
 import React from 'react';
 import {
   Profile, Npc, Quest, LorebookEntry, MemoryEntry,
-  EquipmentItem, ItemEntry, TimeState, Message,
+  EquipmentItem, ItemEntry, TimeState, Message, PendingQuestFailure,
 } from '../types';
 import { parseCommandsToAST } from '../utils/commandParser';
 import { reduceCommands } from '../utils/commandReducer';
@@ -52,6 +52,7 @@ export interface CommandParserDeps {
 export interface ParseResult {
   narrative: string;
   newItems: string[];
+  newFailures: PendingQuestFailure[];
 }
 
 export interface UseCommandParserReturn {
@@ -81,7 +82,7 @@ export function useCommandParser(deps: CommandParserDeps): UseCommandParserRetur
     const { commands, narrative } = parseCommandsToAST(fullText);
 
     // Phase 2: Reduce（純函式，無副作用）
-    const { stateChanges, feedback, asyncTasks } = reduceCommands(
+    const { stateChanges, feedback, asyncTasks, newFailures } = reduceCommands(
       commands,
       {
         timeState,
@@ -129,7 +130,7 @@ export function useCommandParser(deps: CommandParserDeps): UseCommandParserRetur
           .map(item => item.name)
       : [];
 
-    return { narrative, newItems };
+    return { narrative, newItems, newFailures };
   };
 
   // ─── 工具函數：記憶觸發判斷 ────────────────────────────────────────────────────

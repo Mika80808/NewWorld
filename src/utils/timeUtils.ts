@@ -1,4 +1,4 @@
-import { TimeState, Quest } from '../types';
+import { TimeState, Quest, PendingQuestFailure } from '../types';
 
 /**
  * ═══ 基礎計算函式 ═══
@@ -159,6 +159,7 @@ export function advanceTimeAndResolveQuestDeadlines(
   newTimeState: TimeState;
   updatedQuests: Quest[];
   cmdResults: string[];
+  newFailures: PendingQuestFailure[];
 } {
   const cmdResults: string[] = [];
 
@@ -168,10 +169,21 @@ export function advanceTimeAndResolveQuestDeadlines(
   // 檢查過期任務
   const { updatedQuests, failedQuestTitles } = checkAndFailExpiredQuests(newTimeState, quests);
 
+  // 建立 PendingQuestFailure 列表
+  const failedAt = `${newTimeState.month}/${newTimeState.day}`;
+  const newFailures: PendingQuestFailure[] = failedQuestTitles.map(title => {
+    const quest = quests.find(q => q.title === title);
+    return {
+      questTitle: title,
+      giver: quest?.giver || '',
+      failedAt,
+    };
+  });
+
   // 生成反饋訊息
   failedQuestTitles.forEach(title => {
     cmdResults.push(`⏰ 任務逾期：${title}`);
   });
 
-  return { newTimeState, updatedQuests, cmdResults };
+  return { newTimeState, updatedQuests, cmdResults, newFailures };
 }

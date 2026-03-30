@@ -265,6 +265,7 @@ ${newPool.map((s, i) => `${i + 1}. ${s}`).join('\n')}`;
     currentGoals, setCurrentGoals,
     summaryPool, setSummaryPool,
     compressCount, setCompressCount,
+    pendingQuestFailures, setPendingQuestFailures,
     buildSaveSnapshot,
     loadFromData,
     setIsStoreReady,
@@ -992,7 +993,7 @@ ${poolText}
     const deps: BuildPromptDeps = {
       profile, systemPrompt, npcs, appearingNpcs, lorebookEntries,
       memories, equipment, items, quests, timeState, currentLocation,
-      diaryEntries, scanKeywords, isMemoryTriggered,
+      diaryEntries, pendingQuestFailures, scanKeywords, isMemoryTriggered,
     };
     return buildPrompt(deps, userInput, currentMessages, locationOverride);
   };
@@ -1066,7 +1067,10 @@ ${recentContext}
         return;
       }
 
-      const { narrative: parsedNarrative, newItems } = await parseAndExecuteCommands(fullText);
+      const { narrative: parsedNarrative, newItems, newFailures } = await parseAndExecuteCommands(fullText);
+      if (newFailures && newFailures.length > 0) {
+        setPendingQuestFailures(prev => [...prev, ...newFailures]);
+      }
       const rawNarrative = parsedNarrative;
 
       // ── 助理 GM 接口：有新增道具時才觸發分類──────────
@@ -1106,6 +1110,11 @@ ${recentContext}
         }
         return npc;
       }));
+
+      // GM AI 已消費 pendingQuestFailures，清空
+      if (pendingQuestFailures.length > 0) {
+        setPendingQuestFailures([]);
+      }
 
       const triggeredIds = memories
         .filter(m => isMemoryTriggered(m, text, currentLocation))
