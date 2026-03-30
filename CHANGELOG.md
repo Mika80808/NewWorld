@@ -3,6 +3,42 @@
 > 純歷史紀錄，對開發者友好。待做任務請見 TODO.md。
 > 每次 AI 改完功能，請在對應版本區塊補上一條記錄。
 
+---
+
+### P2 Supabase 強制登入 + 雲端存檔主線 2026-03-30 [Claude Code]
+
+**目標**：強制 Google 登入，所有存檔讀寫走 Supabase `saves` 表，IndexedDB 廢棄不用。
+
+#### **新增檔案**
+- `src/lib/supabase.ts`：Supabase client 初始化（`createClient`），匯出 `supabase` 與 `SaveSlot` 型別
+- `src/hooks/useAuth.ts`：Auth 狀態管理 + 雲端存檔 CRUD（`saveToCloud`、`loadFromCloud`、`listCloudSaves`、`deleteCloudSave`、`handleGoogleLogin`、`handleLogout`）
+
+#### **改動**：`src/hooks/useGameStore.ts`
+- 移除 `import * as gameDB from '../db/gameDB'` 及所有 IndexedDB 相關邏輯
+- 移除 D6 非同步初始化 useEffect（從 IndexedDB 載入的那段）
+- `saveToStorage` 改名為 `buildSaveSnapshot`：只組裝快照並回傳，不寫入任何儲存層
+- `CURRENT_SCHEMA` 改為 `export const`（供 `useAuth.ts` 使用）
+- `isStoreReady` 初始值改為 `false`，並暴露 `setIsStoreReady` 供 App.tsx 控制
+
+#### **改動**：`src/App.tsx`
+- 移除 `import * as gameDB from './db/gameDB'`
+- 新增 `import { useAuth }` 與 `import { SaveSlot }`
+- 新增 state：`currentSlotName`、`isSaveSlotsModalOpen`、`cloudSaves`、`isCloudSaving`
+- 引入 `useAuth()` 解構全部 auth 方法
+- 新增 useEffect：登入後自動從雲端載入存檔並 `setIsStoreReady(true)`
+- 自動存檔改為呼叫 `saveToCloud`（fire-and-forget，`isCloudSaving` 顯示狀態）
+- `handleExportSave`：從雲端讀取當前槽並下載 JSON
+- `handleImportSave`：解析 JSON 後同步至雲端
+- `handleResetGame`：先刪除雲端存檔槽再 reload
+- 消息刪除/編輯後的存檔也改為雲端同步
+- 新增登入頁（未登入時渲染）與 authLoading 畫面
+- 新增存檔槽 Modal（列出/載入/刪除/新增，上限 5 個）
+- `SettingsModal` 新增 `authUser`、`onLogout`、`onOpenSaveSlots`、`isCloudSaving` props
+
+#### **改動**：`src/components/SettingsModal.tsx`
+- 新增 auth 相關 props（`authUser`、`onLogout`、`onOpenSaveSlots`、`isCloudSaving`）
+- 最上方新增帳號區塊（頭像、名稱、Email、☁️同步狀態、管理存檔槽按鈕、登出按鈕）
+
 ### P1 行動端基本可用 2026-03-28 [Claude Code]
 
 **目標**：手機瀏覽器（≤640px）可正常操作，不做 App／PWA。

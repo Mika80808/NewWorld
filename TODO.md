@@ -92,6 +92,9 @@
   - 確保 safe-area（iPhone 底部 home bar）不遮擋輸入區（`env(safe-area-inset-bottom)`）
   - 輸入框獲得焦點時不被鍵盤遮住（`visualViewport` 或 `env(keyboard-inset-height)`）
 
+- [x] P2｜Supabase 強制登入 + 雲端存檔主線
+  2026-03-30 [Claude Code]: 新增 useAuth.ts、supabase.ts，強制 Google 登入，存檔主線改為 Supabase，buildSaveSnapshot 取代 saveToStorage，setIsStoreReady 由 App.tsx 控制，登入後自動載入雲端存檔，存檔槽 Modal（最多 5 槽），匯出/匯入改讀雲端，重置遊戲清除雲端存檔，SettingsModal 加帳號區塊
+
 - [ ] P3｜指令 DSL 版本化
   - 例如 `COMMANDS v2`，維護向下相容 parser。
 

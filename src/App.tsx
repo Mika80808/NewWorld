@@ -15,7 +15,8 @@ import { MessageCard } from './components/MessageCard';
 import { MONTHS_DATA } from './constants';
 import { useGameStore } from './hooks/useGameStore';
 import { useCommandParser } from './hooks/useCommandParser';
-import * as gameDB from './db/gameDB';
+import { useAuth } from './hooks/useAuth';
+import { SaveSlot } from './lib/supabase';
 import { getTotalDaysFromTimeState, getQuestRemainingDays } from './utils/timeUtils';
 import { performanceMonitor } from './utils/performanceMonitor';
 import { debounce } from './utils/debounce';
@@ -282,6 +283,23 @@ ${newPool.map((s, i) => `${i + 1}. ${s}`).join('\n')}`;
   const [inputText, setInputText] = useState('');
   const [isLoadingQuickOptions, setIsLoadingQuickOptions] = useState(false);
   const [showQuickMenu, setShowQuickMenu] = useState(false);
+  // ─── 雲端存檔 / 帳號 ─────────────────────────────────────────────────────────
+  const [currentSlotName, setCurrentSlotName] = useState<string>('存檔一');
+  const [isSaveSlotsModalOpen, setIsSaveSlotsModalOpen] = useState(false);
+  const [cloudSaves, setCloudSaves] = useState<SaveSlot[]>([]);
+  const [isCloudSaving, setIsCloudSaving] = useState(false);
+
+  // ─── Auth ─────────────────────────────────────────────────────────────────────
+  const {
+    authUser,
+    authLoading,
+    handleGoogleLogin,
+    handleLogout,
+    saveToCloud,
+    loadFromCloud,
+    listCloudSaves,
+    deleteCloudSave,
+  } = useAuth();
 
   // ─── API 設定（不屬於遊戲存檔，獨立存於 localStorage）───────────────────────
   const [mainGMConfig, setMainGMConfig] = useState<GMConfig>(() => {
@@ -351,8 +369,9 @@ ${newPool.map((s, i) => `${i + 1}. ${s}`).join('\n')}`;
     currentGoals, setCurrentGoals,
     summaryPool, setSummaryPool,
     compressCount, setCompressCount,
-    saveToStorage,
+    buildSaveSnapshot,
     loadFromData,
+    setIsStoreReady,
   } = store;
 
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -379,6 +398,17 @@ ${newPool.map((s, i) => `${i + 1}. ${s}`).join('\n')}`;
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
+
+  // ─── 登入後從雲端載入存檔 ──────────────────────────────────────────────────
+  useEffect(() => {
+    if (!authUser) return;
+    const init = async () => {
+      const raw = await loadFromCloud(authUser.id, currentSlotName);
+      if (raw) loadFromData(raw);
+      setIsStoreReady(true);
+    };
+    init();
+  }, [authUser]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (messages.length === 0) {
@@ -840,7 +870,12 @@ ${poolText}
   // ─── 每次 AI 回應結束後自動存檔 ─────────────────────────────────────────────
   useEffect(() => {
     if (!isLoading && !isUpdatingLog && messages.length > 0 && messages[messages.length - 1]?.role === 'assistant') {
-      saveToStorage();
+      const snapshot = buildSaveSnapshot();
+      if (authUser) {
+        setIsCloudSaving(true);
+        saveToCloud(authUser.id, currentSlotName, snapshot)
+          .finally(() => setIsCloudSaving(false));
+      }
       const now = new Date();
       localStorage.setItem('rpworld_last_saved', now.toISOString());
       setLastSavedAt(now);
@@ -849,27 +884,22 @@ ${poolText}
 
   // ─── 存檔匯出 ────────────────────────────────────────────────────────────────
   const handleExportSave = async () => {
-    const saveData = {
-      profile, systemPrompt, diaryEntries, lorebookEntries, npcs, appearingNpcs,
-      equipment, items, currentLocation, messages, memories, quickOptions,
-      timeState, quests, adventureLog, currentGoals,
-    };
-    const blob = new Blob([JSON.stringify(saveData, null, 2)], { type: 'application/json' });
-    
+    if (!authUser) return;
+    const raw = await loadFromCloud(authUser.id, currentSlotName);
+    if (!raw) { showToast('讀取存檔失敗'); return; }
+
+    const blob = new Blob([JSON.stringify(raw, null, 2)], { type: 'application/json' });
     const now = new Date();
     const date = `${now.getFullYear()}${String(now.getMonth()+1).padStart(2,'0')}${String(now.getDate()).padStart(2,'0')}`;
     const hr = String(now.getHours()).padStart(2,'0');
     const mi = String(now.getMinutes()).padStart(2,'0');
     const safeName = (profile.name || '玩家').replace(/[\\/:*?"<>|]/g, '_');
-    const defaultFilename = `RPworld-${safeName}-${date}-${hr}-${mi}.json`;
+    const filename = `RPworld-${safeName}-${date}-${hr}-${mi}.json`;
 
-    // 直接使用傳統下載模式（避免 showSaveFilePicker 與 fallback 雙重觸發）
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
-    a.href = url;
-    a.download = defaultFilename;
-    document.body.appendChild(a);
-    a.click();
+    a.href = url; a.download = filename;
+    document.body.appendChild(a); a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
     showToast('存檔已匯出');
@@ -878,13 +908,16 @@ ${poolText}
   // ─── 存檔匯入 ────────────────────────────────────────────────────────────────
   const handleImportSave = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
-    if (!file) return;
+    if (!file || !authUser) return;
     const reader = new FileReader();
-    reader.onload = (e) => {
+    reader.onload = async (e) => {
       try {
         const content = e.target?.result as string;
-        loadFromData(JSON.parse(content));
-        showToast('存檔已匯入');
+        const parsed = JSON.parse(content);
+        loadFromData(parsed);
+        const snapshot = buildSaveSnapshot();
+        const ok = await saveToCloud(authUser.id, currentSlotName, snapshot);
+        showToast(ok ? '存檔已匯入並同步至雲端' : '存檔已匯入（雲端同步失敗）');
         setIsSettingsModalOpen(false);
       } catch {
         showToast('存檔格式錯誤');
@@ -895,13 +928,13 @@ ${poolText}
   };
 
   // ─── 重置遊戲 ────────────────────────────────────────────────────────────────
-  const handleResetGame = () => {
-    if (window.confirm('確定要重置遊戲嗎？所有未匯出的進度將會遺失。')) {
-      gameDB.deleteSave(gameDB.SLOT_DEFAULT).finally(() => {
-        localStorage.removeItem('rpworld_last_saved');
-        window.location.reload();
-      });
+  const handleResetGame = async () => {
+    if (!window.confirm('確定要重置遊戲嗎？雲端存檔也會一併清除。')) return;
+    if (authUser) {
+      await deleteCloudSave(authUser.id, currentSlotName);
     }
+    localStorage.removeItem('rpworld_last_saved');
+    window.location.reload();
   };
 
   const handleAddNpcMemory = (npcId: number, text: string, importance: 'core' | 'normal' = 'normal') => {
@@ -1399,7 +1432,12 @@ ${recentContext}
     const userMessage = { id: Date.now(), role: 'user', text: text };
     const newMessages = historyToUse ? [...historyToUse, userMessage] : [...messages, userMessage];
     setMessages(newMessages);
-    saveToStorage({ messages: newMessages });
+    if (authUser) {
+      const snapshot = buildSaveSnapshot({ messages: newMessages });
+      setIsCloudSaving(true);
+      saveToCloud(authUser.id, currentSlotName, snapshot)
+        .finally(() => setIsCloudSaving(false));
+    }
     if (typeof textToUse !== 'string') setInputText('');
     setAiRequestStatus('loading');
 
@@ -1561,7 +1599,51 @@ ${recentContext}
     handleSendMessage(userMsgText, historyToUse);
   };
 
-  // ─── D6：存檔尚未從 IndexedDB 載入時顯示 loading 畫面 ──────────────────────
+  // ─── Auth loading ────────────────────────────────────────────────────────────
+  if (authLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen"
+           style={{ background: 'var(--bg-base)', color: 'var(--text-muted)' }}>
+        <p className="text-sm">載入中...</p>
+      </div>
+    );
+  }
+
+  // ─── 未登入：顯示登入頁 ───────────────────────────────────────────────────────
+  if (!authUser) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-screen gap-6 px-6"
+           style={{ background: 'var(--bg-base)' }}>
+        <h1 className="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>
+          NewWorld
+        </h1>
+        <p className="text-sm text-center" style={{ color: 'var(--text-muted)' }}>
+          登入後開始你的異世界冒險
+        </p>
+        <button
+          onClick={handleGoogleLogin}
+          className="flex items-center gap-3 px-6 py-3 rounded-[10px] text-sm font-medium transition"
+          style={{
+            background: 'var(--bg-elevated)',
+            color: 'var(--text-body)',
+            border: '1px solid var(--border-default)'
+          }}
+          onMouseEnter={e => (e.currentTarget as HTMLElement).style.borderColor = 'var(--border-accent)'}
+          onMouseLeave={e => (e.currentTarget as HTMLElement).style.borderColor = 'var(--border-default)'}
+        >
+          <svg width="18" height="18" viewBox="0 0 18 18">
+            <path fill="#4285F4" d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844c-.209 1.125-.843 2.078-1.796 2.717v2.258h2.908c1.702-1.567 2.684-3.875 2.684-6.615z"/>
+            <path fill="#34A853" d="M9 18c2.43 0 4.467-.806 5.956-2.18l-2.908-2.259c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332C2.438 15.983 5.482 18 9 18z"/>
+            <path fill="#FBBC05" d="M3.964 10.71c-.18-.54-.282-1.117-.282-1.71s.102-1.17.282-1.71V4.958H.957C.347 6.173 0 7.548 0 9s.348 2.827.957 4.042l3.007-2.332z"/>
+            <path fill="#EA4335" d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0 5.482 0 2.438 2.017.957 4.958L3.964 7.29C4.672 5.163 6.656 3.58 9 3.58z"/>
+          </svg>
+          使用 Google 登入
+        </button>
+      </div>
+    );
+  }
+
+  // ─── 存檔尚未從雲端載入時顯示 loading 畫面 ───────────────────────────────────
   if (!isStoreReady) {
     return (
       <div className="flex items-center justify-center h-screen" style={{ background: 'var(--bg-base)' }}>
@@ -2235,7 +2317,12 @@ ${recentContext}
                 onDelete={(msgId) => {
                   const newMessages = messages.filter(m => m.id !== msgId);
                   setMessages(newMessages);
-                  saveToStorage({ messages: newMessages });
+                  if (authUser) {
+                    const snapshot = buildSaveSnapshot({ messages: newMessages });
+                    setIsCloudSaving(true);
+                    saveToCloud(authUser.id, currentSlotName, snapshot)
+                      .finally(() => setIsCloudSaving(false));
+                  }
                   showToast('已刪除');
                   setActiveMenuId(null);
                 }}
@@ -2244,7 +2331,12 @@ ${recentContext}
                 onEditSave={(msgId, newText) => {
                   const newMessages = messages.map(m => m.id === msgId ? { ...m, text: newText } : m);
                   setMessages(newMessages);
-                  saveToStorage({ messages: newMessages });
+                  if (authUser) {
+                    const snapshot = buildSaveSnapshot({ messages: newMessages });
+                    setIsCloudSaving(true);
+                    saveToCloud(authUser.id, currentSlotName, snapshot)
+                      .finally(() => setIsCloudSaving(false));
+                  }
                   setEditingMessageId(null);
                   showToast('已更新');
                 }}
@@ -2686,7 +2778,133 @@ ${recentContext}
         handleExportSave={handleExportSave}
         handleImportSave={handleImportSave}
         handleResetGame={handleResetGame}
+        authUser={authUser}
+        onLogout={handleLogout}
+        onOpenSaveSlots={() => {
+          listCloudSaves(authUser.id).then(setCloudSaves);
+          setIsSaveSlotsModalOpen(true);
+        }}
+        isCloudSaving={isCloudSaving}
       />
+
+      {/* 存檔槽 Modal */}
+      <AnimatePresence>
+        {isSaveSlotsModalOpen && (
+          <motion.div
+            className="fixed inset-0 z-50 flex items-center justify-center p-4"
+            style={{ background: 'rgba(0,0,0,0.6)' }}
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            onClick={() => setIsSaveSlotsModalOpen(false)}
+          >
+            <motion.div
+              className="w-full max-w-sm rounded-[12px] p-5 flex flex-col gap-4"
+              style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-default)', maxHeight: '80vh', overflowY: 'auto' }}
+              initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }}
+              onClick={e => e.stopPropagation()}
+            >
+              <div className="flex items-center justify-between">
+                <h2 className="text-sm font-bold" style={{ color: 'var(--text-primary)' }}>存檔槽管理</h2>
+                <button onClick={() => setIsSaveSlotsModalOpen(false)}>
+                  <X className="w-4 h-4" style={{ color: 'var(--text-muted)' }} />
+                </button>
+              </div>
+
+              <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
+                目前使用：<span style={{ color: 'var(--text-primary)' }}>{currentSlotName}</span>
+              </p>
+
+              {cloudSaves.length === 0 ? (
+                <p className="text-xs text-center py-4" style={{ color: 'var(--text-muted)' }}>尚無雲端存檔</p>
+              ) : (
+                <div className="flex flex-col gap-2">
+                  {cloudSaves.map(slot => (
+                    <div
+                      key={slot.id}
+                      className="rounded-[8px] p-3 flex items-center justify-between gap-2"
+                      style={{
+                        background: slot.slot_name === currentSlotName ? 'var(--bg-ui-card)' : 'transparent',
+                        border: `1px solid ${slot.slot_name === currentSlotName ? 'var(--border-accent)' : 'var(--border-default)'}`,
+                      }}
+                    >
+                      <div className="flex flex-col gap-0.5 min-w-0">
+                        <span className="text-sm font-medium truncate" style={{ color: 'var(--text-body)' }}>
+                          {slot.slot_name}
+                        </span>
+                        <span className="text-xs" style={{ color: 'var(--text-muted)' }}>
+                          {new Date(slot.updated_at).toLocaleString('zh-TW', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                        </span>
+                      </div>
+                      <div className="flex gap-1.5 shrink-0">
+                        {slot.slot_name !== currentSlotName && (
+                          <button
+                            onClick={async () => {
+                              if (!authUser) return;
+                              const raw = await loadFromCloud(authUser.id, slot.slot_name);
+                              if (raw) {
+                                loadFromData(raw);
+                                setCurrentSlotName(slot.slot_name);
+                                showToast(`已載入「${slot.slot_name}」`);
+                                setIsSaveSlotsModalOpen(false);
+                              } else {
+                                showToast('載入失敗');
+                              }
+                            }}
+                            className="px-2 py-1 text-xs rounded-[6px]"
+                            style={{ background: 'var(--bg-ui-card)', color: 'var(--text-body)', border: '1px solid var(--border-default)' }}
+                          >
+                            載入
+                          </button>
+                        )}
+                        <button
+                          onClick={async () => {
+                            if (!authUser || !window.confirm(`確定要刪除「${slot.slot_name}」？`)) return;
+                            const ok = await deleteCloudSave(authUser.id, slot.slot_name);
+                            if (ok) {
+                              setCloudSaves(prev => prev.filter(s => s.id !== slot.id));
+                              if (slot.slot_name === currentSlotName) setCurrentSlotName('存檔一');
+                              showToast(`已刪除「${slot.slot_name}」`);
+                            }
+                          }}
+                          className="px-2 py-1 text-xs rounded-[6px]"
+                          style={{ background: 'var(--bg-ui-card)', color: 'var(--text-danger)', border: '1px solid var(--border-default)' }}
+                        >
+                          刪除
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {cloudSaves.length < 5 && (
+                <button
+                  onClick={async () => {
+                    if (!authUser) return;
+                    const name = window.prompt('新存檔槽名稱（最多 10 字）')?.trim();
+                    if (!name || name.length > 10) return;
+                    if (cloudSaves.some(s => s.slot_name === name)) {
+                      showToast('已有相同名稱的存檔槽');
+                      return;
+                    }
+                    const snapshot = buildSaveSnapshot();
+                    const ok = await saveToCloud(authUser.id, name, snapshot);
+                    if (ok) {
+                      setCurrentSlotName(name);
+                      const updated = await listCloudSaves(authUser.id);
+                      setCloudSaves(updated);
+                      showToast(`已建立「${name}」`);
+                    }
+                  }}
+                  className="w-full py-2 text-xs rounded-[8px] transition"
+                  style={{ background: 'var(--bg-ui-card)', color: 'var(--text-muted)', border: '1px solid var(--border-default)' }}
+                >
+                  ＋ 新增存檔槽（{cloudSaves.length}/5）
+                </button>
+              )}
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Map Modal */}
       <MapModal
