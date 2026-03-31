@@ -1,23 +1,24 @@
 /**
- * useGameStore.ts — 遊戲狀態中心（D5 + Supabase）
+ * useGameStore.ts — 遊戲狀態中心（D5 + Supabase + StatusEffect）
  *
  * D5：新增 schemaVersion + saveDataMapper + runMigrations，
  *     統一 loadFromData 與 useState 初始化邏輯。
  * Supabase：移除 IndexedDB（gameDB），改由 App.tsx 呼叫 useAuth.saveToCloud。
  *     buildSaveSnapshot 組裝快照供 App.tsx 傳給 saveToCloud。
  *     setIsStoreReady 由 App.tsx 在雲端載入完成後控制。
+ * StatusEffect：新增 statusEffects state，存檔/載入同步更新。
  */
 import { useState } from 'react';
 import {
   TimeState, Profile, Quest, Npc, NpcMemory, LorebookEntry, SystemPrompt,
-  DiaryEntry, Message, MemoryEntry, EquipmentItem, ItemEntry,
+  DiaryEntry, Message, MemoryEntry, EquipmentItem, ItemEntry, StatusEffect,
 } from '../types';
 import {
   INITIAL_SYSTEM_PROMPT, INITIAL_LOREBOOK_ENTRIES,
   INITIAL_MESSAGES,
 } from '../constants';
 
-// ─── 存檔 Key（保留供 localStorage metadata 使用）──────────────────────────────
+// ─── 存檔 Key ─────────────────────────────────────────────────────────────────
 export const SAVE_KEY = 'rpworld_save';
 
 // ─── Schema 版本 ──────────────────────────────────────────────────────────────
@@ -44,6 +45,7 @@ export interface GameSaveData {
   currentGoals: string[];
   summaryPool: string[];
   compressCount: number;
+  statusEffects: StatusEffect[];
 }
 
 // ─── Migration helpers ────────────────────────────────────────────────────────
@@ -152,12 +154,8 @@ export function saveDataMapper(raw: Record<string, unknown>): GameSaveData {
     lorebookEntries: (d.lorebookEntries as LorebookEntry[]) || INITIAL_LOREBOOK_ENTRIES,
     npcs:            mapNpcs(d.npcs),
     appearingNpcs:   (d.appearingNpcs   as string[])        || [],
-    equipment:       Array.isArray(d.equipment)
-                       ? migrateEquipment(d.equipment as unknown[])
-                       : [],
-    items:           Array.isArray(d.items)
-                       ? migrateItems(d.items as unknown[])
-                       : [],
+    equipment:       Array.isArray(d.equipment) ? migrateEquipment(d.equipment as unknown[]) : [],
+    items:           Array.isArray(d.items)     ? migrateItems(d.items as unknown[])         : [],
     currentLocation: (d.currentLocation as string)          || '迷霧森林',
     messages:        (d.messages        as Message[])        || INITIAL_MESSAGES,
     memories:        (d.memories        as MemoryEntry[])    || [],
@@ -175,6 +173,10 @@ export function saveDataMapper(raw: Record<string, unknown>): GameSaveData {
     currentGoals:  (d.currentGoals  as string[]) || [],
     summaryPool:   (d.summaryPool   as string[]) || [],
     compressCount: (d.compressCount as number)   || 0,
+    // 舊存檔無此欄位時給空陣列；同時拋棄舊 profile.status 字串欄位
+    statusEffects: Array.isArray(d.statusEffects)
+      ? (d.statusEffects as StatusEffect[])
+      : [],
   };
 }
 
@@ -184,7 +186,6 @@ const DEFAULTS = saveDataMapper({});
 // ─── Hook ─────────────────────────────────────────────────────────────────────
 export function useGameStore() {
 
-  // ── State（全部初始值為預設值，由 App.tsx 非同步覆寫真實存檔）─────────────────
   const [isStoreReady,    setIsStoreReady]    = useState(false);
   const [timeState,       setTimeState]       = useState<TimeState>(DEFAULTS.timeState);
   const [profile,         setProfile]         = useState<Profile>(DEFAULTS.profile);
@@ -206,8 +207,9 @@ export function useGameStore() {
   const [currentGoals,    setCurrentGoals]    = useState<string[]>(DEFAULTS.currentGoals);
   const [summaryPool,     setSummaryPool]     = useState<string[]>(DEFAULTS.summaryPool);
   const [compressCount,   setCompressCount]   = useState<number>(DEFAULTS.compressCount);
+  const [statusEffects,   setStatusEffects]   = useState<StatusEffect[]>(DEFAULTS.statusEffects);
 
-  // ── loadFromData：批次套用 saveDataMapper 的結果到 state ─────────────────────
+  // ── loadFromData ──────────────────────────────────────────────────────────────
   const loadFromData = (raw: Record<string, unknown>): void => {
     const d = saveDataMapper(raw);
     setProfile(d.profile);
@@ -228,9 +230,10 @@ export function useGameStore() {
     setCurrentGoals(d.currentGoals);
     setSummaryPool(d.summaryPool);
     setCompressCount(d.compressCount);
+    setStatusEffects(d.statusEffects);
   };
 
-  // ── buildSaveSnapshot：組裝完整 GameSaveData，供 App.tsx 傳給 saveToCloud ─────
+  // ── buildSaveSnapshot ─────────────────────────────────────────────────────────
   const buildSaveSnapshot = (snapshot?: Partial<GameSaveData>): GameSaveData => {
     return {
       schemaVersion: CURRENT_SCHEMA,
@@ -252,45 +255,33 @@ export function useGameStore() {
       currentGoals:    snapshot?.currentGoals    ?? currentGoals,
       summaryPool:     snapshot?.summaryPool     ?? summaryPool,
       compressCount:   snapshot?.compressCount   ?? compressCount,
+      statusEffects:   snapshot?.statusEffects   ?? statusEffects,
     };
   };
 
   return {
-    // 初始化狀態
     isStoreReady, setIsStoreReady,
-    // 時間
     timeState, setTimeState,
-    // 玩家
     profile, setProfile,
-    // 系統提示
     systemPrompt, setSystemPrompt,
-    // NPC
     npcs, setNpcs,
     appearingNpcs, setAppearingNpcs,
-    // 地點
     currentLocation, setCurrentLocation,
-    // 記憶
     memories, setMemories,
     stickyCounters, setStickyCounters,
     cooldownCounters, setCooldownCounters,
-    // 任務
     quests, setQuests,
-    // 日記
     diaryEntries, setDiaryEntries,
-    // 設定集
     lorebookEntries, setLorebookEntries,
-    // 裝備 / 道具
     equipment, setEquipment,
     items, setItems,
-    // 對話
     messages, setMessages,
     quickOptions, setQuickOptions,
-    // 冒險狀態
     adventureLog, setAdventureLog,
     currentGoals, setCurrentGoals,
     summaryPool, setSummaryPool,
     compressCount, setCompressCount,
-    // 儲存 / 載入
+    statusEffects, setStatusEffects,
     buildSaveSnapshot,
     loadFromData,
   };
