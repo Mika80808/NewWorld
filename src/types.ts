@@ -7,6 +7,14 @@ export interface TimeState {
   weather: string;
 }
 
+// ─── 狀態異常 ──────────────────────────────────────────────────────────────────
+export interface StatusEffect {
+  id: string;          // `status_${Date.now()}_${random}`
+  name: string;        // AI 自由命名，例如「中毒」「詛咒」
+  emoji: string;       // AI 決定，例如「☠️」「🔥」
+  duration: number;    // 回合數；-1 = 永久（直到手動移除）
+}
+
 export interface Profile {
   name: string;
   job: string;
@@ -18,7 +26,7 @@ export interface Profile {
   gold: number;
   maxHp?: number;
   maxMp?: number;
-  status?: string;
+  status?: StatusEffect[];  // 原 string 改為 StatusEffect 陣列
 }
 
 export interface Quest {
@@ -40,19 +48,14 @@ export interface Quest {
 
 // ─── NPC 記憶庫條目 ───────────────────────────────────────────────────────────
 export interface NpcMemory {
-  id: string;                                         // `nmem_${Date.now()}_${random}`
-  text: string;                                       // 記憶內容
-  createdAt: string;                                  // 遊戲內時間，例如 '4/15'
+  id: string;
+  text: string;
+  createdAt: string;
   source: 'manual' | 'pre_merge' | 'merged';
-  // manual    = 玩家手動輸入
-  // pre_merge = thoughts 自動串接後寫入（尚未 AI 融合的原始記錄）
-  // merged    = Sub GM AI 融合後的摘要產物
   importance: 'core' | 'normal';
-  // core   = 永遠注入 prompt，不受截斷規則影響
-  // normal = 依截斷規則（最近 5 則，超出 300 字縮減到 3 則）
-  isMerged?: boolean;                                 // 已被 AI 融合，保留但不注入 prompt
-  mergedFrom?: string[];                              // 融合來源的 id 陣列
-  isNew?: boolean;                                    // 剛融合產生，尚未被玩家讀取，NpcModal 開啟後自動清除
+  isMerged?: boolean;
+  mergedFrom?: string[];
+  isNew?: boolean;
 }
 
 export interface Npc {
@@ -105,7 +108,7 @@ export interface LorebookEntry {
   mapStatus?: 'heard' | 'known';
   adjacentTo?: string[];
   locationType?: 'town' | 'wilderness' | 'building';
-  aliases?: string[];        // 地點別名，供記憶精確比對用（e.g. 「月湖鎮酒館」→ aliases: ["酒館"]）
+  aliases?: string[];
 }
 
 export interface SystemPrompt {
@@ -116,7 +119,7 @@ export interface SystemPrompt {
 
 export interface DiaryEntry {
   id: number;
-  title?: string;        // 日記標題（選填，AI 生成時自動解析）
+  title?: string;
   text: string;
   isActive: boolean;
   keywords: string[];
@@ -148,26 +151,20 @@ export interface MemoryEntry {
   expiresAt?: string;
 }
 
-// ─── 裝備（穿戴型，無消耗）────────────────────────────────────────────────────
-// 舊名：InventoryItem
 export interface EquipmentItem {
   id: number;
   name: string;
-  description: string;                // 裝備說明（防禦力、魔法屬性等）
-  isEquipped: boolean;                // 是否正在穿戴
+  description: string;
+  isEquipped: boolean;
 }
 
-// ─── 道具（使用型，有數量）────────────────────────────────────────────────────
-// 舊名：ConsumableItem（移除 effect 欄位，效果由 AI 敘事處理）
 export interface ItemEntry {
   id: number;
   name: string;
   quantity: number;
-  description: string;                // 道具說明，AI 使用時根據此說明生成劇情
+  description: string;
 }
 
-// ─── 向下相容型別別名（舊存檔 migrate 用）────────────────────────────────────
-// App.tsx / useGameStore.ts 讀取舊存檔時使用，新程式碼不應再引用這兩個型別
 export type InventoryItem = EquipmentItem;
 export type ConsumableItem = ItemEntry;
 
@@ -178,15 +175,14 @@ export interface Message {
   timestamp?: string;
 }
 
-// ─── GM 設定（不隨存檔匯出，單獨存於 localStorage）────────────────────────────
 export interface GMConfig {
   provider: 'gemini';
   apiKey: string;
   model: string;
   maxTokens: number;
-  lastSaved: string;   // ISO 時間字串，UI 顯示用
+  lastSaved: string;
 }
 
 export interface SubGMConfig extends GMConfig {
-  useSameKey: boolean; // true（預設）時使用主 GM 的 apiKey
+  useSameKey: boolean;
 }
