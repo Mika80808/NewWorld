@@ -1,13 +1,14 @@
 import React from 'react';
-import { User } from 'lucide-react';
+import { User, Sparkles } from 'lucide-react';
 
-import { Profile } from '../types';
+import { Profile, StatusEffect } from '../types';
 
 interface ProfileModalProps {
   isOpen: boolean;
   onClose: () => void;
   profile: Profile;
   setProfile: (profile: Profile) => void;
+  statusEffects?: StatusEffect[];
 }
 
 export const ProfileModal: React.FC<ProfileModalProps> = ({
@@ -15,6 +16,7 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
   onClose,
   profile,
   setProfile,
+  statusEffects = [],
 }) => {
   if (!isOpen) return null;
 
@@ -39,6 +41,44 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
         </div>
 
         <div className="p-6 space-y-4 overflow-y-auto max-h-[70vh]">
+
+          {/* 狀態異常區塊（有異常才顯示）*/}
+          {statusEffects.length > 0 && (
+            <div
+              className="rounded-[8px] p-3 border"
+              style={{
+                background: 'color-mix(in srgb, var(--color-rose) 8%, transparent)',
+                borderColor: 'color-mix(in srgb, var(--color-rose) 25%, transparent)',
+              }}
+            >
+              <div className="flex items-center gap-1.5 mb-2">
+                <Sparkles className="w-3.5 h-3.5" style={{ color: 'var(--color-rose)' }} />
+                <span className="text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--color-rose)' }}>
+                  狀態異常
+                </span>
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {statusEffects.map(s => (
+                  <div
+                    key={s.id}
+                    className="flex items-center gap-1 px-2 py-1 rounded-[5px] text-xs"
+                    style={{
+                      background: 'color-mix(in srgb, var(--bg-elevated) 60%, transparent)',
+                      border: '1px solid rgba(255,255,255,0.1)',
+                      color: 'var(--text-body)',
+                    }}
+                  >
+                    <span>{s.emoji}</span>
+                    <span style={{ color: 'var(--text-main)' }}>{s.name}</span>
+                    <span style={{ color: 'var(--text-muted)' }}>
+                      {s.duration === -1 ? '永久' : `${s.duration} 回合`}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           {([
             { key: 'name' as keyof Profile, label: '姓名', placeholder: '未知', multiline: false },
             { key: 'job' as keyof Profile, label: '職業', placeholder: '例如：異鄉人、劍士、魔法師', multiline: false },
