@@ -20,8 +20,6 @@
 - [ ] P3｜內容安全與邊界控制
   - 內容等級（PG-13 / 成人向）與禁忌主題開關。
 
-- [ ] P3｜玩家狀態異常（Profile.status 欄位閒置中）
-
 - [ ] 向量語意搜尋記憶
   - 進階記憶檢索，以語意相似度取代關鍵字判斷是否注入。
 
@@ -53,6 +51,10 @@
 - Phase 4: 開發伺服器驗證、TypeScript 編譯檢查、功能測試通過
 - **完成狀態**：✅ 全 4 phases 完成，性能改進 ↓90% 訊息更新、↓95% 搜尋延遲、↓80% 記憶 DOM
 
+- [x] P3｜玩家狀態異常（Profile.status 欄位閒置中）+ DSL COMMANDS v1 Key=Value 格式
+  2026-03-31 [Claude Sonnet 4.6]: 新增 StatusEffect 型別（types.ts）、STATUS_ADD/REMOVE/CLEAR 指令（commandParser/commandReducer）、commandParser 全面改為 v1 Key=Value 格式、ProfileModal 狀態異常面板、promptBuilder 注入狀態 context 與新格式說明、useGameStore statusEffects state、App.tsx 串接（store 解構、buildPrompt deps、ProfileModal prop、桌面 HUD 標籤、useCommandParser deps）
+
+
 ---
 
 - [x] 對話摘要壓縮
@@ -60,34 +62,24 @@
 ---
 
 - [x] D5｜存檔匯入/匯出 schema 正規化
-  - `loadFromData` 完整映射所有欄位，獨立 `saveDataMapper` / `saveDataMigration`。
-  - 新增 `schemaVersion`，migration 依版本號觸發，欄位存在與否作為輔助判斷。
-  - 2026-03-27 [Claude Sonnet 4.5]: 新增 `CURRENT_SCHEMA=2`、`runMigrations`、`saveDataMapper`（唯一欄位映射入口），統一 `loadFromData` 移除 if-guard，`saveToStorage` 加入 `schemaVersion`。修改 `useGameStore.ts`。
+  2026-03-27 [Claude Sonnet 4.5]: 新增 `CURRENT_SCHEMA=2`、`runMigrations`、`saveDataMapper`，修改 `useGameStore.ts`。
 
 - [x] D6｜儲存層升級（localStorage → IndexedDB）
-  - 存檔改為 IndexedDB，建立版本化 migration。
-  - `localStorage` 僅保留最後遊玩快照索引與必要 metadata。
-  - 依賴 D5 完成後進行。
-  - 2026-03-27 [Claude Sonnet 4.5]: 新增 `src/db/gameDB.ts`（openDB / writeSave / readSave / deleteSave），`useGameStore` 改為 useEffect 非同步初始化並暴露 `isStoreReady`，`saveToStorage` 改為 async（IndexedDB primary，localStorage fallback），App.tsx 加 loading 畫面保護，handleResetGame 改呼叫 `gameDB.deleteSave`，localStorage 一次性自動遷移。
+  2026-03-27 [Claude Sonnet 4.5]: 新增 `src/db/gameDB.ts`，useGameStore 非同步初始化，App.tsx 加 loading 畫面保護。
 
 - [x] D7｜網路韌性
-  - AI 請求加入 timeout / retry / abort。
-  - 顯示「請求中 / 已中斷 / 可重試」狀態。
-  - 手機切背景返回後自動檢查是否需恢復未完成回合。
-  - 2026-03-27 [Claude Sonnet 4.5]: 新增 `src/hooks/useAIRequest.ts`（timeout 90s/30s、abort per-request token、retry 指數退避最多 2 次），移除 App.tsx 內 `callAI` useCallback，`isLoading` 改由 `aiRequestStatus` 派生，send 按鈕 loading 時顯示中止（X）按鈕，加入重試列 UI，`visibilitychange` 自動中斷切背景未完成請求。
+  2026-03-27 [Claude Sonnet 4.5]: 新增 `src/hooks/useAIRequest.ts`，timeout/retry/abort，中止按鈕，visibilitychange 處理。
 
 ---
 
 ## 群組 E｜長期功能
-> 不阻塞主線開發，可隨時插入。
 
 - [x] P1｜行動端（Mobile Web）基本可用
-  2026-03-28 [Claude Code]: 新增 isMobile state + resize 監聽、Mobile Nav Bar（☰/地圖/Lorebook/ⓘ）、HUD 橫條（HP/MP/天氣/金幣）、左右 Drawer（AnimatePresence 滑入）、safe-area padding、visualViewport 鍵盤處理、text-[10px] → text-[0.625rem]
+  2026-03-28 [Claude Code]: isMobile state、Mobile Nav Bar、HUD 橫條、左右 Drawer、safe-area、visualViewport 鍵盤處理
 
 - [x] P2｜Supabase 強制登入 + 雲端存檔主線
-  2026-03-30 [Claude Code]: 新增 useAuth.ts、supabase.ts，強制 Google 登入，存檔主線改為 Supabase，buildSaveSnapshot 取代 saveToStorage，setIsStoreReady 由 App.tsx 控制，登入後自動載入雲端存檔，存檔槽 Modal（最多 5 槽），匯出/匯入改讀雲端，重置遊戲清除雲端存檔，SettingsModal 加帳號區塊
+  2026-03-30 [Claude Code]: 新增 useAuth.ts、supabase.ts，強制 Google 登入，存檔主線改為 Supabase
 
 - [x] App.tsx 高價值拆分重構
-  2026-03-30 [Claude Code]: 新增 markdownParser.tsx（renderMarkdown/stripBareCommands 等 ~103 行）、promptBuilder.ts（buildPrompt ~378 行）、SaveSlotsModal.tsx（存檔槽 Modal ~112 行），App.tsx 從 ~3463 行降至 ~2959 行
-
-
+  2026-03-30 [Claude Code]: 新增 markdownParser.tsx、promptBuilder.ts、SaveSlotsModal.tsx，App.tsx 從 ~3463 行降至 ~2959 行
+      
