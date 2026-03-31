@@ -5,6 +5,9 @@
 
 ---
 
+###  玩家狀態異常（StatusEffect）+ DSL COMMANDS v1 Key=Value 格式 2026-03-31 [Claude Sonnet 4.6]
+  新增 StatusEffect 型別、STATUS_ADD/REMOVE/CLEAR 指令、commandParser 全面改為 v1 Key=Value 格式、profileModal 狀態異常面板、promptBuilder 注入狀態context
+
 ### App.tsx 高價值拆分重構 2026-03-30 [Claude Code]
 
 **目標**：將 App.tsx 的三個高價值區塊拆出，降低主檔行數（3463 → 2959 行）。
