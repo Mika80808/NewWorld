@@ -1,8 +1,10 @@
 import {
   Profile, SystemPrompt, Npc, LorebookEntry, MemoryEntry,
   Message, EquipmentItem, ItemEntry, Quest, TimeState, DiaryEntry,
+  StatusEffect,
 } from '../types'
 import { getTotalDaysFromTimeState, getQuestRemainingDays } from './timeUtils'
+import { COMMANDS_VERSION } from './commandParser'
 
 export interface BuildPromptDeps {
   profile: Profile
@@ -17,6 +19,7 @@ export interface BuildPromptDeps {
   timeState: TimeState
   currentLocation: string
   diaryEntries: DiaryEntry[]
+  statusEffects: StatusEffect[]
   // 外部函式依賴
   scanKeywords: (keywords: string[], depth?: number) => boolean
   isMemoryTriggered: (mem: MemoryEntry, userInput: string, location: string) => boolean
@@ -31,6 +34,7 @@ export function buildPrompt(
   const {
     profile, systemPrompt, npcs, appearingNpcs, lorebookEntries,
     memories, equipment, items, quests, timeState, diaryEntries,
+    statusEffects,
     scanKeywords, isMemoryTriggered,
   } = deps
 
@@ -172,6 +176,7 @@ ${profile.other ? `Other: ${profile.other}` : ''}
 Location: ${loc}
 Time: ${timeState.year}年${timeState.month}月${timeState.day}日 ${String(timeState.hour).padStart(2,'0')}:${String(timeState.minute).padStart(2,'0')} | Weather: ${timeState.weather}
 HP: ${profile.hp} | MP: ${profile.mp} | Gold: ${profile.gold}
+Status Effects: ${statusEffects.length > 0 ? statusEffects.map(s => { const dur = s.duration === -1 ? '永久' : `${s.duration} 回合`; return `${s.emoji} ${s.name}（${dur}）`; }).join('、') : '（無）'}
 
 [Inventory]
 ${equipment.length > 0 ? equipment.map(e => `- [裝備] ${e.name}${e.isEquipped ? '（裝備中）' : ''}: ${e.description}`).join('\n') : '（無裝備）'}
@@ -319,30 +324,36 @@ ${recentMessages.map(m => `${m.role === 'user' ? 'Player' : 'DM'}: ${m.text}`).j
 Player: ${userInput}
 
 ---
-[COMMAND FORMAT]
+[COMMAND FORMAT — COMMANDS ${COMMANDS_VERSION}]
 數值或狀態有變化時，在回應最前面輸出指令區塊：
 <<COMMANDS>>
-HP:-15
-GOLD:+200
-AFFINITY:角色名:+10
-LOCATION:新地點名稱
-TIME:+1h
-ITEM_ADD:道具名:數量:說明（外觀與效果）
-ITEM_REMOVE:道具名:數量
-ITEM_USE:道具名
-QUEST_ADD:任務名:委託人:目標描述:獎勵金幣:獎勵道具(逗號分隔可留空):期限天數(可留空)
-QUEST_GOAL_MET:任務名
-QUEST_COMPLETE:任務名
-NPC_NEW:姓名:種族:性別:年齡:職業:外貌:個性:背景(選填)
-NPC_HOME:姓名:地點
-NPC_LOCATION:姓名:地點
-NPC_THOUGHT:角色名:第一人稱內心想法
-NPC_RELATIONSHIP:角色名:關係描述
-LOCATION_DISCOVER:地點名稱:x:y
+COMMANDS ${COMMANDS_VERSION}
+STAT|field=hp|delta=-15
+STAT|field=mp|delta=+10
+STAT|field=gold|delta=+200
+AFFINITY|npc=角色名|delta=+10
+LOCATION|name=新地點名稱
+TIME|delta=+1h
+ITEM_ADD|name=道具名|qty=1|desc=說明（外觀與效果）
+ITEM_REMOVE|name=道具名|qty=1
+ITEM_USE|name=道具名
+QUEST_ADD|title=任務名|giver=委託人|desc=目標描述|gold=100|items=物品A,物品B|deadline=7
+QUEST_GOAL_MET|title=任務名
+QUEST_COMPLETE|title=任務名
+NPC_NEW|name=姓名|race=種族|gender=性別|age=年齡|job=職業|appearance=外貌|personality=個性|backstory=背景(選填)
+NPC_HOME|name=姓名|loc=地點
+NPC_LOCATION|npc=姓名|loc=地點
+NPC_THOUGHT|npc=角色名|text=第一人稱內心想法
+NPC_RELATIONSHIP|npc=角色名|rel=關係描述
+LOCATION_DISCOVER|name=地點名稱|x=0|y=0
 MEMORY_ADD:region:normal:迷霧森林昨日大火:locations=迷霧森林:factions=黑牙氏族:keywords=大火,火災:sticky=3
 MEMORY_ADD:scene:normal:酒館因打架暫時關閉:locations=酒館
 MEMORY_ADD:npc:normal:芬里爾透露停火協議內容:npcs=芬里爾:keywords=停火,協議
 MEMORY_ADD:world:critical:魔王宣布向月湖鎮宣戰:keywords=魔王,宣戰
+STATUS_ADD|emoji=☠️|name=中毒|duration=3
+STATUS_ADD|emoji=🔥|name=燃燒|duration=-1
+STATUS_REMOVE|name=中毒
+STATUS_CLEAR
 <</COMMANDS>>
 
 敘事開頭輸出出場標記（非 COMMANDS 區塊，每回應必須）：
@@ -360,6 +371,10 @@ MEMORY_ADD:world:critical:魔王宣布向月湖鎮宣戰:keywords=魔王,宣戰
 - NPC_THOUGHT：NPC 有明顯情緒變化、做出重要決定、或對玩家產生新看法時，第一人稱。
 - NPC_RELATIONSHIP：玩家與 NPC 初次確立明確關係，或關係發生重大轉變時輸出。
 - LOCATION_DISCOVER：玩家路過/聽說未知地點時（heard 狀態加入地圖）。x/y 為整數，月湖鎮=0,0。
+- STATUS_ADD：玩家獲得狀態異常（中毒、詛咒、祝福等）時。duration=-1 為永久。
+- STATUS_REMOVE：玩家解除特定狀態異常時。
+- STATUS_CLEAR：所有狀態異常一次清除時（例如神聖淨化）。
+- 同名 STATUS_ADD 會覆蓋舊的（重置 duration）。
 
 【MEMORY_ADD 觸發情境（以下情況必須輸出）】
 1. world/critical：影響整個世界的重大事件（魔王宣戰、天象異變）

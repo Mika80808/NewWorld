@@ -7,7 +7,7 @@ import { CommandAST } from './commandParser';
 import { advanceTimeAndResolveQuestDeadlines } from './timeUtils';
 import {
   TimeState, Profile, Quest, MemoryEntry, Npc, ItemEntry,
-  LorebookEntry, Message,
+  LorebookEntry, Message, StatusEffect,
 } from '../types';
 
 // ─── 狀態變更對象型別 ──────────────────────────────────────────────────────────
@@ -24,6 +24,7 @@ export interface StateChanges {
   quickOptions?: string[];
   stickyCounters?: Record<string, number>;
   cooldownCounters?: Record<string, number>;
+  statusEffects?: StatusEffect[];
 }
 
 export interface Feedback {
@@ -60,47 +61,41 @@ export interface CurrentState {
   messages: Message[];
   stickyCounters: Record<string, number>;
   cooldownCounters: Record<string, number>;
+  statusEffects: StatusEffect[];
 }
 
 // ─── Main Reduce Function ──────────────────────────────────────────────────────
 
-/**
- * 將解析後的指令累積為狀態變更對象（純函式）
- * @param commands 解析後的指令陣列
- * @param currentState 當前遊戲狀態
- * @returns { stateChanges, feedback, asyncTasks }
- */
 export function reduceCommands(
   commands: CommandAST[],
   currentState: CurrentState
 ): ReduceResult {
-  // 初始化累積變數
   const stateChanges: StateChanges = {};
-  const feedback: Feedback = {
-    toasts: [],
-    cmdResults: [],
-  };
+  const feedback: Feedback = { toasts: [], cmdResults: [] };
   const asyncTasks: AsyncTask[] = [];
 
-  // 數值累積變數（最後一次性應用）
   let hpDelta = 0;
   let mpDelta = 0;
   let goldDelta = 0;
   const affinityUpdates: Array<{ npcName: string; value: number }> = [];
   let timeDeltaMinutes = 0;
 
-  // 複製現有列表（避免直接修改）
   let workingQuests = [...currentState.quests];
   let workingNpcs = [...currentState.npcs];
   let workingItems = [...currentState.items];
   let workingMemories = [...currentState.memories];
   let workingLorebookEntries = [...currentState.lorebookEntries];
 
-  // ─── 遍歷指令，累積變更 ────────────────────────────────────────────────────────
+  // 狀態異常：每回合對所有 duration > 0 的異常 -1，歸零自動移除
+  let workingStatus: StatusEffect[] = currentState.statusEffects
+    .map(s => s.duration === -1 ? s : { ...s, duration: s.duration - 1 })
+    .filter(s => s.duration !== 0);
+
+  // ─── 遍歷指令 ─────────────────────────────────────────────────────────────────
 
   for (const cmd of commands) {
     switch (cmd.type) {
-      // ═══ HP / MP / GOLD（延遲應用）
+
       case 'HP': {
         hpDelta += (cmd.parsed.value as number) || 0;
         feedback.cmdResults.push(`❤️ HP ${(cmd.parsed.value as number) > 0 ? '+' : ''}${cmd.parsed.value}`);
@@ -119,92 +114,69 @@ export function reduceCommands(
         break;
       }
 
-      // ═══ TIME（推進時間 + 檢查期限）
       case 'TIME': {
-        const minutes = (cmd.parsed.minutes as number) || 0;
-        timeDeltaMinutes += minutes;
+        timeDeltaMinutes += (cmd.parsed.minutes as number) || 0;
         break;
       }
 
-      // ═══ LOCATION
       case 'LOCATION': {
         stateChanges.currentLocation = cmd.parsed.location as string;
         feedback.cmdResults.push(`📍 移動至 ${cmd.parsed.location}`);
         break;
       }
 
-      // ═══ AFFINITY
       case 'AFFINITY': {
-        const npcName = cmd.parsed.npcName as string;
-        const value = cmd.parsed.value as number;
-        affinityUpdates.push({ npcName, value });
-        feedback.cmdResults.push(`💕 ${npcName} 好感度 ${value > 0 ? '+' : ''}${value}`);
+        affinityUpdates.push({
+          npcName: cmd.parsed.npcName as string,
+          value: cmd.parsed.value as number,
+        });
+        feedback.cmdResults.push(`💕 ${cmd.parsed.npcName} 好感度 ${(cmd.parsed.value as number) > 0 ? '+' : ''}${cmd.parsed.value}`);
         break;
       }
 
-      // ═══ ITEM_ADD
       case 'ITEM_ADD': {
         const name = cmd.parsed.name as string;
         const quantity = (cmd.parsed.quantity as number) || 1;
         const description = cmd.parsed.description as string;
-
         const existingItem = workingItems.find(i => i.name === name);
         if (existingItem) {
           existingItem.quantity += quantity;
         } else {
-          workingItems.push({
-            id: Date.now(),
-            name,
-            quantity,
-            description,
-          });
+          workingItems.push({ id: Date.now(), name, quantity, description });
         }
         feedback.cmdResults.push(`📦 獲得 ${name} ×${quantity}`);
         break;
       }
 
-      // ═══ ITEM_REMOVE
       case 'ITEM_REMOVE': {
         const name = cmd.parsed.name as string;
         const quantity = (cmd.parsed.quantity as number) || 1;
-
         const item = workingItems.find(i => i.name === name);
         if (item) {
           item.quantity -= quantity;
-          if (item.quantity <= 0) {
-            workingItems = workingItems.filter(i => i.name !== name);
-          }
+          if (item.quantity <= 0) workingItems = workingItems.filter(i => i.name !== name);
           feedback.cmdResults.push(`📦 移除 ${name} ×${quantity}`);
         }
         break;
       }
 
-      // ═══ QUEST_ADD
       case 'QUEST_ADD': {
         const title = cmd.parsed.title as string;
-        const giver = cmd.parsed.giver as string;
-        const description = cmd.parsed.description as string;
-        const gold = (cmd.parsed.gold as number) || 0;
-        const items = (cmd.parsed.items as string[]) || [];
-        const deadline = cmd.parsed.deadline as number | undefined;
-
-        // 檢查重複
         if (!workingQuests.some(q => q.title === title)) {
           const createdAtTotalDays =
             currentState.timeState.year * 360 +
             (currentState.timeState.month - 1) * 30 +
             currentState.timeState.day;
-
           workingQuests.push({
             id: `quest_${Date.now()}_${Math.floor(Math.random() * 9999)}`,
             title,
-            giver,
-            description,
+            giver: (cmd.parsed.giver as string) || '',
+            description: (cmd.parsed.description as string) || '',
             reward: {
-              gold: gold > 0 ? gold : undefined,
-              items: items.length > 0 ? items : undefined,
+              gold: (cmd.parsed.gold as number) > 0 ? (cmd.parsed.gold as number) : undefined,
+              items: (cmd.parsed.items as string[])?.length > 0 ? (cmd.parsed.items as string[]) : undefined,
             },
-            ...(deadline ? { deadline } : {}),
+            ...((cmd.parsed.deadline as number) ? { deadline: cmd.parsed.deadline as number } : {}),
             status: 'active' as const,
             isGoalMet: false,
             createdAt: `${currentState.timeState.month}/${currentState.timeState.day}`,
@@ -215,55 +187,34 @@ export function reduceCommands(
         break;
       }
 
-      // ═══ QUEST_GOAL_MET
       case 'QUEST_GOAL_MET': {
         const title = cmd.parsed.title as string;
         workingQuests = workingQuests.map(q =>
-          q.title === title && q.status === 'active'
-            ? { ...q, isGoalMet: true }
-            : q
+          q.title === title && q.status === 'active' ? { ...q, isGoalMet: true } : q
         );
         feedback.cmdResults.push(`✅ ${title}（目標達成，待玩家回報）`);
         break;
       }
 
-      // ═══ QUEST_COMPLETE
       case 'QUEST_COMPLETE': {
         const title = cmd.parsed.title as string;
         const quest = workingQuests.find(q => q.title === title && q.status === 'active');
-
         if (quest) {
-          // 發放獎勵
           if (quest.reward?.gold && quest.reward.gold > 0) {
             goldDelta += quest.reward.gold;
             feedback.cmdResults.push(`💰 完成獎勵：+${quest.reward.gold} 金幣`);
           }
-
-          if (quest.reward?.items && quest.reward.items.length > 0) {
+          if (quest.reward?.items?.length) {
             quest.reward.items.forEach(itemName => {
-              const existingItem = workingItems.find(i => i.name === itemName);
-              if (existingItem) {
-                existingItem.quantity += 1;
-              } else {
-                workingItems.push({
-                  id: Date.now(),
-                  name: itemName,
-                  quantity: 1,
-                  description: '完成任務獲得的獎勵',
-                });
-              }
+              const existing = workingItems.find(i => i.name === itemName);
+              if (existing) existing.quantity += 1;
+              else workingItems.push({ id: Date.now(), name: itemName, quantity: 1, description: '完成任務獲得的獎勵' });
             });
             feedback.cmdResults.push(`📦 獎勵物品：${quest.reward.items.join('、')}`);
           }
-
-          // 標記完成
           workingQuests = workingQuests.map(q =>
             q.title === title && q.status === 'active'
-              ? {
-                  ...q,
-                  status: 'completed' as const,
-                  completedAt: `${currentState.timeState.month}/${currentState.timeState.day}`,
-                }
+              ? { ...q, status: 'completed' as const, completedAt: `${currentState.timeState.month}/${currentState.timeState.day}` }
               : q
           );
           feedback.cmdResults.push(`✅ 任務完成：${title}`);
@@ -271,85 +222,47 @@ export function reduceCommands(
         break;
       }
 
-      // ═══ NPC_THOUGHT
       case 'NPC_THOUGHT': {
         const npcName = cmd.parsed.npcName as string;
         const thought = cmd.parsed.thought as string;
-
         workingNpcs = workingNpcs.map(npc => {
-          if (!npc.name.includes(npcName.trim()) && !npcName.trim().includes(npc.name)) {
-            return npc;
-          }
-
+          if (!npc.name.includes(npcName.trim()) && !npcName.trim().includes(npc.name)) return npc;
           const updatedThoughts = [
             { text: thought, createdAt: `${currentState.timeState.month}/${currentState.timeState.day}` },
             ...(npc.thoughts || []),
           ];
-
-          // 如果想法超過 10 則，串接到記憶
           if (updatedThoughts.length > 10) {
-            const mergedText = updatedThoughts
-              .slice(0, 10)
-              .reverse()
-              .map(t => `[${t.createdAt}] ${t.text}`)
-              .join('；');
-
+            const mergedText = updatedThoughts.slice(0, 10).reverse().map(t => `[${t.createdAt}] ${t.text}`).join('；');
             const newMemory: MemoryEntry = {
               id: `nmem_${Date.now()}_${Math.random().toString(36).slice(2)}`,
-              type: 'npc' as const,
-              importance: 'normal' as const,
+              type: 'npc' as const, importance: 'normal' as const,
               content: `${npc.name} 的想法整理：${mergedText}`,
-              tags: {
-                locations: [],
-                npcs: [npc.name],
-                factions: [],
-                keywords: [],
-              },
-              trigger: {
-                scanDepth: 5,
-                probability: 100,
-                sticky: 0,
-                cooldown: 0,
-              },
-              isActive: true,
-              source: 'pre_merge' as const,
+              tags: { locations: [], npcs: [npc.name], factions: [], keywords: [] },
+              trigger: { scanDepth: 5, probability: 100, sticky: 0, cooldown: 0 },
+              isActive: true, source: 'pre_merge' as const,
               createdAt: `${currentState.timeState.month}/${currentState.timeState.day}`,
             };
-
             workingMemories.push(newMemory);
-
-            // 檢查是否需要觸發 AI 融合
             const unmergedCount = [...(npc.memories || []), newMemory].filter(m => !m.isMerged).length;
             if (unmergedCount > 3) {
               asyncTasks.push({
                 type: 'merge_npc_memories',
-                payload: {
-                  npcId: npc.id,
-                  npcName: npc.name,
-                  memories: [...(npc.memories || []), newMemory],
-                },
+                payload: { npcId: npc.id, npcName: npc.name, memories: [...(npc.memories || []), newMemory] },
               });
             }
-
             return { ...npc, thoughts: [], memories: [...(npc.memories || []), newMemory] };
           }
-
           return { ...npc, thoughts: updatedThoughts };
         });
-
         break;
       }
 
-      // ═══ NPC_LOCATION
       case 'NPC_LOCATION': {
         const npcName = cmd.parsed.npcName as string;
         const location = cmd.parsed.location as string;
-
-        // 更新 lorebookEntries（若為 NPC 類）
         workingLorebookEntries = workingLorebookEntries.map(e => {
           if (e.category === 'NPC' && e.title === npcName) {
             const roamLocs = [...(e.roamLocations || [])];
-            // 保持最多 3 個活動地點
             if (!roamLocs.includes(location)) {
               roamLocs.unshift(location);
               if (roamLocs.length > 3) roamLocs.pop();
@@ -358,28 +271,53 @@ export function reduceCommands(
           }
           return e;
         });
-
-        // 更新 npcs
         workingNpcs = workingNpcs.map(npc =>
           npc.name === npcName
             ? { ...npc, location, lastSeenLocation: location, lastSeenDate: `${currentState.timeState.month}/${currentState.timeState.day}` }
             : npc
         );
-
         feedback.cmdResults.push(`👤 ${npcName} 現在在 ${location}`);
+        break;
+      }
+
+      // ── 狀態異常指令 ───────────────────────────────────────────────────────────
+
+      case 'STATUS_ADD': {
+        const name = cmd.parsed.name as string;
+        const emoji = cmd.parsed.emoji as string;
+        const duration = cmd.parsed.duration as number;
+        // 同名異常：覆寫（重置 duration）
+        workingStatus = workingStatus.filter(s => s.name !== name);
+        workingStatus.push({
+          id: `status_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+          name, emoji, duration,
+        });
+        const durationLabel = duration === -1 ? '永久' : `${duration} 回合`;
+        feedback.cmdResults.push(`${emoji} 獲得狀態：${name}（${durationLabel}）`);
+        break;
+      }
+
+      case 'STATUS_REMOVE': {
+        const name = cmd.parsed.name as string;
+        workingStatus = workingStatus.filter(s => s.name !== name);
+        feedback.cmdResults.push(`✨ 狀態解除：${name}`);
+        break;
+      }
+
+      case 'STATUS_CLEAR': {
+        workingStatus = [];
+        feedback.cmdResults.push('✨ 所有狀態異常已解除');
         break;
       }
 
       case 'UNKNOWN':
       default:
-        // 未知指令，跳過
         break;
     }
   }
 
-  // ─── 最後統一應用延遲的數值變更和時間推進 ─────────────────────────────────
+  // ─── 統一應用延遲的數值變更 ────────────────────────────────────────────────────
 
-  // 應用 HP / MP / GOLD 累積
   if (hpDelta !== 0 || mpDelta !== 0 || goldDelta !== 0) {
     stateChanges.profile = {
       hp: Math.max(0, currentState.profile.hp + hpDelta),
@@ -388,35 +326,28 @@ export function reduceCommands(
     };
   }
 
-  // 應用時間推進
   if (timeDeltaMinutes > 0) {
     const { newTimeState, updatedQuests, cmdResults } = advanceTimeAndResolveQuestDeadlines(
-      currentState.timeState,
-      timeDeltaMinutes,
-      workingQuests
+      currentState.timeState, timeDeltaMinutes, workingQuests
     );
     stateChanges.timeState = newTimeState;
     workingQuests = updatedQuests;
     feedback.cmdResults.push(...cmdResults);
   }
 
-  // 應用好感度變更
   if (affinityUpdates.length > 0) {
     workingNpcs = workingNpcs.map(npc => {
       const update = affinityUpdates.find(a => a.npcName === npc.name);
-      if (update) {
-        return { ...npc, affection: Math.max(-100, npc.affection + update.value) };
-      }
-      return npc;
+      return update ? { ...npc, affection: Math.max(-100, npc.affection + update.value) } : npc;
     });
   }
 
-  // 應用工作副本到 stateChanges
   stateChanges.quests = workingQuests;
   stateChanges.npcs = workingNpcs;
   stateChanges.items = workingItems;
   stateChanges.memories = workingMemories;
   stateChanges.lorebookEntries = workingLorebookEntries;
+  stateChanges.statusEffects = workingStatus;
 
   return { stateChanges, feedback, asyncTasks };
 }
