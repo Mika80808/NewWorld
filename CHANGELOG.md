@@ -5,6 +5,59 @@
 
 ---
 
+### StatusEffect 狀態效果系統 2026-03-31 [Claude Code]
+
+**目標**：GM AI 可用 `STATUS_ADD/REMOVE/CLEAR` 指令給玩家施加／移除狀態效果（中毒、燃燒、祝福…），效果顯示於 HUD 和角色資訊 Modal。
+
+#### **改動**：`src/types.ts`
+- 新增 `StatusEffect` 介面（`id`、`name`、`emoji`、`duration`（-1 = 永久）、`description?`）
+
+#### **改動**：`src/utils/commandParser.ts`
+- 新增 `STATUS_ADD:id:name:emoji:duration[:description]` 解析
+- 新增 `STATUS_REMOVE:id` 解析
+- 新增 `STATUS_CLEAR` 解析
+- `barePattern` 正則加入 `STATUS_` 前綴支援
+
+#### **改動**：`src/utils/commandReducer.ts`
+- `StateChanges` 新增 `statusEffects?: StatusEffect[]`
+- `CurrentState` 新增 `statusEffects: StatusEffect[]`
+- 新增 `STATUS_ADD`、`STATUS_REMOVE`、`STATUS_CLEAR` case 處理
+- 時間推進區塊：自動遞減有限 duration，歸零時移除並推送 toast 通知
+
+#### **改動**：`src/utils/commandEffects.ts`
+- `Setters` 新增 `setStatusEffects`
+- `applyStateChanges` 處理 `stateChanges.statusEffects`
+
+#### **改動**：`src/hooks/useCommandParser.ts`
+- `CommandParserDeps` 新增 `statusEffects` / `setStatusEffects`
+- `reduceCommands` 的 `currentState` 傳入 `statusEffects`
+- `applyStateChanges` 的 `setters` 傳入 `setStatusEffects`
+
+#### **改動**：`src/hooks/useGameStore.ts`
+- `CURRENT_SCHEMA` 升至 4，新增 `migrateV3toV4`（補填 `statusEffects: []`）
+- `GameSaveData` 新增 `statusEffects` 欄位
+- `saveDataMapper`、`loadFromData`、`buildSaveSnapshot`、state 全部對應更新
+
+#### **改動**：`src/utils/promptBuilder.ts`
+- `BuildPromptDeps` 新增 `statusEffects: StatusEffect[]`
+- `[Current State]` 區塊新增 `Status:` 行（有效果時才輸出）
+- `[COMMAND FORMAT]` 新增 `STATUS_ADD/REMOVE/CLEAR` 格式說明
+- `【各指令觸發時機】` 新增 STATUS 觸發時機說明
+
+#### **改動**：`src/App.tsx`
+- 從 `useGameStore` 解構 `statusEffects / setStatusEffects`
+- `useCommandParser` 呼叫傳入 `statusEffects` / `setStatusEffects`
+- `buildPromptWrapper` deps 傳入 `statusEffects`
+- `<ProfileModal>` 傳入 `statusEffects={statusEffects}`
+- 桌面 HUD：HP/MP 後新增 emoji 徽章列（含 tooltip）
+- 手機 HUD：HP/MP/job/gold 行末新增 emoji 徽章
+
+#### **改動**：`src/components/ProfileModal.tsx`
+- 新增 `statusEffects?: StatusEffect[]` prop
+- 有效果時顯示狀態效果面板（emoji + 名稱 + 剩餘回合）
+
+---
+
 ### 任務失敗機制 2026-03-30 [Claude Code]
 
 **目標**：任務逾期後通知 GM AI，讓委託人 NPC 自動扣好感度並留下記憶。

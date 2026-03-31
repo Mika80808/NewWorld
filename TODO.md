@@ -101,6 +101,9 @@
 - [x] App.tsx 高價值拆分重構
   2026-03-30 [Claude Code]: 新增 markdownParser.tsx（renderMarkdown/stripBareCommands 等 ~103 行）、promptBuilder.ts（buildPrompt ~378 行）、SaveSlotsModal.tsx（存檔槽 Modal ~112 行），App.tsx 從 ~3463 行降至 ~2959 行
 
+- [x] StatusEffect 狀態效果系統
+  2026-03-31 [Claude Code]: 新增 StatusEffect 型別、commandParser STATUS_ADD/REMOVE/CLEAR 解析、commandReducer 處理（含時間推進自動遞減 duration）、commandEffects Setters 串接、useCommandParser/App.tsx 完整 wiring、ProfileModal 狀態效果面板、桌面＋手機 HUD emoji 徽章、promptBuilder [Current State] Status 行、COMMANDS 格式說明更新、schema v4 migration
+
 - [ ] P3｜指令 DSL 版本化
   - 例如 `COMMANDS v2`，維護向下相容 parser。
 

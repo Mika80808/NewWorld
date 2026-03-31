@@ -7,7 +7,7 @@ import { CommandAST } from './commandParser';
 import { advanceTimeAndResolveQuestDeadlines } from './timeUtils';
 import {
   TimeState, Profile, Quest, MemoryEntry, Npc, ItemEntry,
-  LorebookEntry, Message, PendingQuestFailure,
+  LorebookEntry, Message, PendingQuestFailure, StatusEffect,
 } from '../types';
 
 // ─── 狀態變更對象型別 ──────────────────────────────────────────────────────────
@@ -24,6 +24,7 @@ export interface StateChanges {
   quickOptions?: string[];
   stickyCounters?: Record<string, number>;
   cooldownCounters?: Record<string, number>;
+  statusEffects?: StatusEffect[];
 }
 
 export interface Feedback {
@@ -61,6 +62,7 @@ export interface CurrentState {
   messages: Message[];
   stickyCounters: Record<string, number>;
   cooldownCounters: Record<string, number>;
+  statusEffects: StatusEffect[];
 }
 
 // ─── Main Reduce Function ──────────────────────────────────────────────────────
@@ -97,6 +99,7 @@ export function reduceCommands(
   let workingItems = [...currentState.items];
   let workingMemories = [...currentState.memories];
   let workingLorebookEntries = [...currentState.lorebookEntries];
+  let workingStatusEffects = [...(currentState.statusEffects || [])];
 
   // ─── 遍歷指令，累積變更 ────────────────────────────────────────────────────────
 
@@ -372,6 +375,33 @@ export function reduceCommands(
         break;
       }
 
+      case 'STATUS_ADD': {
+        const { id, name, emoji, duration, description } = cmd.parsed as {
+          id: string; name: string; emoji: string; duration: number; description?: string;
+        };
+        // 若已存在相同 id，覆蓋
+        workingStatusEffects = workingStatusEffects.filter(s => s.id !== id);
+        workingStatusEffects.push({ id, name, emoji, duration, description });
+        feedback.cmdResults.push(`${emoji} 獲得狀態：${name}${duration === -1 ? '（永久）' : ` ×${duration}`}`);
+        break;
+      }
+
+      case 'STATUS_REMOVE': {
+        const { id } = cmd.parsed as { id: string };
+        const removed = workingStatusEffects.find(s => s.id === id);
+        workingStatusEffects = workingStatusEffects.filter(s => s.id !== id);
+        if (removed) feedback.cmdResults.push(`✨ 狀態解除：${removed.name}`);
+        break;
+      }
+
+      case 'STATUS_CLEAR': {
+        if (workingStatusEffects.length > 0) {
+          feedback.cmdResults.push('✨ 所有狀態異常已清除');
+        }
+        workingStatusEffects = [];
+        break;
+      }
+
       case 'UNKNOWN':
       default:
         // 未知指令，跳過
@@ -414,12 +444,27 @@ export function reduceCommands(
     });
   }
 
+  // 時間推進時遞減 statusEffects duration，移除歸零的
+  if (timeDeltaMinutes > 0) {
+    const expired: string[] = [];
+    workingStatusEffects = workingStatusEffects
+      .map(s => {
+        if (s.duration === -1) return s; // 永久
+        const next = s.duration - 1;
+        if (next <= 0) { expired.push(s.name); return null; }
+        return { ...s, duration: next };
+      })
+      .filter((s): s is StatusEffect => s !== null);
+    expired.forEach(name => feedback.cmdResults.push(`✨ 狀態結束：${name}`));
+  }
+
   // 應用工作副本到 stateChanges
   stateChanges.quests = workingQuests;
   stateChanges.npcs = workingNpcs;
   stateChanges.items = workingItems;
   stateChanges.memories = workingMemories;
   stateChanges.lorebookEntries = workingLorebookEntries;
+  stateChanges.statusEffects = workingStatusEffects;
 
   return { stateChanges, feedback, asyncTasks, newFailures };
 }

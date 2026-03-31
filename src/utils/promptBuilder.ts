@@ -1,7 +1,7 @@
 import {
   Profile, SystemPrompt, Npc, LorebookEntry, MemoryEntry,
   Message, EquipmentItem, ItemEntry, Quest, TimeState, DiaryEntry,
-  PendingQuestFailure,
+  PendingQuestFailure, StatusEffect,
 } from '../types'
 import { getTotalDaysFromTimeState, getQuestRemainingDays } from './timeUtils'
 
@@ -19,6 +19,7 @@ export interface BuildPromptDeps {
   currentLocation: string
   diaryEntries: DiaryEntry[]
   pendingQuestFailures: PendingQuestFailure[]
+  statusEffects: StatusEffect[]
   // 外部函式依賴
   scanKeywords: (keywords: string[], depth?: number) => boolean
   isMemoryTriggered: (mem: MemoryEntry, userInput: string, location: string) => boolean
@@ -33,7 +34,7 @@ export function buildPrompt(
   const {
     profile, systemPrompt, npcs, appearingNpcs, lorebookEntries,
     memories, equipment, items, quests, timeState, diaryEntries,
-    pendingQuestFailures, scanKeywords, isMemoryTriggered,
+    pendingQuestFailures, statusEffects, scanKeywords, isMemoryTriggered,
   } = deps
 
   const loc = locationOverride ?? deps.currentLocation
@@ -174,6 +175,7 @@ ${profile.other ? `Other: ${profile.other}` : ''}
 Location: ${loc}
 Time: ${timeState.year}年${timeState.month}月${timeState.day}日 ${String(timeState.hour).padStart(2,'0')}:${String(timeState.minute).padStart(2,'0')} | Weather: ${timeState.weather}
 HP: ${profile.hp} | MP: ${profile.mp} | Gold: ${profile.gold}
+${statusEffects.length > 0 ? `Status: ${statusEffects.map(s => `${s.emoji}${s.name}${s.duration !== -1 ? `(×${s.duration})` : ''}`).join(', ')}` : ''}
 
 [Inventory]
 ${equipment.length > 0 ? equipment.map(e => `- [裝備] ${e.name}${e.isEquipped ? '（裝備中）' : ''}: ${e.description}`).join('\n') : '（無裝備）'}
@@ -344,6 +346,9 @@ TIME:+1h
 ITEM_ADD:道具名:數量:說明（外觀與效果）
 ITEM_REMOVE:道具名:數量
 ITEM_USE:道具名
+STATUS_ADD:id:名稱:emoji:回合數(-1=永久):說明(選填)
+STATUS_REMOVE:id
+STATUS_CLEAR
 QUEST_ADD:任務名:委託人:目標描述:獎勵金幣:獎勵道具(逗號分隔可留空):期限天數(可留空)
 QUEST_GOAL_MET:任務名
 QUEST_COMPLETE:任務名
@@ -374,6 +379,8 @@ MEMORY_ADD:world:critical:魔王宣布向月湖鎮宣戰:keywords=魔王,宣戰
 - NPC_THOUGHT：NPC 有明顯情緒變化、做出重要決定、或對玩家產生新看法時，第一人稱。
 - NPC_RELATIONSHIP：玩家與 NPC 初次確立明確關係，或關係發生重大轉變時輸出。
 - LOCATION_DISCOVER：玩家路過/聽說未知地點時（heard 狀態加入地圖）。x/y 為整數，月湖鎮=0,0。
+- STATUS_ADD：玩家中毒、燒傷、詛咒等狀態異常時。id 用英文底線，emoji 選最貼近的，回合數代表持續回合，-1 為永久。
+- STATUS_REMOVE：特定異常被解除時。STATUS_CLEAR：所有異常被清除時（解毒藥、治療魔法等）。
 
 【MEMORY_ADD 觸發情境（以下情況必須輸出）】
 1. world/critical：影響整個世界的重大事件（魔王宣戰、天象異變）

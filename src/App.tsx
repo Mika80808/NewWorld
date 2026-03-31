@@ -266,6 +266,7 @@ ${newPool.map((s, i) => `${i + 1}. ${s}`).join('\n')}`;
     summaryPool, setSummaryPool,
     compressCount, setCompressCount,
     pendingQuestFailures, setPendingQuestFailures,
+    statusEffects, setStatusEffects,
     buildSaveSnapshot,
     loadFromData,
     setIsStoreReady,
@@ -441,10 +442,11 @@ ${newPool.map((s, i) => `${i + 1}. ${s}`).join('\n')}`;
     useCommandParser({
       timeState, profile, currentLocation, quests, memories, items, npcs,
       stickyCounters, cooldownCounters, messages, lorebookEntries,
+      statusEffects,
       setTimeState, setProfile, setCurrentLocation, setQuests,
       setMemories, setEquipment, setItems, setNpcs,
       setLorebookEntries, setQuickOptions,
-      setStickyCounters, setCooldownCounters,
+      setStickyCounters, setCooldownCounters, setStatusEffects,
       notifyCommandResult,
       showToast,
       onNewQuest: () => setIsQuestModalOpen(true),
@@ -993,7 +995,7 @@ ${poolText}
     const deps: BuildPromptDeps = {
       profile, systemPrompt, npcs, appearingNpcs, lorebookEntries,
       memories, equipment, items, quests, timeState, currentLocation,
-      diaryEntries, pendingQuestFailures, scanKeywords, isMemoryTriggered,
+      diaryEntries, pendingQuestFailures, statusEffects, scanKeywords, isMemoryTriggered,
     };
     return buildPrompt(deps, userInput, currentMessages, locationOverride);
   };
@@ -1383,6 +1385,25 @@ ${recentContext}
 
           {/* 分隔線 */}
           <div style={{ width: '0.5px', height: '12px', background: 'rgba(255,255,255,0.1)' }} />
+
+          {/* 狀態效果徽章 */}
+          {statusEffects.length > 0 && (
+            <div className="flex items-center gap-1">
+              {statusEffects.map(s => (
+                <span
+                  key={s.id}
+                  title={`${s.name}${s.duration !== -1 ? `（剩 ${s.duration} 回合）` : ''}${s.description ? `：${s.description}` : ''}`}
+                  style={{ fontSize: '11px', cursor: 'default' }}
+                >
+                  {s.emoji}
+                </span>
+              ))}
+            </div>
+          )}
+
+          {statusEffects.length > 0 && (
+            <div style={{ width: '0.5px', height: '12px', background: 'rgba(255,255,255,0.1)' }} />
+          )}
 
           {/* 天氣 */}
           <div className="flex items-center gap-1" style={{ fontSize: '10px', color: 'var(--text-muted)' }}>
@@ -2101,6 +2122,16 @@ ${recentContext}
                   <span className="flex items-center whitespace-nowrap"><Zap className="w-3 h-3 mr-1 fill-current" style={{ color: 'var(--color-blue)' }} /> MP {profile.mp}</span>
                   <span className="flex items-center whitespace-nowrap"><Shield className="w-3 h-3 mr-1" style={{ color: 'var(--text-body)' }} /> {profile.job}</span>
                   <span className="flex items-center whitespace-nowrap"><Coins className="w-3 h-3 mr-1" /> {(profile.gold ?? 0).toLocaleString()} G</span>
+                  {statusEffects.length > 0 && statusEffects.map(s => (
+                    <span
+                      key={s.id}
+                      title={`${s.name}${s.duration !== -1 ? `（剩 ${s.duration} 回合）` : ''}${s.description ? `：${s.description}` : ''}`}
+                      className="whitespace-nowrap"
+                      style={{ fontSize: '13px', cursor: 'default' }}
+                    >
+                      {s.emoji}
+                    </span>
+                  ))}
                 </div>
               </div>
             </div>
@@ -2319,6 +2350,7 @@ ${recentContext}
         onClose={() => setIsProfileModalOpen(false)}
         profile={profile}
         setProfile={setProfile}
+        statusEffects={statusEffects}
       />
 
       {/* Diary Modal Overlay */}

@@ -6,7 +6,7 @@
 import React from 'react';
 import {
   Profile, Npc, Quest, LorebookEntry, MemoryEntry,
-  EquipmentItem, ItemEntry, TimeState, Message, PendingQuestFailure,
+  EquipmentItem, ItemEntry, TimeState, Message, PendingQuestFailure, StatusEffect,
 } from '../types';
 import { parseCommandsToAST } from '../utils/commandParser';
 import { reduceCommands } from '../utils/commandReducer';
@@ -41,6 +41,8 @@ export interface CommandParserDeps {
   setQuickOptions: React.Dispatch<React.SetStateAction<string[]>>;
   setStickyCounters: React.Dispatch<React.SetStateAction<Record<string, number>>>;
   setCooldownCounters: React.Dispatch<React.SetStateAction<Record<string, number>>>;
+  statusEffects: StatusEffect[];
+  setStatusEffects: React.Dispatch<React.SetStateAction<StatusEffect[]>>;
 
   // UI 回呼
   showToast: (msg: string) => void;
@@ -68,10 +70,10 @@ export interface UseCommandParserReturn {
 export function useCommandParser(deps: CommandParserDeps): UseCommandParserReturn {
   const {
     timeState, profile, currentLocation, quests, memories, items, npcs, lorebookEntries,
-    stickyCounters, cooldownCounters, messages,
+    stickyCounters, cooldownCounters, messages, statusEffects,
     setTimeState, setProfile, setCurrentLocation, setQuests, setMemories,
     setEquipment, setItems, setNpcs, setLorebookEntries, setQuickOptions,
-    setStickyCounters, setCooldownCounters,
+    setStickyCounters, setCooldownCounters, setStatusEffects,
     showToast, notifyCommandResult, callAI,
   } = deps;
 
@@ -96,6 +98,7 @@ export function useCommandParser(deps: CommandParserDeps): UseCommandParserRetur
         messages,
         stickyCounters,
         cooldownCounters,
+        statusEffects,
       }
     );
 
@@ -115,6 +118,7 @@ export function useCommandParser(deps: CommandParserDeps): UseCommandParserRetur
         setCurrentLocation,
         setStickyCounters,
         setCooldownCounters,
+        setStatusEffects,
       },
       {
         showToast,

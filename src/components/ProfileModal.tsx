@@ -1,13 +1,14 @@
 import React from 'react';
 import { User } from 'lucide-react';
 
-import { Profile } from '../types';
+import { Profile, StatusEffect } from '../types';
 
 interface ProfileModalProps {
   isOpen: boolean;
   onClose: () => void;
   profile: Profile;
   setProfile: (profile: Profile) => void;
+  statusEffects?: StatusEffect[];
 }
 
 export const ProfileModal: React.FC<ProfileModalProps> = ({
@@ -15,6 +16,7 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
   onClose,
   profile,
   setProfile,
+  statusEffects = [],
 }) => {
   if (!isOpen) return null;
 
@@ -39,6 +41,24 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
         </div>
 
         <div className="p-6 space-y-4 overflow-y-auto max-h-[70vh]">
+          {statusEffects.length > 0 && (
+            <div>
+              <label className="block text-xs mb-2 uppercase tracking-wider ml-3" style={{ color: 'var(--text-body)' }}>狀態異常</label>
+              <div className="flex flex-wrap gap-2">
+                {statusEffects.map(s => (
+                  <span
+                    key={s.id}
+                    className="flex items-center gap-1 px-2 py-1 rounded-[6px] text-xs"
+                    style={{ background: 'color-mix(in srgb, var(--bg-elevated) 50%, transparent)', border: '1px solid var(--border-default)', color: 'var(--color-rose)' }}
+                    title={s.description || ''}
+                  >
+                    {s.emoji} {s.name}
+                    {s.duration !== -1 && <span style={{ color: 'var(--text-muted)' }}> ×{s.duration}</span>}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
           {([
             { key: 'name' as keyof Profile, label: '姓名', placeholder: '未知', multiline: false },
             { key: 'job' as keyof Profile, label: '職業', placeholder: '例如：異鄉人、劍士、魔法師', multiline: false },

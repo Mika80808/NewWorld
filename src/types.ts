@@ -196,3 +196,11 @@ export interface PendingQuestFailure {
   giver: string        // 委託人名稱
   failedAt: string     // 遊戲內時間，例如 '3/22'
 }
+
+export interface StatusEffect {
+  id: string           // 唯一識別符，例如 'poison_1'
+  name: string         // 顯示名稱，例如 '中毒'
+  emoji: string        // emoji 圖示，例如 '☠️'
+  duration: number     // 剩餘回合數，-1 = 永久
+  description?: string // 效果說明（選填）
+}

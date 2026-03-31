@@ -230,6 +230,45 @@ function parseSingleCommand(line: string): CommandAST | null {
     };
   }
 
+  // 狀態異常新增：STATUS_ADD:id:名稱:emoji:回合數:說明(選填)
+  // duration = -1 表示永久
+  const statusAddMatch = trimmed.match(/^STATUS_ADD:([^:]+):([^:]+):([^:]+):(-1|\d+)(?::(.*))?$/i);
+  if (statusAddMatch) {
+    return {
+      type: 'STATUS_ADD',
+      raw: trimmed,
+      parsed: {
+        id:          statusAddMatch[1].trim(),
+        name:        statusAddMatch[2].trim(),
+        emoji:       statusAddMatch[3].trim(),
+        duration:    parseInt(statusAddMatch[4]),
+        description: statusAddMatch[5]?.trim() || '',
+      },
+    };
+  }
+
+  // 狀態異常移除：STATUS_REMOVE:id
+  const statusRemoveMatch = trimmed.match(/^STATUS_REMOVE:(.+)$/i);
+  if (statusRemoveMatch) {
+    return {
+      type: 'STATUS_REMOVE',
+      raw: trimmed,
+      parsed: {
+        id: statusRemoveMatch[1].trim(),
+      },
+    };
+  }
+
+  // 清除所有狀態異常：STATUS_CLEAR
+  if (/^STATUS_CLEAR$/i.test(trimmed)) {
+    return {
+      type: 'STATUS_CLEAR',
+      raw: trimmed,
+      parsed: {},
+    };
+  }
+
+
   // 未匹配的指令，返回原始格式
   return {
     type: 'UNKNOWN',
@@ -245,7 +284,7 @@ function extractBareCommands(text: string): string[] {
   const commands: string[] = [];
 
   // 簡單的指令模式（行開頭為指令）
-  const barePattern = /^(HP:|MP:|GOLD:|LOCATION:|TIME:|AFFINITY:|QUEST_|NPC_|ITEM_)/im;
+  const barePattern = /^(HP:|MP:|GOLD:|LOCATION:|TIME:|AFFINITY:|QUEST_|NPC_|ITEM_|STATUS_)/im;
 
   const lines = text.split('\n');
   for (const line of lines) {

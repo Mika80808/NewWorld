@@ -11,6 +11,7 @@ import { useState } from 'react';
 import {
   TimeState, Profile, Quest, Npc, NpcMemory, LorebookEntry, SystemPrompt,
   DiaryEntry, Message, MemoryEntry, EquipmentItem, ItemEntry, PendingQuestFailure,
+  StatusEffect,
 } from '../types';
 import {
   INITIAL_SYSTEM_PROMPT, INITIAL_LOREBOOK_ENTRIES,
@@ -21,7 +22,7 @@ import {
 export const SAVE_KEY = 'rpworld_save';
 
 // ─── Schema 版本 ──────────────────────────────────────────────────────────────
-export const CURRENT_SCHEMA = 3;
+export const CURRENT_SCHEMA = 4;
 
 // ─── 型別：儲存快照 ───────────────────────────────────────────────────────────
 export interface GameSaveData {
@@ -45,6 +46,7 @@ export interface GameSaveData {
   summaryPool: string[];
   compressCount: number;
   pendingQuestFailures: PendingQuestFailure[];
+  statusEffects: StatusEffect[];
 }
 
 // ─── Migration helpers ────────────────────────────────────────────────────────
@@ -121,10 +123,18 @@ function migrateV2toV3(data: Record<string, unknown>): Record<string, unknown> {
   };
 }
 
+function migrateV3toV4(data: Record<string, unknown>): Record<string, unknown> {
+  return {
+    ...data,
+    statusEffects: data.statusEffects ?? [],
+  };
+}
+
 const MIGRATIONS: Record<number, (d: Record<string, unknown>) => Record<string, unknown>> = {
   0: migrateV0toV1,
   1: migrateV1toV2,
   2: migrateV2toV3,
+  3: migrateV3toV4,
 };
 
 function runMigrations(raw: Record<string, unknown>): Record<string, unknown> {
@@ -185,6 +195,7 @@ export function saveDataMapper(raw: Record<string, unknown>): GameSaveData {
     summaryPool:   (d.summaryPool   as string[]) || [],
     compressCount: (d.compressCount as number)   || 0,
     pendingQuestFailures: (d.pendingQuestFailures as PendingQuestFailure[]) || [],
+    statusEffects:        (d.statusEffects        as StatusEffect[])        || [],
   };
 }
 
@@ -217,6 +228,7 @@ export function useGameStore() {
   const [summaryPool,     setSummaryPool]     = useState<string[]>(DEFAULTS.summaryPool);
   const [compressCount,   setCompressCount]   = useState<number>(DEFAULTS.compressCount);
   const [pendingQuestFailures, setPendingQuestFailures] = useState<PendingQuestFailure[]>(DEFAULTS.pendingQuestFailures);
+  const [statusEffects,        setStatusEffects]        = useState<StatusEffect[]>(DEFAULTS.statusEffects);
 
   // ── loadFromData：批次套用 saveDataMapper 的結果到 state ─────────────────────
   const loadFromData = (raw: Record<string, unknown>): void => {
@@ -240,6 +252,7 @@ export function useGameStore() {
     setSummaryPool(d.summaryPool);
     setCompressCount(d.compressCount);
     setPendingQuestFailures(d.pendingQuestFailures);
+    setStatusEffects(d.statusEffects);
   };
 
   // ── buildSaveSnapshot：組裝完整 GameSaveData，供 App.tsx 傳給 saveToCloud ─────
@@ -265,6 +278,7 @@ export function useGameStore() {
       summaryPool:          snapshot?.summaryPool          ?? summaryPool,
       compressCount:        snapshot?.compressCount        ?? compressCount,
       pendingQuestFailures: snapshot?.pendingQuestFailures ?? pendingQuestFailures,
+      statusEffects:        snapshot?.statusEffects        ?? statusEffects,
     };
   };
 
@@ -304,6 +318,7 @@ export function useGameStore() {
     summaryPool, setSummaryPool,
     compressCount, setCompressCount,
     pendingQuestFailures, setPendingQuestFailures,
+    statusEffects, setStatusEffects,
     // 儲存 / 載入
     buildSaveSnapshot,
     loadFromData,
