@@ -6,7 +6,7 @@
 import React from 'react';
 import {
   Profile, Npc, Quest, LorebookEntry, MemoryEntry,
-  EquipmentItem, ItemEntry, TimeState, Message, StatusEffect,
+  EquipmentItem, ItemEntry, TimeState, Message, StatusEffect, Faction,
 } from '../types';
 import { parseCommandsToAST } from '../utils/commandParser';
 import { reduceCommands } from '../utils/commandReducer';
@@ -25,6 +25,7 @@ export interface CommandParserDeps {
   npcs: Npc[];
   lorebookEntries: LorebookEntry[];
   statusEffects: StatusEffect[];
+  factions: Faction[];
   stickyCounters: Record<string, number>;
   cooldownCounters: Record<string, number>;
   messages: Message[];
@@ -43,6 +44,7 @@ export interface CommandParserDeps {
   setStickyCounters: React.Dispatch<React.SetStateAction<Record<string, number>>>;
   setCooldownCounters: React.Dispatch<React.SetStateAction<Record<string, number>>>;
   setStatusEffects: React.Dispatch<React.SetStateAction<StatusEffect[]>>;
+  setFactions: React.Dispatch<React.SetStateAction<Faction[]>>;
 
   // UI 回呼
   showToast: (msg: string) => void;
@@ -69,10 +71,11 @@ export interface UseCommandParserReturn {
 export function useCommandParser(deps: CommandParserDeps): UseCommandParserReturn {
   const {
     timeState, profile, currentLocation, quests, memories, items, npcs, lorebookEntries, statusEffects,
+    factions,
     stickyCounters, cooldownCounters, messages,
     setTimeState, setProfile, setCurrentLocation, setQuests, setMemories,
     setEquipment, setItems, setNpcs, setLorebookEntries, setQuickOptions,
-    setStickyCounters, setCooldownCounters, setStatusEffects,
+    setStickyCounters, setCooldownCounters, setStatusEffects, setFactions,
     showToast, notifyCommandResult, callAI,
   } = deps;
 
@@ -98,6 +101,7 @@ export function useCommandParser(deps: CommandParserDeps): UseCommandParserRetur
         stickyCounters,
         cooldownCounters,
         statusEffects,
+        factions,
       }
     );
 
@@ -118,6 +122,7 @@ export function useCommandParser(deps: CommandParserDeps): UseCommandParserRetur
         setStickyCounters,
         setCooldownCounters,
         setStatusEffects,
+        setFactions,
       },
       {
         showToast,

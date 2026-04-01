@@ -1,7 +1,7 @@
 import {
   Profile, SystemPrompt, Npc, LorebookEntry, MemoryEntry,
   Message, EquipmentItem, ItemEntry, Quest, TimeState, DiaryEntry,
-  StatusEffect,
+  StatusEffect, Faction,
 } from '../types'
 import { getTotalDaysFromTimeState, getQuestRemainingDays } from './timeUtils'
 import { COMMANDS_VERSION } from './commandParser'
@@ -20,6 +20,7 @@ export interface BuildPromptDeps {
   currentLocation: string
   diaryEntries: DiaryEntry[]
   statusEffects: StatusEffect[]
+  factions: Faction[]
   // 外部函式依賴
   scanKeywords: (keywords: string[], depth?: number) => boolean
   isMemoryTriggered: (mem: MemoryEntry, userInput: string, location: string) => boolean
@@ -35,12 +36,21 @@ export function buildPrompt(
   const {
     profile, systemPrompt, npcs, appearingNpcs, lorebookEntries,
     memories, equipment, items, quests, timeState, diaryEntries,
-    statusEffects,
+    statusEffects, factions,
     scanKeywords, isMemoryTriggered,
   } = deps
 
   const loc = locationOverride ?? deps.currentLocation
   const SLIDING_WINDOW = 20
+
+  // 取得 NPC 所屬勢力名稱字串
+  const getNpcFactionText = (npcFactionIds?: number[]): string => {
+    if (!npcFactionIds || npcFactionIds.length === 0) return ''
+    const names = npcFactionIds
+      .map(id => factions.find(f => f.id === id)?.name)
+      .filter(Boolean)
+    return names.length > 0 ? `｜勢力：${names.join(', ')}` : ''
+  }
 
   const lorebookScanText = currentMessages.slice(-5).map(m => m.text).join(' ') + ' ' + userInput
 
@@ -250,7 +260,8 @@ ${relevantLorebook.map(e => {
     const raceText = e.race ? `｜種族：${e.race}` : (e.other ? `｜備註：${e.other}` : '')
     const ageText = e.age ? `｜年齡：${e.age}` : ''
     const backstoryText = (npcData?.affection ?? 0) >= 20 && e.backstory ? `｜背景：${e.backstory}` : ''
-    return `[NPC] ${e.title}｜性別：${e.gender || ''}${raceText}${ageText}｜職業：${e.job || ''}｜外貌：${e.appearance || ''}｜個性：${e.personality || ''}${backstoryText}${thoughtsText}${memoriesText}`
+    const factionText = getNpcFactionText(npcData?.factionIds)
+    return `[NPC] ${e.title}｜性別：${e.gender || ''}${raceText}${ageText}｜職業：${e.job || ''}｜外貌：${e.appearance || ''}｜個性：${e.personality || ''}${backstoryText}${factionText}${thoughtsText}${memoriesText}`
   }
   return `[${e.category}] ${e.title}：${e.content}`
 }).join('\n') || '（無）'}
@@ -267,7 +278,8 @@ ${pinnedNpcs.length > 0 ? pinnedNpcs.map(n => {
     const agePinned = lorePinned?.age ? `年齡：${lorePinned.age}｜` : ''
     const jobPinned = lorePinned?.job ?? n.job ?? ''
     const backstoryPinned = n.affection >= 20 && lorePinned?.backstory ? `｜背景：${lorePinned.backstory}` : ''
-    const lines: string[] = [`- ${n.name}（${genderPinned}${jobPinned}）${racePinned}${agePinned}好感度:${n.affection}${backstoryPinned}${thoughtsText}`]
+    const factionPinned = getNpcFactionText(n.factionIds)
+    const lines: string[] = [`- ${n.name}（${genderPinned}${jobPinned}）${racePinned}${agePinned}好感度:${n.affection}${backstoryPinned}${factionPinned}${thoughtsText}`]
     // 好感度 ≥ 60 且有記憶才注入
     if (n.affection >= 60 && n.memories && n.memories.length > 0) {
       const MAX_NORMAL = 5
@@ -359,6 +371,10 @@ STATUS_ADD|emoji=☠️|name=中毒|duration=3
 STATUS_ADD|emoji=🔥|name=燃燒|duration=-1
 STATUS_REMOVE|name=中毒
 STATUS_CLEAR
+FACTION_NEW:勢力名:類型(race/guild/nation/religion/criminal/other):描述
+FACTION_JOIN:勢力名:NPC名
+FACTION_RELATION:勢力A:(ally/enemy/neutral/vassal/rival):勢力B[:備註]
+NPC_RELATION:NPC名:(family/ally/rival/enemy/acquaintance/romantic):目標名或PLAYER[:備註]
 <</COMMANDS>>
 
 敘事開頭輸出出場標記（非 COMMANDS 區塊，每回應必須）：
@@ -380,6 +396,10 @@ STATUS_CLEAR
 - STATUS_REMOVE：玩家解除特定狀態異常時。
 - STATUS_CLEAR：所有狀態異常一次清除時（例如神聖淨化）。
 - 同名 STATUS_ADD 會覆蓋舊的（重置 duration）。
+- FACTION_NEW：故事中首次明確提及某組織/種族群體時。
+- FACTION_JOIN：NPC 被確認為某勢力成員時。
+- FACTION_RELATION：兩勢力的關係首次確立或發生重大轉變時。
+- NPC_RELATION：NPC 之間或與玩家的私人關係明確確立時。PLAYER 代表玩家。
 
 【MEMORY_ADD 觸發情境（以下情況必須輸出）】
 1. world/critical：影響整個世界的重大事件（魔王宣戰、天象異變）

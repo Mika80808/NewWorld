@@ -267,6 +267,7 @@ ${newPool.map((s, i) => `${i + 1}. ${s}`).join('\n')}`;
     summaryPool, setSummaryPool,
     compressCount, setCompressCount,
     statusEffects, setStatusEffects,
+    factions, setFactions,
     buildSaveSnapshot,
     loadFromData,
     setIsStoreReady,
@@ -442,11 +443,12 @@ ${newPool.map((s, i) => `${i + 1}. ${s}`).join('\n')}`;
     useCommandParser({
       timeState, profile, currentLocation, quests, memories, items, npcs,
       stickyCounters, cooldownCounters, messages, lorebookEntries, statusEffects,
+      factions,
       setTimeState, setProfile, setCurrentLocation, setQuests,
       setMemories, setEquipment, setItems, setNpcs,
       setLorebookEntries, setQuickOptions,
       setStickyCounters, setCooldownCounters,
-      setStatusEffects,
+      setStatusEffects, setFactions,
       notifyCommandResult,
       showToast,
       onNewQuest: () => setIsQuestModalOpen(true),
@@ -995,7 +997,7 @@ ${poolText}
     const deps: BuildPromptDeps = {
       profile, systemPrompt, npcs, appearingNpcs, lorebookEntries,
       memories, equipment, items, quests, timeState, currentLocation,
-      diaryEntries, statusEffects, scanKeywords, isMemoryTriggered,
+      diaryEntries, statusEffects, factions, scanKeywords, isMemoryTriggered,
     };
     return buildPrompt(deps, userInput, currentMessages, locationOverride, isPriority);
   };

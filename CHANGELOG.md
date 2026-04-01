@@ -5,6 +5,51 @@
 
 ---
 
+### 勢力系統（Faction System）— 資料層 + DSL + Prompt 注入 2026-04-01 [Claude Sonnet 4.6]
+
+**目標**：建立 Faction 勢力資料結構，讓 NPC 能歸屬種族/公會等群體，AI 透過 DSL 指令初始化。
+
+#### **新增型別**（`src/types.ts`）
+- `FactionRelation`：勢力間關係（ally/enemy/neutral/vassal/rival）
+- `Faction`：勢力資料（id, name, type, description, color, isActive, relations）
+- `NpcRelation`：NPC 人際關係（family/ally/rival/enemy/acquaintance/romantic，targetId 可為 'player'）
+- `Npc` 擴充：新增 `factionIds?: number[]`、`relations?: NpcRelation[]`
+
+#### **存檔升版**（`src/hooks/useGameStore.ts`）
+- `CURRENT_SCHEMA` 升至 `3`
+- 新增 `migrateV2toV3`：舊存檔自動補 `factions: []`
+- `GameSaveData` 加入 `factions` 欄位
+- 新增 `factions` state、`setFactions`/`addFaction`/`updateFaction` setters
+- `buildSaveSnapshot` / `loadFromData` 同步更新
+
+#### **DSL 新指令**（`src/utils/commandParser.ts`）
+- `FACTION_NEW`：建立新勢力（v1 pipe 格式 + 冒號 legacy fallback）
+- `FACTION_JOIN`：NPC 加入勢力
+- `FACTION_RELATION`：設定兩勢力關係（vassal 單向，其餘雙向）
+- `NPC_RELATION`：設定 NPC 人際關係（family/ally/enemy/rival 對稱，romantic/acquaintance 單向）
+- `extractBareCommands` 新增 `FACTION_` 前綴辨識
+
+#### **指令執行邏輯**（`src/utils/commandReducer.ts`）
+- 六色調色盤自動指派 faction color
+- `FACTION_NEW` 同名略過，`FACTION_JOIN` 去重
+- `FACTION_RELATION` 雙向寫入（vassal 除外）
+- `NPC_RELATION` 對稱規則（family/ally/enemy/rival 對稱）
+- `StateChanges`/`CurrentState` 新增 `factions` 欄位
+
+#### **副作用層**（`src/utils/commandEffects.ts`）
+- `Setters` 新增 `setFactions`，`applyStateChanges` 套用 `stateChanges.factions`
+
+#### **Prompt 注入**（`src/utils/promptBuilder.ts`）
+- `BuildPromptDeps` 新增 `factions: Faction[]`
+- `[Scene Lorebook]` 與 `[Pinned NPCs]` NPC 行末加入「勢力：XXX, YYY」
+- `[COMMAND FORMAT]` 補四條新指令說明與觸發時機
+
+#### **串接**（`src/hooks/useCommandParser.ts`、`src/App.tsx`）
+- `CommandParserDeps` 新增 `factions`、`setFactions`
+- `App.tsx` `buildPromptWrapper` 與 `useCommandParser` deps 補入 `factions`/`setFactions`
+
+---
+
 ### 一次性優先指令（Priority Input）2026-04-01 [Claude Sonnet 4.6]
 
 - 新增 `isPriorityMode` state（`src/App.tsx`）

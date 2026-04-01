@@ -7,7 +7,7 @@ import { CommandAST } from './commandParser';
 import { advanceTimeAndResolveQuestDeadlines } from './timeUtils';
 import {
   TimeState, Profile, Quest, MemoryEntry, Npc, ItemEntry,
-  LorebookEntry, Message, StatusEffect,
+  LorebookEntry, Message, StatusEffect, Faction, NpcRelation,
 } from '../types';
 
 // ─── 狀態變更對象型別 ──────────────────────────────────────────────────────────
@@ -25,6 +25,7 @@ export interface StateChanges {
   stickyCounters?: Record<string, number>;
   cooldownCounters?: Record<string, number>;
   statusEffects?: StatusEffect[];
+  factions?: Faction[];
 }
 
 export interface Feedback {
@@ -62,7 +63,11 @@ export interface CurrentState {
   stickyCounters: Record<string, number>;
   cooldownCounters: Record<string, number>;
   statusEffects: StatusEffect[];
+  factions: Faction[];
 }
+
+// ─── 勢力調色盤 ────────────────────────────────────────────────────────────────
+const FACTION_COLOR_PALETTE = ['#7F77DD', '#EF9F27', '#1D9E75', '#D85A30', '#888780', '#D4537E'];
 
 // ─── Main Reduce Function ──────────────────────────────────────────────────────
 
@@ -85,6 +90,7 @@ export function reduceCommands(
   let workingItems = [...currentState.items];
   let workingMemories = [...currentState.memories];
   let workingLorebookEntries = [...currentState.lorebookEntries];
+  let workingFactions = [...currentState.factions];
 
   // 狀態異常：每回合對所有 duration > 0 的異常 -1，歸零自動移除
   let workingStatus: StatusEffect[] = currentState.statusEffects
@@ -310,6 +316,114 @@ export function reduceCommands(
         break;
       }
 
+      // ── 勢力系統指令 ───────────────────────────────────────────────────────────
+
+      case 'FACTION_NEW': {
+        const name = cmd.parsed.name as string;
+        const factionType = cmd.parsed.factionType as Faction['type'];
+        const description = cmd.parsed.description as string;
+        // 同名勢力已存在則略過
+        if (workingFactions.some(f => f.name === name)) break;
+        const newId = Math.max(...workingFactions.map(f => f.id), 0) + 1;
+        const color = FACTION_COLOR_PALETTE[workingFactions.length % FACTION_COLOR_PALETTE.length];
+        workingFactions.push({
+          id: newId,
+          name,
+          type: factionType || 'other',
+          description,
+          color,
+          isActive: true,
+          relations: [],
+        });
+        feedback.toasts.push(`勢力「${name}」已登錄`);
+        break;
+      }
+
+      case 'FACTION_JOIN': {
+        const factionName = cmd.parsed.factionName as string;
+        const npcName = cmd.parsed.npcName as string;
+        const faction = workingFactions.find(f => f.name === factionName);
+        const npcIdx = workingNpcs.findIndex(n => n.name === npcName);
+        if (!faction || npcIdx === -1) {
+          console.warn(`[FACTION_JOIN] 找不到勢力「${factionName}」或 NPC「${npcName}」`);
+          break;
+        }
+        const npc = workingNpcs[npcIdx];
+        const existingIds = npc.factionIds || [];
+        if (!existingIds.includes(faction.id)) {
+          workingNpcs = workingNpcs.map((n, i) =>
+            i === npcIdx ? { ...n, factionIds: [...existingIds, faction.id] } : n
+          );
+          feedback.toasts.push(`${npcName} 加入了 ${factionName}`);
+        }
+        break;
+      }
+
+      case 'FACTION_RELATION': {
+        const factionA = cmd.parsed.factionA as string;
+        const relationType = cmd.parsed.relationType as 'ally' | 'enemy' | 'neutral' | 'vassal' | 'rival';
+        const factionB = cmd.parsed.factionB as string;
+        const note = cmd.parsed.note as string | undefined;
+        const idxA = workingFactions.findIndex(f => f.name === factionA);
+        const idxB = workingFactions.findIndex(f => f.name === factionB);
+        if (idxA === -1 || idxB === -1) break;
+        const fa = workingFactions[idxA];
+        const fb = workingFactions[idxB];
+        // 寫入 A → B
+        const relA = (fa.relations || []).filter(r => r.targetFactionId !== fb.id);
+        relA.push({ targetFactionId: fb.id, type: relationType, note });
+        // vassal 是單向（A 是 B 的附庸），其餘雙向
+        const relB = (fb.relations || []).filter(r => r.targetFactionId !== fa.id);
+        if (relationType !== 'vassal') {
+          relB.push({ targetFactionId: fa.id, type: relationType, note });
+        }
+        workingFactions = workingFactions.map((f, i) => {
+          if (i === idxA) return { ...f, relations: relA };
+          if (i === idxB) return { ...f, relations: relB };
+          return f;
+        });
+        break;
+      }
+
+      case 'NPC_RELATION': {
+        const npcName = cmd.parsed.npcName as string;
+        const relationType = cmd.parsed.relationType as NpcRelation['type'];
+        const targetName = cmd.parsed.targetName as string;
+        const note = cmd.parsed.note as string | undefined;
+        const npcIdx = workingNpcs.findIndex(n => n.name === npcName);
+        if (npcIdx === -1) break;
+        const isPlayer = targetName.toUpperCase() === 'PLAYER';
+        const targetId: number | 'player' = isPlayer
+          ? 'player'
+          : (workingNpcs.find(n => n.name === targetName)?.id ?? -1);
+        if (targetId === -1) break;
+        // 寫入 npc.relations（去重）
+        const npcRelations = (workingNpcs[npcIdx].relations || []).filter(
+          r => r.targetId !== targetId
+        );
+        npcRelations.push({ targetId, type: relationType, note });
+        workingNpcs = workingNpcs.map((n, i) =>
+          i === npcIdx ? { ...n, relations: npcRelations } : n
+        );
+        // 對稱寫入（非 player 目標）
+        if (!isPlayer && typeof targetId === 'number') {
+          const symmetric = ['family', 'ally', 'enemy', 'rival'].includes(relationType);
+          if (symmetric) {
+            const targetIdx = workingNpcs.findIndex(n => n.id === targetId);
+            if (targetIdx !== -1) {
+              const targetRelations = (workingNpcs[targetIdx].relations || []).filter(
+                r => r.targetId !== workingNpcs[npcIdx].id
+              );
+              targetRelations.push({ targetId: workingNpcs[npcIdx].id, type: relationType, note });
+              workingNpcs = workingNpcs.map((n, i) =>
+                i === targetIdx ? { ...n, relations: targetRelations } : n
+              );
+            }
+          }
+        }
+        break;
+      }
+
       case 'UNKNOWN':
       default:
         break;
@@ -348,6 +462,7 @@ export function reduceCommands(
   stateChanges.memories = workingMemories;
   stateChanges.lorebookEntries = workingLorebookEntries;
   stateChanges.statusEffects = workingStatus;
+  stateChanges.factions = workingFactions;
 
   return { stateChanges, feedback, asyncTasks };
 }

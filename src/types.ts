@@ -46,6 +46,29 @@ export interface Quest {
   completedAt?: string;
 }
 
+// ─── 勢力系統 ─────────────────────────────────────────────────────────────────
+export interface FactionRelation {
+  targetFactionId: number;
+  type: 'ally' | 'enemy' | 'neutral' | 'vassal' | 'rival';
+  note?: string;
+}
+
+export interface Faction {
+  id: number;
+  name: string;
+  type: 'race' | 'guild' | 'nation' | 'religion' | 'criminal' | 'other';
+  description: string;
+  color?: string;        // hex，例如 '#7F77DD'，未設定時 UI 自動從調色盤指派
+  isActive: boolean;
+  relations?: FactionRelation[];
+}
+
+export interface NpcRelation {
+  targetId: number | 'player';
+  type: 'family' | 'ally' | 'rival' | 'enemy' | 'acquaintance' | 'romantic';
+  note?: string;
+}
+
 // ─── NPC 記憶庫條目 ───────────────────────────────────────────────────────────
 export interface NpcMemory {
   id: string;
@@ -80,6 +103,8 @@ export interface Npc {
   isActive: boolean;
   isPinned?: boolean;
   memories: NpcMemory[];
+  factionIds?: number[];    // 可屬於多個勢力；空陣列或 undefined = 無歸屬
+  relations?: NpcRelation[];
 }
 
 export interface LorebookEntry {
