@@ -11,7 +11,7 @@
 import { useState } from 'react';
 import {
   TimeState, Profile, Quest, Npc, NpcMemory, LorebookEntry, SystemPrompt,
-  DiaryEntry, Message, MemoryEntry, EquipmentItem, ItemEntry, StatusEffect,
+  DiaryEntry, Message, MemoryEntry, EquipmentItem, ItemEntry, StatusEffect, Faction,
 } from '../types';
 import {
   INITIAL_SYSTEM_PROMPT, INITIAL_LOREBOOK_ENTRIES,
@@ -22,7 +22,7 @@ import {
 export const SAVE_KEY = 'rpworld_save';
 
 // ─── Schema 版本 ──────────────────────────────────────────────────────────────
-export const CURRENT_SCHEMA = 2;
+export const CURRENT_SCHEMA = 3;
 
 // ─── 型別：儲存快照 ───────────────────────────────────────────────────────────
 export interface GameSaveData {
@@ -46,6 +46,7 @@ export interface GameSaveData {
   summaryPool: string[];
   compressCount: number;
   statusEffects: StatusEffect[];
+  factions: Faction[];
 }
 
 // ─── Migration helpers ────────────────────────────────────────────────────────
@@ -98,6 +99,14 @@ function migrateV0toV1(data: Record<string, unknown>): Record<string, unknown> {
   return data;
 }
 
+function migrateV2toV3(data: Record<string, unknown>): Record<string, unknown> {
+  const out = { ...data };
+  if (!Array.isArray(out.factions)) {
+    out.factions = [];
+  }
+  return out;
+}
+
 function migrateV1toV2(data: Record<string, unknown>): Record<string, unknown> {
   const out = { ...data };
   if (!(Array.isArray(out.equipment) && (out.equipment as unknown[]).length > 0)) {
@@ -118,6 +127,7 @@ function migrateV1toV2(data: Record<string, unknown>): Record<string, unknown> {
 const MIGRATIONS: Record<number, (d: Record<string, unknown>) => Record<string, unknown>> = {
   0: migrateV0toV1,
   1: migrateV1toV2,
+  2: migrateV2toV3,
 };
 
 function runMigrations(raw: Record<string, unknown>): Record<string, unknown> {
@@ -177,6 +187,9 @@ export function saveDataMapper(raw: Record<string, unknown>): GameSaveData {
     statusEffects: Array.isArray(d.statusEffects)
       ? (d.statusEffects as StatusEffect[])
       : [],
+    factions: Array.isArray(d.factions)
+      ? (d.factions as Faction[])
+      : [],
   };
 }
 
@@ -208,6 +221,11 @@ export function useGameStore() {
   const [summaryPool,     setSummaryPool]     = useState<string[]>(DEFAULTS.summaryPool);
   const [compressCount,   setCompressCount]   = useState<number>(DEFAULTS.compressCount);
   const [statusEffects,   setStatusEffects]   = useState<StatusEffect[]>(DEFAULTS.statusEffects);
+  const [factions,        setFactions]        = useState<Faction[]>(DEFAULTS.factions);
+
+  const addFaction = (faction: Faction) => setFactions(prev => [...prev, faction]);
+  const updateFaction = (id: number, updates: Partial<Faction>) =>
+    setFactions(prev => prev.map(f => f.id === id ? { ...f, ...updates } : f));
 
   // ── loadFromData ──────────────────────────────────────────────────────────────
   const loadFromData = (raw: Record<string, unknown>): void => {
@@ -231,6 +249,7 @@ export function useGameStore() {
     setSummaryPool(d.summaryPool);
     setCompressCount(d.compressCount);
     setStatusEffects(d.statusEffects);
+    setFactions(d.factions);
   };
 
   // ── buildSaveSnapshot ─────────────────────────────────────────────────────────
@@ -256,6 +275,7 @@ export function useGameStore() {
       summaryPool:     snapshot?.summaryPool     ?? summaryPool,
       compressCount:   snapshot?.compressCount   ?? compressCount,
       statusEffects:   snapshot?.statusEffects   ?? statusEffects,
+      factions:        snapshot?.factions        ?? factions,
     };
   };
 
@@ -282,6 +302,7 @@ export function useGameStore() {
     summaryPool, setSummaryPool,
     compressCount, setCompressCount,
     statusEffects, setStatusEffects,
+    factions, setFactions, addFaction, updateFaction,
     buildSaveSnapshot,
     loadFromData,
   };

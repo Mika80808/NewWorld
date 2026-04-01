@@ -5,7 +5,7 @@
 
 import React from 'react';
 import { StateChanges, Feedback, AsyncTask } from './commandReducer';
-import { TimeState, Profile, Quest, MemoryEntry, Npc, ItemEntry, LorebookEntry, StatusEffect } from '../types';
+import { TimeState, Profile, Quest, MemoryEntry, Npc, ItemEntry, LorebookEntry, StatusEffect, Faction } from '../types';
 
 // ─── 副作用依賴型別 ────────────────────────────────────────────────────────────
 
@@ -21,6 +21,7 @@ export interface Setters {
   setStickyCounters: React.Dispatch<React.SetStateAction<Record<string, number>>>;
   setCooldownCounters: React.Dispatch<React.SetStateAction<Record<string, number>>>;
   setStatusEffects: React.Dispatch<React.SetStateAction<StatusEffect[]>>;
+  setFactions: React.Dispatch<React.SetStateAction<Faction[]>>;
 }
 
 export interface Callbacks {
@@ -91,6 +92,10 @@ export async function applyStateChanges(
 
   if (stateChanges.statusEffects !== undefined) {
     setters.setStatusEffects(stateChanges.statusEffects);
+  }
+
+  if (stateChanges.factions !== undefined) {
+    setters.setFactions(stateChanges.factions);
   }
 
   // ─── Phase 2: 顯示 UI 反饋 ────────────────────────────────────────────────────

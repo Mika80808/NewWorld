@@ -221,6 +221,54 @@ function parseSingleCommand(line: string): CommandAST | null {
     case 'STATUS_CLEAR':
       return { type: 'STATUS_CLEAR', raw: trimmed, parsed: {} };
 
+    // ── 勢力系統 v1 Key=Value 格式 ────────────────────────────────────────────
+
+    // FACTION_NEW|name=勢力名|type=guild|desc=描述
+    case 'FACTION_NEW': {
+      const name = kv.name || '';
+      if (!name) return null;
+      return {
+        type: 'FACTION_NEW', raw: trimmed,
+        parsed: {
+          name,
+          factionType: kv.type || 'other',
+          description: kv.desc || kv.description || '',
+        },
+      };
+    }
+
+    // FACTION_JOIN|faction=勢力名|npc=NPC名
+    case 'FACTION_JOIN': {
+      const faction = kv.faction || kv.name || '';
+      const npc = kv.npc || '';
+      if (!faction || !npc) return null;
+      return { type: 'FACTION_JOIN', raw: trimmed, parsed: { factionName: faction, npcName: npc } };
+    }
+
+    // FACTION_RELATION|a=勢力A|type=ally|b=勢力B|note=備註
+    case 'FACTION_RELATION': {
+      const a = kv.a || kv.from || '';
+      const relType = kv.type || kv.rel || '';
+      const b = kv.b || kv.to || '';
+      if (!a || !relType || !b) return null;
+      return {
+        type: 'FACTION_RELATION', raw: trimmed,
+        parsed: { factionA: a, relationType: relType.toLowerCase(), factionB: b, note: kv.note || '' },
+      };
+    }
+
+    // NPC_RELATION|npc=NPC名|type=family|target=目標名|note=備註
+    case 'NPC_RELATION': {
+      const npc = kv.npc || kv.name || '';
+      const relType = kv.type || kv.rel || '';
+      const target = kv.target || '';
+      if (!npc || !relType || !target) return null;
+      return {
+        type: 'NPC_RELATION', raw: trimmed,
+        parsed: { npcName: npc, relationType: relType.toLowerCase(), targetName: target, note: kv.note || '' },
+      };
+    }
+
     // ── Legacy fallback（舊格式相容）────────────────────────────────────────────
 
     default: {
@@ -252,6 +300,38 @@ function parseSingleCommand(line: string): CommandAST | null {
           parsed: { npcName: affMatch[1].trim(), value: parseInt(`${affMatch[2]}${affMatch[3]}`) },
         };
       }
+      // FACTION_NEW:勢力名:類型:描述
+      const factionNewMatch = trimmed.match(/^FACTION_NEW:([^:]+):([^:]+):(.*)$/i);
+      if (factionNewMatch) {
+        return {
+          type: 'FACTION_NEW', raw: trimmed,
+          parsed: { name: factionNewMatch[1].trim(), factionType: factionNewMatch[2].trim(), description: factionNewMatch[3].trim() },
+        };
+      }
+      // FACTION_JOIN:勢力名:NPC名
+      const factionJoinMatch = trimmed.match(/^FACTION_JOIN:([^:]+):(.+)$/i);
+      if (factionJoinMatch) {
+        return {
+          type: 'FACTION_JOIN', raw: trimmed,
+          parsed: { factionName: factionJoinMatch[1].trim(), npcName: factionJoinMatch[2].trim() },
+        };
+      }
+      // FACTION_RELATION:勢力A:type:勢力B[:備註]
+      const factionRelMatch = trimmed.match(/^FACTION_RELATION:([^:]+):(ally|enemy|neutral|vassal|rival):([^:]+)(?::(.*))?$/i);
+      if (factionRelMatch) {
+        return {
+          type: 'FACTION_RELATION', raw: trimmed,
+          parsed: { factionA: factionRelMatch[1].trim(), relationType: factionRelMatch[2].toLowerCase(), factionB: factionRelMatch[3].trim(), note: factionRelMatch[4]?.trim() || '' },
+        };
+      }
+      // NPC_RELATION:NPC名:type:目標[:備註]
+      const npcRelMatch = trimmed.match(/^NPC_RELATION:([^:]+):(family|ally|rival|enemy|acquaintance|romantic):([^:]+)(?::(.*))?$/i);
+      if (npcRelMatch) {
+        return {
+          type: 'NPC_RELATION', raw: trimmed,
+          parsed: { npcName: npcRelMatch[1].trim(), relationType: npcRelMatch[2].toLowerCase(), targetName: npcRelMatch[3].trim(), note: npcRelMatch[4]?.trim() || '' },
+        };
+      }
       return { type: 'UNKNOWN', raw: trimmed, parsed: { text: trimmed } };
     }
   }
@@ -261,7 +341,7 @@ function parseSingleCommand(line: string): CommandAST | null {
 
 function extractBareCommands(text: string): string[] {
   const commands: string[] = [];
-  const barePattern = /^(HP:|MP:|GOLD:|LOCATION:|TIME:|AFFINITY:|QUEST_|NPC_|ITEM_|STAT\||STATUS_)/im;
+  const barePattern = /^(HP:|MP:|GOLD:|LOCATION:|TIME:|AFFINITY:|QUEST_|NPC_|ITEM_|STAT\||STATUS_|FACTION_)/im;
   const lines = text.split('\n');
   for (const line of lines) {
     const trimmed = line.trim();
