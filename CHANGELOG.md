@@ -5,6 +5,14 @@
 
 ---
 
+### 一次性優先指令（Priority Input）2026-04-01 [Claude Sonnet 4.6]
+
+- 新增 `isPriorityMode` state（`src/App.tsx`）
+- 輸入框左側新增 📌 Pin 按鈕（`lucide-react` `Pin` icon）：啟用時顯示 amber 色、輸入框邊框改為 `var(--color-amber)`；未啟用時與 ⚡ 按鈕同等 muted 樣式
+- 送出訊息後自動解除優先模式（`handleSendMessage` 内 `currentIsPriority` 快照 + reset）
+- `buildPromptWrapper` / `buildPrompt` 新增 `isPriority?: boolean` 參數
+- 啟用時在 `[Active Diary]` 之後、`[Recent Chat]` 之前注入 `[⚠️ PRIORITY INSTRUCTION — 玩家明確要求，本回合必須優先採納，不可忽略或淡化]` 區塊（`src/utils/promptBuilder.ts`）
+
 ###  玩家狀態異常（StatusEffect）+ DSL COMMANDS v1 Key=Value 格式 2026-03-31 [Claude Sonnet 4.6]
   新增 StatusEffect 型別、STATUS_ADD/REMOVE/CLEAR 指令、commandParser 全面改為 v1 Key=Value 格式、profileModal 狀態異常面板、promptBuilder 注入狀態context
 

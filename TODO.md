@@ -51,6 +51,9 @@
 - Phase 4: 開發伺服器驗證、TypeScript 編譯檢查、功能測試通過
 - **完成狀態**：✅ 全 4 phases 完成，性能改進 ↓90% 訊息更新、↓95% 搜尋延遲、↓80% 記憶 DOM
 
+- [x] 一次性優先指令（Priority Input）
+  2026-04-01 [Claude Sonnet 4.6]: 新增 `isPriorityMode` state、📌 Pin 按鈕（輸入框左側）、啟用時 amber 邊框提示、送出後自動解除；`buildPromptWrapper` / `buildPrompt` 新增 `isPriority` 參數，啟用時在 [Active Diary] 之後、[Recent Chat] 之前注入 `[⚠️ PRIORITY INSTRUCTION]` 區塊
+
 - [x] P3｜玩家狀態異常（Profile.status 欄位閒置中）+ DSL COMMANDS v1 Key=Value 格式
   2026-03-31 [Claude Sonnet 4.6]: 新增 StatusEffect 型別（types.ts）、STATUS_ADD/REMOVE/CLEAR 指令（commandParser/commandReducer）、commandParser 全面改為 v1 Key=Value 格式、ProfileModal 狀態異常面板、promptBuilder 注入狀態 context 與新格式說明、useGameStore statusEffects state、App.tsx 串接（store 解構、buildPrompt deps、ProfileModal prop、桌面 HUD 標籤、useCommandParser deps）
 

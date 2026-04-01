@@ -30,6 +30,7 @@ export function buildPrompt(
   userInput: string,
   currentMessages: Message[],
   locationOverride?: string,
+  isPriority?: boolean,
 ): string {
   const {
     profile, systemPrompt, npcs, appearingNpcs, lorebookEntries,
@@ -318,6 +319,10 @@ ${(() => {
     : '（無）'
 })()}
 
+${isPriority ? `---
+[⚠️ PRIORITY INSTRUCTION — 玩家明確要求，本回合必須優先採納，不可忽略或淡化]
+${userInput}
+---` : ''}
 ---
 [Recent Chat (最近${Math.min(SLIDING_WINDOW, recentMessages.length)}則)]
 ${recentMessages.map(m => `${m.role === 'user' ? 'Player' : 'DM'}: ${m.text}`).join('\n')}

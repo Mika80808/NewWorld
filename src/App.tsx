@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
-import { Settings, Send, RefreshCw, MoreVertical, Book, BookOpen, User, Package, Beaker, Users, Heart, MapPin, Zap, Coins, Calendar, Shield, CheckSquare, ChevronDown, ChevronRight, Map as MapIcon, Cloud, Sun, CloudRain, Snowflake, Moon, Wind, Sparkles, Brain, ScrollText, History, X, Edit2, Trash2 } from 'lucide-react';
+import { Settings, Send, RefreshCw, MoreVertical, Book, BookOpen, User, Package, Beaker, Users, Heart, MapPin, Zap, Coins, Calendar, Shield, CheckSquare, ChevronDown, ChevronRight, Map as MapIcon, Cloud, Sun, CloudRain, Snowflake, Moon, Wind, Sparkles, Brain, ScrollText, History, X, Edit2, Trash2, Pin } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useAIRequest } from './hooks/useAIRequest';
 import { DiaryModal } from './components/DiaryModal';
@@ -25,6 +25,7 @@ import { SaveSlotsModal } from './components/SaveSlotsModal';
 
 export default function App() {
   // ─── UI 狀態（Modal / 輸入 / 載入）──────────────────────────────────────────
+  const [isPriorityMode, setIsPriorityMode] = useState(false);
   const [isQuestModalOpen, setIsQuestModalOpen] = useState(false);
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
   const [isDiaryModalOpen, setIsDiaryModalOpen] = useState(false);
@@ -990,13 +991,13 @@ ${poolText}
   };
 
   // ─── Prompt 組裝 ─────────────────────────────────────────────────────────────
-  const buildPromptWrapper = (userInput: string, currentMessages: Message[], locationOverride?: string): string => {
+  const buildPromptWrapper = (userInput: string, currentMessages: Message[], locationOverride?: string, isPriority?: boolean): string => {
     const deps: BuildPromptDeps = {
       profile, systemPrompt, npcs, appearingNpcs, lorebookEntries,
       memories, equipment, items, quests, timeState, currentLocation,
       diaryEntries, statusEffects, scanKeywords, isMemoryTriggered,
     };
-    return buildPrompt(deps, userInput, currentMessages, locationOverride);
+    return buildPrompt(deps, userInput, currentMessages, locationOverride, isPriority);
   };
 
   // ─── ⚡ 快捷行動生成（按需觸發）─────────────────────────────────────────────
@@ -1034,6 +1035,8 @@ ${recentContext}
     if (!text.trim() || isLoading) return;
 
     lastInputRef.current = text;
+    const currentIsPriority = isPriorityMode;
+    if (isPriorityMode) setIsPriorityMode(false);
     const userMessage = { id: Date.now(), role: 'user', text: text };
     const newMessages = historyToUse ? [...historyToUse, userMessage] : [...messages, userMessage];
     setMessages(newMessages);
@@ -1054,7 +1057,7 @@ ${recentContext}
         setAiRequestStatus('idle');
         return;
       }
-      const prompt = buildPromptWrapper(text, historyToUse || messages, locationOverride);
+      const prompt = buildPromptWrapper(text, historyToUse || messages, locationOverride, currentIsPriority);
 
       aiMessageId = Date.now() + 1;
       setMessages(prev => [...prev, { id: aiMessageId!, role: 'assistant', text: '' }]);
@@ -1979,7 +1982,25 @@ ${recentContext}
                 </div>
               )}
 
-              <div className="flex items-end overflow-hidden transition-all" style={{ borderRadius: '8px', border: `0.5px solid var(--border-default)`, background: 'var(--bg-dialog-input)' }}>
+              <div className="flex items-end overflow-hidden transition-all" style={{ borderRadius: '8px', border: isPriorityMode ? `1.5px solid var(--color-amber)` : `0.5px solid var(--border-default)`, background: 'var(--bg-dialog-input)' }}>
+                {/* 📌 Priority Button */}
+                <button
+                  className="pl-3 pr-1 flex-shrink-0 transition-all"
+                  style={{
+                    height: '40px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    color: isPriorityMode ? 'var(--color-amber)' : 'color-mix(in srgb, var(--text-body) 60%, transparent)',
+                    cursor: 'pointer',
+                    background: isPriorityMode ? 'color-mix(in srgb, var(--color-amber) 10%, transparent)' : 'transparent',
+                  }}
+                  onClick={() => setIsPriorityMode(prev => !prev)}
+                  title={isPriorityMode ? '取消優先指令' : '優先指令（本回合 AI 必須採納）'}
+                  onMouseEnter={e => { if (!isPriorityMode) (e.currentTarget as HTMLButtonElement).style.color = 'var(--text-body)'; }}
+                  onMouseLeave={e => { if (!isPriorityMode) (e.currentTarget as HTMLButtonElement).style.color = 'color-mix(in srgb, var(--text-body) 60%, transparent)'; }}
+                >
+                  <Pin className="w-4 h-4" style={{ fill: isPriorityMode ? 'currentColor' : 'none' }} />
+                </button>
                 {/* ⚡ Lightning Button */}
                 <button
                   className="pl-3 pr-1 flex-shrink-0 transition-all"
