@@ -267,7 +267,7 @@ ${newPool.map((s, i) => `${i + 1}. ${s}`).join('\n')}`;
     summaryPool, setSummaryPool,
     compressCount, setCompressCount,
     statusEffects, setStatusEffects,
-    factions, setFactions,
+    factions, setFactions, addFaction, updateFaction,
     buildSaveSnapshot,
     loadFromData,
     setIsStoreReady,
@@ -2374,6 +2374,9 @@ ${recentContext}
         onLorebookKeywordRemove={handleLorebookKeywordRemove}
         onSelectNpc={setSelectedNpc}
         showToast={showToast}
+        factions={factions}
+        onAddFaction={addFaction}
+        onUpdateFaction={updateFaction}
       />
 
       {/* NPC Modal Overlay */}
@@ -2444,6 +2447,12 @@ ${recentContext}
         memories={memories}
         onTravel={handleTravel}
         showToast={showToast}
+        factions={factions}
+        npcs={npcs}
+        onOpenNpcModal={(id) => {
+          const npc = npcs.find(n => n.id === id);
+          if (npc) setSelectedNpc(npc);
+        }}
       />
 
       {/* ── Quest Side Panel ── */}

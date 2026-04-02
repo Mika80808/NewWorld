@@ -60,6 +60,8 @@ export interface Faction {
   description: string;
   color?: string;        // hex，例如 '#7F77DD'，未設定時 UI 自動從調色盤指派
   isActive: boolean;
+  homeId?: number;       // LorebookEntry.id of home location on map
+  npcIds?: number[];     // UI-managed member list (NPC ids)
   relations?: FactionRelation[];
 }
 

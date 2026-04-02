@@ -31,6 +31,9 @@
 
 ## ✅ 已完成
 
+- [x] 勢力系統 — UI 層（MapModal 整合 + 勢力管理）
+  2026-04-02 [Claude Sonnet 4.6]: Faction 型別新增 homeId/npcIds；MapModal 加入地理/勢力雙 tab（tab 切換器、花瓣 + 色點 overlay、勢力網絡 SVG、右側欄點擊展示）；LorebookModal 新增「勢力」tab（卡片列表、inline 新增/編輯表單、成員 checkbox、三點選單）；App.tsx 傳入 factions/npcs/onOpenNpcModal 給 MapModal，factions/onAddFaction/onUpdateFaction 給 LorebookModal
+
 - [x] 勢力系統 — 資料層 + DSL + Prompt 注入
   2026-04-01 [Claude Sonnet 4.6]: 新增 Faction/FactionRelation/NpcRelation 型別（types.ts）；useGameStore 加入 factions state、setFactions/addFaction/updateFaction、schema 升 v3（自動補空陣列遷移）；commandParser 新增 FACTION_NEW/FACTION_JOIN/FACTION_RELATION/NPC_RELATION（v1 pipe 格式 + 冒號 legacy fallback）；commandReducer 實作四條指令執行邏輯（含調色盤自動指派顏色、雙向/單向關係寫入）；commandEffects 加入 setFactions setter；useCommandParser 注入 factions 依賴；promptBuilder 新增 factions 依賴、NPC 行末注入「勢力：XXX」、COMMAND FORMAT 補四條新指令說明；App.tsx buildPromptWrapper 與 useCommandParser 補入 factions/setFactions
 

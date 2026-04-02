@@ -5,6 +5,47 @@
 
 ---
 
+### 勢力系統（Faction System）— UI 層（MapModal + LorebookModal）2026-04-02 [Claude Sonnet 4.6]
+
+**目標**：將勢力資料視覺化，MapModal 加入勢力網絡檢視，LorebookModal 提供勢力管理 UI。
+
+#### **型別擴充**（`src/types.ts`）
+- `Faction` 新增 `homeId?: number`（對應 LorebookEntry.id，作為地圖根據地）
+- `Faction` 新增 `npcIds?: number[]`（UI 管理的成員名單）
+
+#### **MapModal**（`src/components/MapModal.tsx`）完整重寫
+- Header 加入「地理 / 勢力」tab 切換器
+- 地理視圖：
+  - 地點節點外圍繪製最多 3 個勢力花瓣（小圓 r=7，扇形排列，超過 3 顯示 +N）
+  - 地名文字下方橫排色點（r=4），多勢力時才顯示
+  - `activeFactions.length > 1` 才啟用花瓣/色點，單一勢力世界不干擾外觀
+- 勢力視圖（全新 SVG canvas）：
+  - 勢力節點：雙圓（r=22 外圓 + r=13 內圓），顏色個別化，首字顯示於圓心
+  - 同地點多勢力水平錯開（spread=28px）
+  - 無 homeId 的勢力以環形 layout 排列
+  - 關係線：ally(綠)/enemy(紅)/rival(橘)/neutral(灰虛線)/vassal(灰+箭頭)
+  - NPC 成員小圓（r=9）水平排列於節點下方，點擊開啟 NpcModal
+  - 玩家節點固定於畫布底部中央（藍色雙圓）
+  - 右側欄：勢力詳情（名稱/類型/根據地/關係列表/成員列表）；切換 tab 自動清空選取
+- 勢力視圖支援獨立拖拉 pan（factionPanX/factionPanY 與地理視圖分開）
+
+#### **LorebookModal**（`src/components/LorebookModal.tsx`）
+- 新增 `factions?`、`onAddFaction?`、`onUpdateFaction?` props
+- Tab 列新增「勢力」（現在共 7 個 tab）
+- 勢力 tab 功能：
+  - 卡片列表：左側色條 + 名稱 + 類型 badge + 成員數量 + 三點選單（編輯/刪除）
+  - inline 新增表單：名稱（必填）、類型 select、描述 textarea、color input、根據地 select
+  - inline 編輯表單：同上 + 成員 checkbox 列表（從現有 NPC 選取）
+  - 刪除：改寫為 `isActive: false`（軟刪除）
+  - `onAddFaction` / `onUpdateFaction` 呼叫時自動顯示 toast
+
+#### **App.tsx**
+- MapModal 補傳：`factions`、`npcs`、`onOpenNpcModal`（點擊 NPC 圓 → setSelectedNpc）
+- LorebookModal 補傳：`factions`、`onAddFaction`（useGameStore.addFaction）、`onUpdateFaction`（useGameStore.updateFaction）
+- useGameStore 解構補充 `addFaction`、`updateFaction`
+
+---
+
 ### 勢力系統（Faction System）— 資料層 + DSL + Prompt 注入 2026-04-01 [Claude Sonnet 4.6]
 
 **目標**：建立 Faction 勢力資料結構，讓 NPC 能歸屬種族/公會等群體，AI 透過 DSL 指令初始化。
