@@ -7,7 +7,7 @@ import { CommandAST } from './commandParser';
 import { advanceTimeAndResolveQuestDeadlines } from './timeUtils';
 import {
   TimeState, Profile, Quest, MemoryEntry, Npc, ItemEntry,
-  LorebookEntry, Message, StatusEffect, Faction, NpcRelation,
+  LorebookEntry, Message, StatusEffect, Faction, NpcRelation, NpcMemory,
 } from '../types';
 
 // ─── 狀態變更對象型別 ──────────────────────────────────────────────────────────
@@ -38,7 +38,7 @@ export interface AsyncTask {
   payload: {
     npcId: number;
     npcName: string;
-    memories: MemoryEntry[];
+    memories: NpcMemory[];
   };
 }
 
@@ -239,24 +239,22 @@ export function reduceCommands(
           ];
           if (updatedThoughts.length > 10) {
             const mergedText = updatedThoughts.slice(0, 10).reverse().map(t => `[${t.createdAt}] ${t.text}`).join('；');
-            const newMemory: MemoryEntry = {
+            const newMemory: NpcMemory = {
               id: `nmem_${Date.now()}_${Math.random().toString(36).slice(2)}`,
-              type: 'npc' as const, importance: 'normal' as const,
-              content: `${npc.name} 的想法整理：${mergedText}`,
-              tags: { locations: [], npcs: [npc.name], factions: [], keywords: [] },
-              trigger: { scanDepth: 5, probability: 100, sticky: 0, cooldown: 0 },
-              isActive: true, source: 'pre_merge' as const,
+              text: `${npc.name} 的想法整理：${mergedText}`,
+              importance: 'normal',
+              source: 'pre_merge',
               createdAt: `${currentState.timeState.month}/${currentState.timeState.day}`,
             };
-            workingMemories.push(newMemory);
-            const unmergedCount = [...(npc.memories || []), newMemory].filter(m => !m.isMerged).length;
+            const updatedMemories = [...(npc.memories || []), newMemory];
+            const unmergedCount = updatedMemories.filter(m => !m.isMerged).length;
             if (unmergedCount > 3) {
               asyncTasks.push({
                 type: 'merge_npc_memories',
-                payload: { npcId: npc.id, npcName: npc.name, memories: [...(npc.memories || []), newMemory] },
+                payload: { npcId: npc.id, npcName: npc.name, memories: updatedMemories },
               });
             }
-            return { ...npc, thoughts: [], memories: [...(npc.memories || []), newMemory] };
+            return { ...npc, thoughts: [], memories: updatedMemories };
           }
           return { ...npc, thoughts: updatedThoughts };
         });
