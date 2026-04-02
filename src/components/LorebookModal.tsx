@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
-import { BookOpen, Plus, Search, CheckSquare, Square, Trash2, Heart } from 'lucide-react';
-import { LorebookEntry, Npc } from '../types';
+import { BookOpen, Plus, Search, CheckSquare, Square, Trash2, Heart, MoreHorizontal } from 'lucide-react';
+import { LorebookEntry, Npc, Faction } from '../types';
 import { debounce } from '../utils/debounce';
 
 function affectionColor(affection: number): string {
@@ -24,7 +24,16 @@ interface LorebookModalProps {
   onLorebookKeywordRemove: (id: number, field: 'keywords' | 'secondaryKeys', keyword: string) => void;
   onSelectNpc: (npc: Npc) => void;
   showToast: (msg: string) => void;
+  factions?: Faction[];
+  onAddFaction?: (faction: Faction) => void;
+  onUpdateFaction?: (id: number, updates: Partial<Faction>) => void;
 }
+
+const FACTION_PALETTE = ['#7F77DD', '#E24B4A', '#1D9E75', '#EF9F27', '#5f93d3', '#C47D3E', '#FF637E'];
+function autoFactionColor(index: number) { return FACTION_PALETTE[index % FACTION_PALETTE.length]; }
+
+type FactionFormData = { name: string; type: Faction['type']; description: string; color: string; homeId: string; };
+const EMPTY_FACTION_FORM: FactionFormData = { name: '', type: 'guild', description: '', color: '#7F77DD', homeId: '' };
 
 export const LorebookModal: React.FC<LorebookModalProps> = ({
   isOpen,
@@ -39,11 +48,18 @@ export const LorebookModal: React.FC<LorebookModalProps> = ({
   onLorebookKeywordRemove,
   onSelectNpc,
   showToast,
+  factions = [],
+  onAddFaction,
+  onUpdateFaction,
 }) => {
   const [editingLorebookId, setEditingLorebookId] = useState<number | null>(null);
   const [lorebookFilter, setLorebookFilter] = useState<string>('地點');
   const [lorebookSearch, setLorebookSearch] = useState<string>('');
   const [debouncedSearch, setDebouncedSearch] = useState<string>('');
+  // Faction tab state
+  const [factionAction, setFactionAction] = useState<'add' | number | null>(null); // 'add' or faction.id for edit
+  const [factionForm, setFactionForm] = useState<FactionFormData>(EMPTY_FACTION_FORM);
+  const [factionMenuId, setFactionMenuId] = useState<number | null>(null); // three-dot menu
 
   // ─── Phase 3: Debounced search (300ms delay) ─────────────────────────────────
   const debouncedSetSearch = useMemo(
@@ -61,8 +77,10 @@ export const LorebookModal: React.FC<LorebookModalProps> = ({
   if (!isOpen) return null;
 
   const handleAdd = () => {
-    if (lorebookFilter === 'NPC') {
-      onAddNpc();
+    if (lorebookFilter === 'NPC') { onAddNpc(); return; }
+    if (lorebookFilter === '勢力') {
+      setFactionForm({ ...EMPTY_FACTION_FORM, color: autoFactionColor(factions.length) });
+      setFactionAction('add');
       return;
     }
     const newId = onAddLorebook(lorebookFilter);
@@ -663,10 +681,241 @@ export const LorebookModal: React.FC<LorebookModalProps> = ({
     );
   };
 
+  // ── 勢力 Tab ──────────────────────────────────────────────────────────────────
+  const renderFactionTab = () => {
+    const locationEntries = lorebookEntries.filter(e => e.category === '地點');
+    const factionInputStyle: React.CSSProperties = {
+      background: 'color-mix(in srgb, var(--bg-elevated) 50%, transparent)',
+      borderColor: 'rgba(255,255,255,0.1)',
+      color: 'var(--text-main)',
+    };
+
+    const renderFactionForm = (isEdit: boolean, existing?: Faction) => (
+      <div className="col-span-2 rounded-[8px] p-4 space-y-3 border"
+        style={{ background: 'color-mix(in srgb, var(--bg-elevated) 60%, transparent)', borderColor: 'var(--border-accent)' }}>
+        <div className="flex items-center gap-2 mb-1">
+          <div style={{ width: 12, height: 12, borderRadius: '50%', background: factionForm.color, border: '1px solid var(--border-default)', flexShrink: 0 }} />
+          <span className="text-sm font-bold" style={{ color: 'var(--text-primary)' }}>{isEdit ? '編輯勢力' : '新增勢力'}</span>
+        </div>
+        {/* Name */}
+        <input type="text" placeholder="勢力名稱（必填）" value={factionForm.name}
+          onChange={e => setFactionForm(p => ({ ...p, name: e.target.value }))}
+          className="w-full border border-white/10 rounded-[8px] p-2.5 text-sm font-bold outline-none transition"
+          style={factionInputStyle} />
+        {/* Type + Color */}
+        <div className="flex gap-2">
+          <select value={factionForm.type}
+            onChange={e => setFactionForm(p => ({ ...p, type: e.target.value as Faction['type'] }))}
+            className="flex-1 border border-white/10 rounded-[8px] px-2.5 py-2 text-sm outline-none transition"
+            style={factionInputStyle}>
+            <option value="guild">公會</option>
+            <option value="nation">國家</option>
+            <option value="race">種族</option>
+            <option value="religion">宗教</option>
+            <option value="criminal">犯罪</option>
+            <option value="other">其他</option>
+          </select>
+          <div className="flex items-center gap-2 border border-white/10 rounded-[8px] px-2.5"
+            style={{ background: 'color-mix(in srgb, var(--bg-elevated) 50%, transparent)' }}>
+            <span className="text-xs" style={{ color: 'var(--text-muted)' }}>顏色</span>
+            <input type="color" value={factionForm.color}
+              onChange={e => setFactionForm(p => ({ ...p, color: e.target.value }))}
+              className="w-8 h-7 rounded cursor-pointer border-0 bg-transparent" />
+          </div>
+        </div>
+        {/* Description */}
+        <textarea placeholder="勢力描述..." value={factionForm.description}
+          onChange={e => setFactionForm(p => ({ ...p, description: e.target.value }))}
+          className="w-full border border-white/10 rounded-[8px] p-2.5 text-sm outline-none transition resize-y min-h-[60px]"
+          style={factionInputStyle} />
+        {/* Home location */}
+        <div>
+          <div className="text-xs mb-1" style={{ color: 'var(--text-muted)' }}>根據地（地圖上的主場地點）</div>
+          <select value={factionForm.homeId}
+            onChange={e => setFactionForm(p => ({ ...p, homeId: e.target.value }))}
+            className="w-full border border-white/10 rounded-[8px] px-2.5 py-2 text-sm outline-none transition"
+            style={factionInputStyle}>
+            <option value="">— 未設定 —</option>
+            {locationEntries.map(e => <option key={e.id} value={String(e.id)}>{e.title}</option>)}
+          </select>
+        </div>
+        {/* Member checkboxes */}
+        {isEdit && existing && (
+          <div>
+            <div className="text-xs mb-2" style={{ color: 'var(--text-muted)' }}>成員</div>
+            <div className="grid grid-cols-2 gap-1 max-h-32 overflow-y-auto">
+              {npcs.map(npc => {
+                const isMember = (existing.npcIds ?? []).includes(npc.id)
+                  || (npc.factionIds ?? []).includes(existing.id);
+                return (
+                  <label key={npc.id} className="flex items-center gap-1.5 px-2 py-1 rounded cursor-pointer text-sm"
+                    style={{ color: isMember ? 'var(--text-primary)' : 'var(--text-muted)' }}
+                    onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.05)'; }}
+                    onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'transparent'; }}>
+                    <input type="checkbox" checked={isMember} onChange={() => {
+                      if (!onUpdateFaction) return;
+                      const cur = existing.npcIds ?? npcs.filter(n => (n.factionIds ?? []).includes(existing.id)).map(n => n.id);
+                      const next = isMember ? cur.filter(id => id !== npc.id) : [...cur, npc.id];
+                      onUpdateFaction(existing.id, { npcIds: next });
+                    }} className="w-3 h-3 accent-blue-500" />
+                    {npc.name}
+                  </label>
+                );
+              })}
+            </div>
+          </div>
+        )}
+        {/* Actions */}
+        <div className="flex justify-between items-center pt-1">
+          {isEdit && existing ? (
+            <button onClick={() => {
+              if (onUpdateFaction) onUpdateFaction(existing.id, { isActive: false });
+              setFactionAction(null);
+            }} className="text-sm flex items-center px-2 py-1.5 rounded-[8px] gap-1 transition border"
+              style={{ color: 'var(--text-muted)', borderColor: 'var(--text-muted)' }}
+              onMouseEnter={e => { e.currentTarget.style.color = 'var(--text-danger)'; e.currentTarget.style.borderColor = 'var(--text-danger)'; }}
+              onMouseLeave={e => { e.currentTarget.style.color = 'var(--text-muted)'; e.currentTarget.style.borderColor = 'var(--text-muted)'; }}
+            ><Trash2 className="w-3.5 h-3.5" /> 刪除</button>
+          ) : <div />}
+          <div className="flex gap-2">
+            <button onClick={() => setFactionAction(null)}
+              className="text-sm px-3 py-1.5 rounded-[8px] transition"
+              style={{ background: 'var(--btn-secondary)', color: 'var(--btn--text)' }}
+              onMouseEnter={e => { e.currentTarget.style.background = 'var(--btn-secondary-hover)'; }}
+              onMouseLeave={e => { e.currentTarget.style.background = 'var(--btn-secondary)'; }}
+            >取消</button>
+            <button
+              disabled={!factionForm.name.trim()}
+              onClick={() => {
+                if (!factionForm.name.trim()) return;
+                const homeIdNum = factionForm.homeId ? parseInt(factionForm.homeId) : undefined;
+                if (isEdit && existing) {
+                  onUpdateFaction?.(existing.id, {
+                    name: factionForm.name, type: factionForm.type,
+                    description: factionForm.description, color: factionForm.color,
+                    homeId: homeIdNum,
+                  });
+                } else {
+                  const newId = Math.max(0, ...factions.map(f => f.id)) + 1;
+                  onAddFaction?.({
+                    id: newId, name: factionForm.name, type: factionForm.type,
+                    description: factionForm.description, color: factionForm.color,
+                    isActive: true, homeId: homeIdNum, relations: [],
+                  });
+                }
+                setFactionAction(null);
+                showToast(isEdit ? '✓ 勢力已更新' : '✓ 勢力已新增');
+              }}
+              className="text-sm px-3 py-1.5 rounded-[8px] transition"
+              style={{ background: 'var(--btn-primary)', color: 'var(--btn--text)',
+                opacity: factionForm.name.trim() ? 1 : 0.5 }}
+              onMouseEnter={e => { if (factionForm.name.trim()) e.currentTarget.style.background = 'var(--btn-primary-hover)'; }}
+              onMouseLeave={e => { e.currentTarget.style.background = 'var(--btn-primary)'; }}
+            >{isEdit ? '儲存' : '新增'}</button>
+          </div>
+        </div>
+      </div>
+    );
+
+    if (factions.length === 0 && factionAction !== 'add') {
+      return (
+        <div className="text-center py-10">
+          <p className="italic mb-4" style={{ color: 'var(--text-muted)' }}>尚無勢力，新增第一個勢力</p>
+          <button onClick={() => { setFactionForm({ ...EMPTY_FACTION_FORM }); setFactionAction('add'); }}
+            className="px-4 py-2 rounded-[8px] text-sm flex items-center gap-1.5 mx-auto transition"
+            style={{ background: 'var(--btn-primary)', color: 'var(--btn--text)' }}
+            onMouseEnter={e => { e.currentTarget.style.background = 'var(--btn-primary-hover)'; }}
+            onMouseLeave={e => { e.currentTarget.style.background = 'var(--btn-primary)'; }}
+          ><Plus className="w-4 h-4" /> 新增勢力</button>
+        </div>
+      );
+    }
+
+    return (
+      <div className="grid grid-cols-2 gap-3">
+        {/* Add form */}
+        {factionAction === 'add' && renderFactionForm(false)}
+
+        {/* Faction cards */}
+        {factions.map((faction, fi) => {
+          const fc = faction.color ?? autoFactionColor(fi);
+          const memberCount = npcs.filter(n =>
+            (n.factionIds ?? []).includes(faction.id) || (faction.npcIds ?? []).includes(n.id)
+          ).length;
+          const isEditing = factionAction === faction.id;
+
+          if (isEditing) return renderFactionForm(true, faction);
+
+          return (
+            <div key={faction.id}
+              className="rounded-[8px] p-3 border flex items-center gap-3 relative"
+              style={{ background: 'color-mix(in srgb, var(--bg-elevated) 50%, transparent)', borderColor: 'var(--border-default)' }}
+            >
+              {/* Color bar */}
+              <div style={{ width: 4, minHeight: 40, borderRadius: 2, background: fc, flexShrink: 0 }} />
+              {/* Info */}
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2">
+                  <span className="font-bold text-sm" style={{ color: 'var(--text-primary)' }}>{faction.name}</span>
+                  <span className="text-[11px] px-1.5 py-0.5 rounded-full"
+                    style={{ background: fc + '33', color: fc, border: `1px solid ${fc}66` }}>
+                    {faction.type === 'race' ? '種族' : faction.type === 'guild' ? '公會' :
+                     faction.type === 'nation' ? '國家' : faction.type === 'religion' ? '宗教' :
+                     faction.type === 'criminal' ? '犯罪' : '其他'}
+                  </span>
+                </div>
+                <div className="text-xs mt-0.5" style={{ color: 'var(--text-muted)' }}>
+                  {memberCount > 0 ? `${memberCount} 名成員` : '暫無成員'}
+                </div>
+              </div>
+              {/* Three-dot menu */}
+              <div className="relative">
+                <button onClick={() => setFactionMenuId(factionMenuId === faction.id ? null : faction.id)}
+                  className="w-7 h-7 flex items-center justify-center rounded transition"
+                  style={{ color: 'var(--text-muted)' }}
+                  onMouseEnter={e => { e.currentTarget.style.color = 'var(--text-primary)'; e.currentTarget.style.background = 'rgba(255,255,255,0.08)'; }}
+                  onMouseLeave={e => { e.currentTarget.style.color = 'var(--text-muted)'; e.currentTarget.style.background = 'transparent'; }}
+                ><MoreHorizontal className="w-4 h-4" /></button>
+                {factionMenuId === faction.id && (
+                  <div className="absolute right-0 top-8 z-10 rounded-[8px] border overflow-hidden shadow-lg"
+                    style={{ background: 'var(--bg-elevated)', borderColor: 'var(--border-default)', minWidth: 90 }}>
+                    <button onClick={() => {
+                      setFactionForm({
+                        name: faction.name, type: faction.type,
+                        description: faction.description, color: faction.color ?? autoFactionColor(fi),
+                        homeId: faction.homeId != null ? String(faction.homeId) : '',
+                      });
+                      setFactionAction(faction.id);
+                      setFactionMenuId(null);
+                    }} className="w-full text-left px-3 py-2 text-sm transition"
+                      style={{ color: 'var(--text-body)' }}
+                      onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.06)'; }}
+                      onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}
+                    >編輯</button>
+                    <button onClick={() => {
+                      if (onUpdateFaction) onUpdateFaction(faction.id, { isActive: false });
+                      setFactionMenuId(null);
+                      showToast('勢力已停用');
+                    }} className="w-full text-left px-3 py-2 text-sm transition"
+                      style={{ color: 'var(--text-danger)' }}
+                      onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,0,0,0.06)'; }}
+                      onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}
+                    >刪除</button>
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    );
+  };
+
   // ── 決定渲染哪個 Grid ─────────────────────────────────────────────────────────
   const renderContent = () => {
-    if (lorebookFilter === 'NPC')  return renderNpcGrid();
-    if (lorebookFilter === '地點') return renderLocationGrid();
+    if (lorebookFilter === 'NPC')   return renderNpcGrid();
+    if (lorebookFilter === '地點')  return renderLocationGrid();
+    if (lorebookFilter === '勢力')  return renderFactionTab();
     return renderGenericGrid(lorebookFilter);
   };
 
@@ -739,13 +988,13 @@ export const LorebookModal: React.FC<LorebookModalProps> = ({
             className="flex border border-white/10 rounded-t-[8px] overflow-hidden"
             style={{ background: 'color-mix(in srgb, var(--bg-elevated) 50%, transparent)' }}
           >
-            {['地點', 'NPC', '怪物', '物品', '歷史', '其他'].map(cat => {
+            {['地點', 'NPC', '怪物', '物品', '歷史', '其他', '勢力'].map(cat => {
               const isActive = lorebookFilter === cat;
               return (
                 <button
                   key={cat}
-                  onClick={() => { setLorebookFilter(cat); setEditingLorebookId(null); }}
-                  className="flex-1 px-3 py-2 text-base font-bold leading-[13px] transition"
+                  onClick={() => { setLorebookFilter(cat); setEditingLorebookId(null); setFactionAction(null); setFactionMenuId(null); }}
+                  className="flex-1 px-2 py-2 text-sm font-bold leading-[13px] transition"
                   style={{
                     background: isActive ? 'var(--btn-primary)' : 'transparent',
                     color: 'var(--text-tab)',
