@@ -5,7 +5,7 @@
 
 import React from 'react';
 import { StateChanges, Feedback, AsyncTask } from './commandReducer';
-import { TimeState, Profile, Quest, MemoryEntry, Npc, ItemEntry, LorebookEntry, StatusEffect, Faction } from '../types';
+import { TimeState, Profile, Quest, MemoryEntry, Npc, ItemEntry, LorebookEntry, StatusEffect, Faction, NpcMemory } from '../types';
 
 // ─── 副作用依賴型別 ────────────────────────────────────────────────────────────
 
@@ -131,7 +131,7 @@ async function triggerNpcMemoryMerge(
   payload: {
     npcId: number;
     npcName: string;
-    memories: MemoryEntry[];
+    memories: NpcMemory[];
   },
   setters: Setters,
   callbacks: Callbacks
@@ -145,8 +145,8 @@ async function triggerNpcMemoryMerge(
     return;
   }
 
-  // 構建融合提示詞
-  const memoryTexts = unmergedMemories.map(m => m.content).join('\n\n');
+  // 構建融合提示詞（NpcMemory 用 .text 欄位）
+  const memoryTexts = unmergedMemories.map(m => m.text).join('\n\n');
   const mergePrompt = `以下是 NPC "${npcName}" 的多條記憶，請將其融合為一條簡潔、通俗易懂的句子，保留關鍵信息：
 
 ${memoryTexts}
@@ -157,28 +157,14 @@ ${memoryTexts}
     // 調用 AI 進行融合
     const mergedContent = await callbacks.callAI(mergePrompt, 'sub');
 
-    // 創建融合後的記憶條目
-    const mergedMemory: MemoryEntry = {
+    // 創建融合後的 NpcMemory 條目
+    const mergedMemory: NpcMemory = {
       id: `nmem_${Date.now()}_${Math.random().toString(36).slice(2)}`,
-      type: 'npc' as const,
-      importance: 'normal' as const,
-      content: mergedContent.trim(),
-      tags: {
-        locations: [],
-        npcs: [npcName],
-        factions: [],
-        keywords: [],
-      },
-      trigger: {
-        scanDepth: 5,
-        probability: 100,
-        sticky: 0,
-        cooldown: 0,
-      },
-      isActive: true,
-      source: 'merged' as const,
-      createdAt: new Date().toISOString(),
-      isNew: true,
+      text: mergedContent.trim(),
+      importance: 'normal',
+      source: 'merged',
+      createdAt: new Date().toISOString().slice(0, 10),
+      isMerged: false,
       mergedFrom: unmergedMemories.map(m => m.id),
     };
 
