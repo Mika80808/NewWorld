@@ -3,6 +3,8 @@
 > 純歷史紀錄，對開發者友好。待做任務請見 TODO.md。
 > 每次 AI 改完功能，請在對應版本區塊補上一條記錄。
 
+---
+
 ### Bug 修正：NPC 記憶融合型別錯誤 2026-04-03 [Claude Sonnet 4.6]
 
 **問題**：`NPC_THOUGHT` 指令觸發記憶壓縮時，使用了錯誤的 `MemoryEntry` 型別（世界記憶格式）來儲存 NPC 個人記憶，導致：
@@ -22,7 +24,6 @@
   - 融合提示詞改讀 `m.text`（正確欄位）
   - 融合結果改建 `NpcMemory` 物件（移除 `MemoryEntry` 專屬的 `type`/`tags`/`trigger`/`isActive` 欄位）
 
----
 ---
 
 ### 勢力系統（Faction System）— UI 層（MapModal + LorebookModal）2026-04-02 [Claude Sonnet 4.6]
