@@ -67,7 +67,6 @@ export const MapModal: React.FC<MapModalProps> = ({
   const [panY, setPanY] = useState(0);
   const [goldWarning, setGoldWarning] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
-  const [resetHint, setResetHint] = useState(false);
   const [selectedFactionId, setSelectedFactionId] = useState<number | null>(null);
   const [factionPanX, setFactionPanX] = useState(0);
   const [factionPanY, setFactionPanY] = useState(0);
@@ -181,7 +180,8 @@ export const MapModal: React.FC<MapModalProps> = ({
       });
     });
     if (segments.length === 0) {
-      const knownNodes = mapNodes.filter(node => node.mapStatus === 'known' || node.title === currentLocation);
+      // Bug #5 fix: fallback 只連 known + currentLocation，排除 heard 節點避免意外連線
+      const knownNodes = mapNodes.filter(node => (node.mapStatus === 'known' || node.title === currentLocation) && node.mapStatus !== 'heard');
       knownNodes.forEach(node => {
         const nearest = knownNodes.filter(other => other.id !== node.id)
           .map(other => ({ other, dist: (other.mapX! - node.mapX!) ** 2 + (other.mapY! - node.mapY!) ** 2 }))
