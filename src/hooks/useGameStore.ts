@@ -158,6 +158,8 @@ export function saveDataMapper(raw: Record<string, unknown>): GameSaveData {
       hp:          p.hp          ?? 50,
       mp:          p.mp          ?? 0,
       gold:        p.gold        ?? 0,
+      ...(p.maxHp != null ? { maxHp: p.maxHp } : {}),
+      ...(p.maxMp != null ? { maxMp: p.maxMp } : {}),
     },
     systemPrompt:    (d.systemPrompt    as SystemPrompt)    || INITIAL_SYSTEM_PROMPT,
     diaryEntries:    (d.diaryEntries    as DiaryEntry[])    || [],

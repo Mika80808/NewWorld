@@ -131,10 +131,11 @@ export function useCommandParser(deps: CommandParserDeps): UseCommandParserRetur
       }
     );
 
-    // 提取新增的道具名稱（供 updateAdventureState 使用）
+    // Bug #3 fix: 改用名稱比對而非 id 比對（避免閉包舊快照誤判）
+    const prevItemNames = new Set(deps.items.map(i => i.name));
     const newItems = stateChanges.items
       ? stateChanges.items
-          .filter(item => !deps.items.some(existing => existing.id === item.id))
+          .filter(item => !prevItemNames.has(item.name))
           .map(item => item.name)
       : [];
 
@@ -204,20 +205,27 @@ export function useCommandParser(deps: CommandParserDeps): UseCommandParserRetur
       return updated;
     });
 
-    setCooldownCounters(prev => {
-      const updated = { ...prev };
-      // 遞減所有 cooldown 計數器
-      for (const id in updated) {
-        updated[id] = Math.max(0, updated[id] - 1);
-        // 若 sticky 剛變 0，則進入 cooldown
-        if (!triggeredIds.includes(id) && stickyCounters[id] === 1) {
-          const mem = memories.find(m => m.id === id);
-          if (mem && mem.trigger?.cooldown) {
-            updated[id] = mem.trigger.cooldown;
+    // Bug #7 fix: 改用 setStickyCounters 的 functional update 結果推導 cooldown
+    // 不依賴閉包捕獲的舊 stickyCounters，改由 setCooldownCounters 接收 prevSticky 參數
+    setStickyCounters(prevSticky => {
+      setCooldownCounters(prevCooldown => {
+        const updated = { ...prevCooldown };
+        for (const id in updated) {
+          updated[id] = Math.max(0, updated[id] - 1);
+        }
+        // 若 sticky 剛歸零（=1 → 0），且未被此回合觸發，進入 cooldown
+        for (const id in prevSticky) {
+          if (!triggeredIds.includes(id) && prevSticky[id] === 1) {
+            const mem = memories.find(m => m.id === id);
+            if (mem && mem.trigger?.cooldown) {
+              updated[id] = mem.trigger.cooldown;
+            }
           }
         }
-      }
-      return updated;
+        return updated;
+      });
+      // 返回不變（sticky 遞減已在前面的 setStickyCounters 處理）
+      return prevSticky;
     });
   };
 
