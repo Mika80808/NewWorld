@@ -79,6 +79,10 @@ export function reduceCommands(
   const feedback: Feedback = { toasts: [], cmdResults: [] };
   const asyncTasks: AsyncTask[] = [];
 
+  // Bug #1/#2 fix: 用 counter 避免同毫秒多條指令的 id 碰撞
+  let _idCounter = 0;
+  const nextId = () => Date.now() * 1000 + (_idCounter++);
+
   let hpDelta = 0;
   let mpDelta = 0;
   let goldDelta = 0;
@@ -148,7 +152,7 @@ export function reduceCommands(
         if (existingItem) {
           existingItem.quantity += quantity;
         } else {
-          workingItems.push({ id: Date.now(), name, quantity, description });
+          workingItems.push({ id: nextId(), name, quantity, description });
         }
         feedback.cmdResults.push(`📦 獲得 ${name} ×${quantity}`);
         break;
@@ -214,7 +218,7 @@ export function reduceCommands(
             quest.reward.items.forEach(itemName => {
               const existing = workingItems.find(i => i.name === itemName);
               if (existing) existing.quantity += 1;
-              else workingItems.push({ id: Date.now(), name: itemName, quantity: 1, description: '完成任務獲得的獎勵' });
+              else workingItems.push({ id: nextId(), name: itemName, quantity: 1, description: '完成任務獲得的獎勵' });
             });
             feedback.cmdResults.push(`📦 獎勵物品：${quest.reward.items.join('、')}`);
           }
@@ -232,7 +236,7 @@ export function reduceCommands(
         const npcName = cmd.parsed.npcName as string;
         const thought = cmd.parsed.thought as string;
         workingNpcs = workingNpcs.map(npc => {
-          if (!npc.name.includes(npcName.trim()) && !npcName.trim().includes(npc.name)) return npc;
+          if (npc.name !== npcName.trim()) return npc;
           const updatedThoughts = [
             { text: thought, createdAt: `${currentState.timeState.month}/${currentState.timeState.day}` },
             ...(npc.thoughts || []),
@@ -419,6 +423,135 @@ export function reduceCommands(
             }
           }
         }
+        break;
+      }
+
+      case 'NPC_NEW': {
+        const name = cmd.parsed.name as string;
+        // 已存在則不重複建立
+        if (workingNpcs.some(n => n.name === name)) break;
+        const newNpc: Npc = {
+          id: Math.max(...workingNpcs.map(n => n.id), 0) + 1,
+          name,
+          job: cmd.parsed.job as string || '',
+          affection: 0,
+          affectionLabel: '陌生',
+          appearance: cmd.parsed.appearance as string || '',
+          personality: cmd.parsed.personality as string || '',
+          gender: cmd.parsed.gender as string || '',
+          race: cmd.parsed.race as string || '',
+          age: cmd.parsed.age as string || '',
+          backstory: cmd.parsed.backstory as string || '',
+          other: cmd.parsed.other as string || '',
+          category: '登場人物',
+          isActive: true,
+          memories: [],
+        };
+        workingNpcs = [...workingNpcs, newNpc];
+        // 同步建立 lorebook NPC 條目
+        if (!workingLorebookEntries.some(e => e.category === 'NPC' && e.title === name)) {
+          const newEntry: LorebookEntry = {
+            id: Math.max(...workingLorebookEntries.map(e => e.id), 0) + 1,
+            title: name,
+            content: `${name}（${cmd.parsed.job || ''}）`,
+            category: 'NPC',
+            isActive: true,
+            gender: cmd.parsed.gender as string || '',
+            race: cmd.parsed.race as string || '',
+            age: cmd.parsed.age as string || '',
+            job: cmd.parsed.job as string || '',
+            appearance: cmd.parsed.appearance as string || '',
+            personality: cmd.parsed.personality as string || '',
+            backstory: cmd.parsed.backstory as string || '',
+            other: cmd.parsed.other as string || '',
+          };
+          workingLorebookEntries = [...workingLorebookEntries, newEntry];
+        }
+        feedback.toasts.push(`👤 新角色登場：${name}`);
+        break;
+      }
+
+      case 'NPC_HOME': {
+        const npcName = cmd.parsed.npcName as string;
+        const location = cmd.parsed.location as string;
+        workingLorebookEntries = workingLorebookEntries.map(e =>
+          e.category === 'NPC' && e.title === npcName
+            ? { ...e, homeLocation: location }
+            : e
+        );
+        workingNpcs = workingNpcs.map(npc =>
+          npc.name === npcName ? { ...npc, location } : npc
+        );
+        break;
+      }
+
+      case 'NPC_RELATIONSHIP': {
+        // 文字形式的玩家-NPC 關係描述（區別於 NPC_RELATION 的結構化關係）
+        const npcName = cmd.parsed.npcName as string;
+        const relationship = cmd.parsed.relationship as string;
+        workingNpcs = workingNpcs.map(npc =>
+          npc.name === npcName ? { ...npc, relationship } : npc
+        );
+        break;
+      }
+
+      case 'LOCATION_DISCOVER': {
+        const name = cmd.parsed.name as string;
+        const x = cmd.parsed.x as number;
+        const y = cmd.parsed.y as number;
+        // 地點已存在則更新 mapStatus，不存在則新增
+        const existing = workingLorebookEntries.find(e => e.category === '地點' && e.title === name);
+        if (existing) {
+          workingLorebookEntries = workingLorebookEntries.map(e =>
+            e.category === '地點' && e.title === name
+              ? { ...e, mapStatus: 'heard' as const, mapX: e.mapX ?? x, mapY: e.mapY ?? y }
+              : e
+          );
+        } else {
+          const newEntry: LorebookEntry = {
+            id: Math.max(...workingLorebookEntries.map(e => e.id), 0) + 1,
+            title: name,
+            content: '',
+            category: '地點',
+            isActive: true,
+            mapX: x,
+            mapY: y,
+            mapStatus: 'heard',
+          };
+          workingLorebookEntries = [...workingLorebookEntries, newEntry];
+        }
+        feedback.toasts.push(`🗺️ 聽聞新地點：${name}`);
+        break;
+      }
+
+      case 'MEMORY_ADD': {
+        const memType = cmd.parsed.memType as MemoryEntry['type'];
+        const importance = cmd.parsed.importance as MemoryEntry['importance'];
+        const content = cmd.parsed.content as string;
+        const sticky = cmd.parsed.sticky as number;
+        const cooldown = cmd.parsed.cooldown as number;
+        const newMem: MemoryEntry = {
+          id: `mem_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+          type: memType,
+          importance,
+          content,
+          tags: {
+            locations: cmd.parsed.locations as string[] || [],
+            npcs: cmd.parsed.npcs as string[] || [],
+            factions: cmd.parsed.factions as string[] || [],
+            keywords: cmd.parsed.keywords as string[] || [],
+          },
+          trigger: {
+            scanDepth: 5,
+            probability: 100,
+            sticky: sticky || 0,
+            cooldown: cooldown || 0,
+          },
+          isActive: true,
+          source: 'ai_generated',
+          createdAt: `${currentState.timeState.month}/${currentState.timeState.day}`,
+        };
+        workingMemories = [...workingMemories, newMem];
         break;
       }
 

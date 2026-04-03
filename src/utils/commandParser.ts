@@ -196,6 +196,107 @@ function parseSingleCommand(line: string): CommandAST | null {
       return { type: 'NPC_LOCATION', raw: trimmed, parsed: { npcName, location } };
     }
 
+    // NPC_NEW|name=姓名|race=種族|gender=性別|age=年齡|job=職業|appearance=外貌|personality=個性|backstory=背景
+    case 'NPC_NEW': {
+      const name = kv.name || '';
+      if (!name) return null;
+      return {
+        type: 'NPC_NEW', raw: trimmed,
+        parsed: {
+          name,
+          race: kv.race || '',
+          gender: kv.gender || '',
+          age: kv.age || '',
+          job: kv.job || '',
+          appearance: kv.appearance || kv.appear || '',
+          personality: kv.personality || kv.persona || '',
+          backstory: kv.backstory || kv.bg || '',
+          other: kv.other || '',
+        },
+      };
+    }
+
+    // NPC_HOME|name=姓名|loc=地點
+    case 'NPC_HOME': {
+      const name = kv.name || kv.npc || '';
+      const loc = kv.loc || kv.location || '';
+      if (!name || !loc) return null;
+      return { type: 'NPC_HOME', raw: trimmed, parsed: { npcName: name, location: loc } };
+    }
+
+    // NPC_RELATIONSHIP|npc=角色名|rel=關係描述（與玩家的關係文字，不同於 NPC_RELATION 的結構化關係）
+    case 'NPC_RELATIONSHIP': {
+      const npcName = kv.npc || kv.name || '';
+      const rel = kv.rel || kv.relationship || '';
+      if (!npcName) return null;
+      return { type: 'NPC_RELATIONSHIP', raw: trimmed, parsed: { npcName, relationship: rel } };
+    }
+
+    // LOCATION_DISCOVER|name=地點名稱|x=0|y=0
+    case 'LOCATION_DISCOVER': {
+      const name = kv.name || kv.loc || '';
+      if (!name) return null;
+      return {
+        type: 'LOCATION_DISCOVER', raw: trimmed,
+        parsed: {
+          name,
+          x: kv.x ? parseInt(kv.x) : 0,
+          y: kv.y ? parseInt(kv.y) : 0,
+        },
+      };
+    }
+
+    // MEMORY_ADD — 支援 v1 pipe 格式及 legacy 冒號格式
+    // v1:  MEMORY_ADD|type=region|importance=normal|content=...|locations=...|keywords=...|sticky=3
+    // leg: MEMORY_ADD:type:importance:content:locations=...:keywords=...:sticky=N
+    case 'MEMORY_ADD': {
+      if (parts.length > 1 && (kv.type || kv.content)) {
+        // v1 pipe 格式
+        const memType = (kv.type || 'scene') as 'world' | 'region' | 'scene' | 'npc';
+        const importance = (kv.importance || 'normal') as 'critical' | 'normal' | 'flavor';
+        const content = kv.content || kv.text || '';
+        if (!content) return null;
+        return {
+          type: 'MEMORY_ADD', raw: trimmed,
+          parsed: {
+            memType, importance, content,
+            locations: kv.locations ? kv.locations.split(',').map(s => s.trim()).filter(Boolean) : [],
+            npcs: kv.npcs ? kv.npcs.split(',').map(s => s.trim()).filter(Boolean) : [],
+            factions: kv.factions ? kv.factions.split(',').map(s => s.trim()).filter(Boolean) : [],
+            keywords: kv.keywords ? kv.keywords.split(',').map(s => s.trim()).filter(Boolean) : [],
+            sticky: kv.sticky ? parseInt(kv.sticky) : 0,
+            cooldown: kv.cooldown ? parseInt(kv.cooldown) : 0,
+          },
+        };
+      }
+      // legacy 冒號格式：MEMORY_ADD:type:importance:content[:key=val...]
+      const afterPrefix = trimmed.slice('MEMORY_ADD'.length + 1);
+      const colonParts = afterPrefix.split(':');
+      if (colonParts.length < 3) return null;
+      const memType = colonParts[0].trim() as 'world' | 'region' | 'scene' | 'npc';
+      const importance = colonParts[1].trim() as 'critical' | 'normal' | 'flavor';
+      const content = colonParts[2].trim();
+      if (!content) return null;
+      const metaParts = colonParts.slice(3);
+      const metaKv: Record<string, string> = {};
+      for (const mp of metaParts) {
+        const eqIdx = mp.indexOf('=');
+        if (eqIdx !== -1) metaKv[mp.slice(0, eqIdx).trim()] = mp.slice(eqIdx + 1).trim();
+      }
+      return {
+        type: 'MEMORY_ADD', raw: trimmed,
+        parsed: {
+          memType, importance, content,
+          locations: metaKv.locations ? metaKv.locations.split(',').map(s => s.trim()).filter(Boolean) : [],
+          npcs: metaKv.npcs ? metaKv.npcs.split(',').map(s => s.trim()).filter(Boolean) : [],
+          factions: metaKv.factions ? metaKv.factions.split(',').map(s => s.trim()).filter(Boolean) : [],
+          keywords: metaKv.keywords ? metaKv.keywords.split(',').map(s => s.trim()).filter(Boolean) : [],
+          sticky: metaKv.sticky ? parseInt(metaKv.sticky) : 0,
+          cooldown: metaKv.cooldown ? parseInt(metaKv.cooldown) : 0,
+        },
+      };
+    }
+
     // STATUS_ADD|emoji=☠️|name=中毒|duration=3
     case 'STATUS_ADD': {
       const name = kv.name || '';
@@ -341,7 +442,7 @@ function parseSingleCommand(line: string): CommandAST | null {
 
 function extractBareCommands(text: string): string[] {
   const commands: string[] = [];
-  const barePattern = /^(HP:|MP:|GOLD:|LOCATION:|TIME:|AFFINITY:|QUEST_|NPC_|ITEM_|STAT\||STATUS_|FACTION_)/im;
+  const barePattern = /^(HP:|MP:|GOLD:|LOCATION:|TIME:|AFFINITY:|QUEST_|NPC_|ITEM_|STAT\||STATUS_|FACTION_|MEMORY_ADD|LOCATION_DISCOVER)/im;
   const lines = text.split('\n');
   for (const line of lines) {
     const trimmed = line.trim();
