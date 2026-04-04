@@ -1,6 +1,6 @@
-import React, { useState, useMemo } from 'react';
-import { BookOpen, Plus, Search, CheckSquare, Square, Trash2, Heart, MoreHorizontal } from 'lucide-react';
-import { LorebookEntry, Npc, Faction } from '../types';
+import React, { useState, useMemo, useRef } from 'react';
+import { BookOpen, Plus, Search, CheckSquare, Square, Trash2, Heart, MoreHorizontal, Upload, Download } from 'lucide-react';
+import { LorebookEntry, Npc, Faction, NpcExportItem, ImportResult } from '../types';
 import { debounce } from '../utils/debounce';
 
 function affectionColor(affection: number): string {
@@ -27,6 +27,8 @@ interface LorebookModalProps {
   factions?: Faction[];
   onAddFaction?: (faction: Faction) => void;
   onUpdateFaction?: (id: number, updates: Partial<Faction>) => void;
+  onImportNpcs?: (items: (NpcExportItem & { _decision?: 'add' | 'overwrite' | 'skip' })[]) => Promise<ImportResult>;
+  onExportNpcs?: () => void;
 }
 
 const FACTION_PALETTE = ['#7F77DD', '#E24B4A', '#1D9E75', '#EF9F27', '#5f93d3', '#C47D3E', '#FF637E'];
@@ -51,6 +53,8 @@ export const LorebookModal: React.FC<LorebookModalProps> = ({
   factions = [],
   onAddFaction,
   onUpdateFaction,
+  onImportNpcs,
+  onExportNpcs,
 }) => {
   const [editingLorebookId, setEditingLorebookId] = useState<number | null>(null);
   const [lorebookFilter, setLorebookFilter] = useState<string>('地點');
@@ -60,6 +64,13 @@ export const LorebookModal: React.FC<LorebookModalProps> = ({
   const [factionAction, setFactionAction] = useState<'add' | number | null>(null); // 'add' or faction.id for edit
   const [factionForm, setFactionForm] = useState<FactionFormData>(EMPTY_FACTION_FORM);
   const [factionMenuId, setFactionMenuId] = useState<number | null>(null); // three-dot menu
+  // NPC import state
+  type ImportStep = 'idle' | 'preview' | 'conflict';
+  const [importStep, setImportStep] = useState<ImportStep>('idle');
+  const [importItems, setImportItems] = useState<NpcExportItem[]>([]);
+  const [conflictQueue, setConflictQueue] = useState<NpcExportItem[]>([]);
+  const [resolvedItems, setResolvedItems] = useState<(NpcExportItem & { _decision?: 'add' | 'overwrite' | 'skip' })[]>([]);
+  const importFileRef = useRef<HTMLInputElement>(null);
 
   // ─── Phase 3: Debounced search (300ms delay) ─────────────────────────────────
   const debouncedSetSearch = useMemo(
@@ -90,6 +101,68 @@ export const LorebookModal: React.FC<LorebookModalProps> = ({
   const handleDelete = (id: number) => {
     onDeleteLorebook(id);
     if (editingLorebookId === id) setEditingLorebookId(null);
+  };
+
+  const resetImport = () => {
+    setImportStep('idle');
+    setImportItems([]);
+    setConflictQueue([]);
+    setResolvedItems([]);
+  };
+
+  const handleImportFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      const text = await file.text();
+      const parsed = JSON.parse(text);
+      const items: NpcExportItem[] = Array.isArray(parsed) ? parsed : [parsed];
+      const validItems = items.filter(item => {
+        if (!item.name) { console.warn('NPC 匯入：跳過無名稱項目', item); return false; }
+        return true;
+      });
+      setImportItems(validItems);
+      setImportStep('preview');
+    } catch {
+      showToast('❌ JSON 格式錯誤，無法解析');
+    }
+    e.target.value = '';
+  };
+
+  const handleConfirmImport = () => {
+    const conflicts: NpcExportItem[] = [];
+    const nonConflicts: (NpcExportItem & { _decision: 'add' })[] = [];
+    for (const item of importItems) {
+      const exists =
+        npcs.some(n => n.name === item.name) ||
+        lorebookEntries.some(e => e.category === 'NPC' && e.title === item.name);
+      if (exists) conflicts.push(item);
+      else nonConflicts.push({ ...item, _decision: 'add' });
+    }
+    if (conflicts.length === 0) {
+      onImportNpcs?.(nonConflicts).then(result => {
+        showToast(`✅ 匯入完成：新增 ${result.added} 個，覆蓋 ${result.overwritten} 個，跳過 ${result.skipped} 個`);
+        resetImport();
+      });
+    } else {
+      setResolvedItems(nonConflicts);
+      setConflictQueue(conflicts);
+      setImportStep('conflict');
+    }
+  };
+
+  const handleConflictDecide = (decision: 'overwrite' | 'skip') => {
+    const [current, ...rest] = conflictQueue;
+    const newResolved = [...resolvedItems, { ...current, _decision: decision }];
+    if (rest.length === 0) {
+      onImportNpcs?.(newResolved).then(result => {
+        showToast(`✅ 匯入完成：新增 ${result.added} 個，覆蓋 ${result.overwritten} 個，跳過 ${result.skipped} 個`);
+        resetImport();
+      });
+    } else {
+      setConflictQueue(rest);
+      setResolvedItems(newResolved);
+    }
   };
 
   const inputStyle: React.CSSProperties = {
@@ -947,6 +1020,7 @@ export const LorebookModal: React.FC<LorebookModalProps> = ({
             onMouseLeave={e => { e.currentTarget.style.color = 'var(--text-muted)'; }}
             onClick={() => {
               setEditingLorebookId(null);
+              resetImport();
               onClose();
             }}
           >
@@ -959,7 +1033,7 @@ export const LorebookModal: React.FC<LorebookModalProps> = ({
           className="px-4 pt-3 pb-0 border-b border-white/5 space-y-2"
           style={{ background: 'color-mix(in srgb, var(--bg-elevated) 30%, transparent)' }}
         >
-          {/* 第一行：搜尋欄 + 新增按鈕 */}
+          {/* 第一行：搜尋欄 + 匯入/匯出（NPC）+ 新增按鈕 */}
           <div className="flex gap-2 items-center">
             <div className="flex-1 relative">
               <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2" style={{ color: 'var(--text-muted)' }} />
@@ -972,6 +1046,37 @@ export const LorebookModal: React.FC<LorebookModalProps> = ({
                 style={{ background: 'color-mix(in srgb, var(--bg-elevated) 50%, transparent)', color: 'var(--text-body)' }}
               />
             </div>
+            {lorebookFilter === 'NPC' && (
+              <>
+                <input
+                  ref={importFileRef}
+                  type="file"
+                  accept=".json"
+                  className="hidden"
+                  onChange={handleImportFileChange}
+                />
+                <button
+                  onClick={() => importFileRef.current?.click()}
+                  title="匯入 NPC（JSON）"
+                  className="backdrop-blur-sm border border-white/10 w-8 h-8 rounded-[16px] flex items-center justify-center transition shrink-0"
+                  style={{ background: 'color-mix(in srgb, var(--bg-elevated) 60%, transparent)', color: 'var(--text-muted)' }}
+                  onMouseEnter={e => { e.currentTarget.style.color = 'var(--text-primary)'; }}
+                  onMouseLeave={e => { e.currentTarget.style.color = 'var(--text-muted)'; }}
+                >
+                  <Upload className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={onExportNpcs}
+                  title="匯出全部 NPC（JSON）"
+                  className="backdrop-blur-sm border border-white/10 w-8 h-8 rounded-[16px] flex items-center justify-center transition shrink-0"
+                  style={{ background: 'color-mix(in srgb, var(--bg-elevated) 60%, transparent)', color: 'var(--text-muted)' }}
+                  onMouseEnter={e => { e.currentTarget.style.color = 'var(--text-primary)'; }}
+                  onMouseLeave={e => { e.currentTarget.style.color = 'var(--text-muted)'; }}
+                >
+                  <Download className="w-4 h-4" />
+                </button>
+              </>
+            )}
             <button
               onClick={handleAdd}
               className="backdrop-blur-sm border border-white/10 px-10 h-8 rounded-[16px] flex items-center gap-1.5 transition shrink-0"
@@ -993,7 +1098,7 @@ export const LorebookModal: React.FC<LorebookModalProps> = ({
               return (
                 <button
                   key={cat}
-                  onClick={() => { setLorebookFilter(cat); setEditingLorebookId(null); setFactionAction(null); setFactionMenuId(null); }}
+                  onClick={() => { setLorebookFilter(cat); setEditingLorebookId(null); setFactionAction(null); setFactionMenuId(null); resetImport(); }}
                   className="flex-1 px-2 py-2 text-sm font-bold leading-[13px] transition"
                   style={{
                     background: isActive ? 'var(--btn-primary)' : 'transparent',
@@ -1024,6 +1129,88 @@ export const LorebookModal: React.FC<LorebookModalProps> = ({
         <div className="flex-1 overflow-y-auto p-4">
           {renderContent()}
         </div>
+
+        {/* ── NPC 匯入預覽 Overlay ── */}
+        {importStep === 'preview' && lorebookFilter === 'NPC' && (
+          <div className="absolute inset-0 z-20 flex flex-col rounded-[8px] overflow-hidden"
+            style={{ background: 'color-mix(in srgb, var(--bg-elevated) 97%, transparent)' }}>
+            <div className="px-5 pt-5 pb-3 border-b border-white/10 flex items-center justify-between shrink-0">
+              <span className="font-bold text-base" style={{ color: 'var(--text-primary)' }}>
+                匯入 {importItems.length} 個 NPC
+              </span>
+              <button onClick={resetImport} style={{ color: 'var(--text-muted)' }}
+                onMouseEnter={e => { e.currentTarget.style.color = 'var(--text-primary)'; }}
+                onMouseLeave={e => { e.currentTarget.style.color = 'var(--text-muted)'; }}>✕</button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-4 space-y-1.5">
+              {importItems.map((item, i) => {
+                const hasConflict =
+                  npcs.some(n => n.name === item.name) ||
+                  lorebookEntries.some(e => e.category === 'NPC' && e.title === item.name);
+                return (
+                  <div key={i} className="flex items-center gap-2 px-3 py-2 rounded-[8px] border"
+                    style={{
+                      background: 'color-mix(in srgb, var(--bg-elevated) 50%, transparent)',
+                      borderColor: hasConflict ? 'var(--color-amber)' : 'var(--border-default)',
+                    }}>
+                    <span className="font-bold text-sm" style={{ color: 'var(--text-title)' }}>{item.name}</span>
+                    {item.job && <span className="text-sm" style={{ color: 'var(--text-muted)' }}>{item.job}</span>}
+                    {item.race && <span className="text-sm" style={{ color: 'var(--text-muted)' }}>· {item.race}</span>}
+                    {hasConflict && (
+                      <span className="ml-auto text-sm font-bold" style={{ color: 'var(--color-amber)' }}>⚠ 已存在</span>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+            <div className="px-5 py-3 border-t border-white/10 flex justify-end gap-2 shrink-0">
+              <button onClick={resetImport}
+                className="text-sm px-4 py-1.5 rounded-[8px] transition"
+                style={{ background: 'var(--btn-secondary)', color: 'var(--btn--text)' }}
+                onMouseEnter={e => { e.currentTarget.style.background = 'var(--btn-secondary-hover)'; }}
+                onMouseLeave={e => { e.currentTarget.style.background = 'var(--btn-secondary)'; }}
+              >取消</button>
+              <button onClick={handleConfirmImport}
+                className="text-sm px-4 py-1.5 rounded-[8px] transition"
+                style={{ background: 'var(--btn-primary)', color: 'var(--btn--text)' }}
+                onMouseEnter={e => { e.currentTarget.style.background = 'var(--btn-primary-hover)'; }}
+                onMouseLeave={e => { e.currentTarget.style.background = 'var(--btn-primary)'; }}
+              >確認匯入</button>
+            </div>
+          </div>
+        )}
+
+        {/* ── NPC 衝突詢問 Overlay ── */}
+        {importStep === 'conflict' && conflictQueue.length > 0 && (
+          <div className="absolute inset-0 z-20 flex items-center justify-center rounded-[8px]"
+            style={{ background: 'rgba(0,0,0,0.55)' }}>
+            <div className="rounded-[8px] border p-6 w-72 space-y-4"
+              style={{ background: 'var(--bg-elevated)', borderColor: 'var(--border-accent)' }}>
+              <p className="text-sm leading-relaxed" style={{ color: 'var(--text-body)' }}>
+                NPC「<span className="font-bold" style={{ color: 'var(--text-primary)' }}>{conflictQueue[0].name}</span>」已存在，要如何處理？
+              </p>
+              {conflictQueue.length > 1 && (
+                <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
+                  還有 {conflictQueue.length - 1} 個衝突待處理
+                </p>
+              )}
+              <div className="flex gap-2 justify-end">
+                <button onClick={() => handleConflictDecide('skip')}
+                  className="text-sm px-4 py-1.5 rounded-[8px] transition"
+                  style={{ background: 'var(--btn-secondary)', color: 'var(--btn--text)' }}
+                  onMouseEnter={e => { e.currentTarget.style.background = 'var(--btn-secondary-hover)'; }}
+                  onMouseLeave={e => { e.currentTarget.style.background = 'var(--btn-secondary)'; }}
+                >跳過</button>
+                <button onClick={() => handleConflictDecide('overwrite')}
+                  className="text-sm px-4 py-1.5 rounded-[8px] transition"
+                  style={{ background: 'var(--btn-primary)', color: 'var(--btn--text)' }}
+                  onMouseEnter={e => { e.currentTarget.style.background = 'var(--btn-primary-hover)'; }}
+                  onMouseLeave={e => { e.currentTarget.style.background = 'var(--btn-primary)'; }}
+                >覆蓋</button>
+              </div>
+            </div>
+          </div>
+        )}
 
       </div>
     </div>

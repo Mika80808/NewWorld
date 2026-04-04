@@ -5,6 +5,33 @@
 
 ---
 
+### NPC 匯入 / 匯出功能 2026-04-04 [Claude Sonnet 4.6]
+
+**目標**：LorebookModal NPC 分頁新增匯入/匯出按鈕，讓玩家可用 JSON 在存檔之間搬移 NPC 資料。
+
+#### **`src/types.ts`**
+- 新增 `NpcExportItem` 介面（合併 LorebookEntry NPC 靜態欄位 + Npc 動態欄位）
+- 新增 `ImportResult` 介面（`added`/`skipped`/`overwritten` 計數）
+
+#### **`src/App.tsx`**
+- 新增 `handleImportNpcs`：依 `_decision` 逐項寫入 `npcs[]` 與 `lorebookEntries[]`，回傳 `ImportResult`
+- 新增 `handleExportNpcs`：合併 `npcs[]` 與對應 `lorebookEntries[]` 輸出 JSON 檔案，顯示 toast 計數
+- `LorebookModal` 新增 `onImportNpcs`/`onExportNpcs` props
+
+#### **`src/components/LorebookModal.tsx`**
+- 新增 `Upload`/`Download` lucide-react icons 及 `useRef`
+- 新增 `NpcExportItem`/`ImportResult` 型別 import
+- 新增 props：`onImportNpcs`/`onExportNpcs`
+- 新增 import 狀態：`importStep`（idle/preview/conflict）、`importItems`、`conflictQueue`、`resolvedItems`、`importFileRef`
+- NPC 分頁 header：Upload/Download icon 按鈕（條件渲染，僅 NPC tab 顯示）+ 隱藏 file input
+- 新增 `handleImportFileChange`：讀取 JSON，驗證有 `name` 欄位，進入 preview 步驟
+- 新增 `handleConfirmImport`：分離衝突 / 非衝突項目，無衝突直接匯入，有衝突進入逐一詢問
+- 新增 `handleConflictDecide`：處理覆蓋/跳過，隊列清空後呼叫 `onImportNpcs` 並顯示結果 toast
+- 預覽 overlay：全尺寸覆蓋，列出待匯入 NPC（衝突者顯示橘色 ⚠ 標記）
+- 衝突詢問 overlay：小型置中 card，逐一詢問覆蓋或跳過
+
+---
+
 ### 開場隨機化（地點 / 時間 / 天氣）2026-04-04 [Claude Sonnet 4.6]
 
 **目標**：新遊戲開始時，隨機產生初始地點、時間、天氣，取代固定預設值。

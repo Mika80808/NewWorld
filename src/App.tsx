@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { useAIRequest } from './hooks/useAIRequest';
 import { DiaryModal } from './components/DiaryModal';
 import { LorebookModal } from './components/LorebookModal';
-import { Npc, LorebookEntry, MemoryEntry, Message, NpcMemory, EquipmentItem, ItemEntry, GMConfig, SubGMConfig } from './types';
+import { Npc, LorebookEntry, MemoryEntry, Message, NpcMemory, EquipmentItem, ItemEntry, GMConfig, SubGMConfig, NpcExportItem, ImportResult } from './types';
 import { NpcModal, affectionColor } from './components/NpcModal';
 import { QuestModal } from './components/QuestModal';
 import { ProfileModal } from './components/ProfileModal';
@@ -954,6 +954,113 @@ ${poolText}
     }
     setSelectedNpc(null);
     showToast('角色已刪除');
+  };
+
+  const handleImportNpcs = async (
+    items: (NpcExportItem & { _decision?: 'add' | 'overwrite' | 'skip' })[]
+  ): Promise<ImportResult> => {
+    let added = 0, skipped = 0, overwritten = 0;
+
+    for (const item of items) {
+      const decision = item._decision ?? 'add';
+      if (decision === 'skip') { skipped++; continue; }
+
+      const existingLore = lorebookEntries.find(
+        e => e.category === 'NPC' && e.title === item.name
+      );
+      const existingNpc = npcs.find(n => n.name === item.name);
+
+      const newLoreEntry: LorebookEntry = {
+        id: existingLore?.id ?? Date.now() + Math.random(),
+        title: item.name,
+        category: 'NPC',
+        content: item.backstory || item.other || '',
+        isActive: true,
+        race: item.race,
+        gender: item.gender,
+        job: item.job,
+        appearance: item.appearance,
+        personality: item.personality,
+        backstory: item.backstory,
+        other: item.other,
+        homeLocation: item.homeLocation,
+        keywords: item.keywords ?? [],
+        selective: false,
+        secondaryKeys: [],
+        insertionOrder: 100,
+      };
+
+      if (existingLore) {
+        setLorebookEntries(prev => prev.map(e => e.id === existingLore.id ? newLoreEntry : e));
+      } else {
+        setLorebookEntries(prev => [...prev, newLoreEntry]);
+      }
+
+      const newNpc: Npc = {
+        id: existingNpc?.id ?? Date.now(),
+        name: item.name,
+        job: item.job ?? '',
+        affection: item.affection ?? 0,
+        affectionLabel: existingNpc?.affectionLabel ?? '陌生人',
+        appearance: item.appearance ?? '',
+        personality: item.personality ?? '',
+        other: item.other,
+        relationship: item.relationship,
+        thoughts: item.thoughts ?? [],
+        memories: item.memories ?? [],
+        isPinned: item.isPinned ?? false,
+        factionIds: item.factionIds ?? [],
+        category: 'NPC',
+        isActive: true,
+      };
+
+      if (existingNpc) {
+        setNpcs(prev => prev.map(n => n.id === existingNpc.id ? newNpc : n));
+        overwritten++;
+      } else {
+        setNpcs(prev => [...prev, newNpc]);
+        added++;
+      }
+    }
+
+    return { added, skipped, overwritten };
+  };
+
+  const handleExportNpcs = () => {
+    const exportData: NpcExportItem[] = npcs.map(npc => {
+      const lore = lorebookEntries.find(
+        e => e.category === 'NPC' && e.title === npc.name
+      );
+      return {
+        name: npc.name,
+        category: 'NPC' as const,
+        race: lore?.race,
+        gender: lore?.gender,
+        job: lore?.job ?? npc.job,
+        appearance: lore?.appearance ?? npc.appearance,
+        personality: lore?.personality ?? npc.personality,
+        backstory: lore?.backstory,
+        other: lore?.other ?? npc.other,
+        homeLocation: lore?.homeLocation,
+        keywords: lore?.keywords ?? [],
+        affection: npc.affection,
+        relationship: npc.relationship,
+        thoughts: npc.thoughts,
+        memories: npc.memories,
+        isPinned: npc.isPinned,
+        factionIds: npc.factionIds,
+      };
+    });
+
+    const json = JSON.stringify(exportData, null, 2);
+    const blob = new Blob([json], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `NewWorld-NPCs-${Date.now()}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+    showToast(`✅ 已匯出 ${exportData.length} 個 NPC`);
   };
 
   const handleTogglePinNpc = (npcId: number) => {
@@ -2391,6 +2498,8 @@ ${recentContext}
         factions={factions}
         onAddFaction={addFaction}
         onUpdateFaction={updateFaction}
+        onImportNpcs={handleImportNpcs}
+        onExportNpcs={handleExportNpcs}
       />
 
       {/* NPC Modal Overlay */}

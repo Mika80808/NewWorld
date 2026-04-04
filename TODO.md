@@ -31,6 +31,9 @@
 
 ## ✅ 已完成
 
+- [x] NPC 匯入 / 匯出功能
+  2026-04-04 [Claude Sonnet 4.6]: 新增 `NpcExportItem`/`ImportResult` 型別（`types.ts`）；`handleImportNpcs`/`handleExportNpcs`（`App.tsx`）；`LorebookModal.tsx` NPC 分頁加入 Upload/Download 按鈕、匯入預覽 overlay、逐一衝突詢問 overlay
+
 - [x] 開場隨機化（地點 / 時間 / 天氣）
   2026-04-04 [Claude Sonnet 4.6]: 新增 `getRandomStartState()` helper（`useGameStore.ts`），`saveDataMapper` 加入 `isNewGame` 判斷並呼叫隨機函式；`INITIAL_MESSAGES`（`constants.ts`）改為通用開場白，移除固定森林描述
 

@@ -202,6 +202,33 @@ export interface Message {
   timestamp?: string;
 }
 
+// ─── NPC 匯入 / 匯出 ──────────────────────────────────────────────────────────
+export interface NpcExportItem {
+  name: string;
+  category: 'NPC';
+  race?: string;
+  gender?: string;
+  job?: string;
+  appearance?: string;
+  personality?: string;
+  backstory?: string;
+  other?: string;
+  homeLocation?: string;
+  keywords?: string[];
+  affection?: number;
+  relationship?: string;
+  thoughts?: { text: string; createdAt: string }[];
+  memories?: NpcMemory[];
+  isPinned?: boolean;
+  factionIds?: number[];
+}
+
+export interface ImportResult {
+  added: number;
+  skipped: number;
+  overwritten: number;
+}
+
 export interface GMConfig {
   provider: 'gemini';
   apiKey: string;
