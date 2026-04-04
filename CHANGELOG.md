@@ -5,6 +5,30 @@
 
 ---
 
+### 勢力成員雙向綁定 + NPC 側勢力設定 2026-04-04 [Claude Sonnet 4.6]
+
+**目標**：統一雙向同步 `Faction.npcIds` ↔ `Npc.factionIds`；讓 NpcModal 可直接指定所屬勢力。
+
+#### **`src/App.tsx`**
+- 新增 `handleUpdateNpc(npcId, updates)`：通用 NPC 更新（同步 `npcs` 與 `selectedNpc`）
+- 新增 `handleUpdateFactionMembers(factionId, newNpcIds)`：雙向同步入口——先呼叫 `updateFaction` 更新 `Faction.npcIds`，再掃描所有 NPC 依 `newNpcIds` 加入/移除 `factionId`（含同步 `selectedNpc`）
+- `<LorebookModal>` 傳入 `onUpdateFactionMembers`
+- `<NpcModal>` 傳入 `factions`、`onUpdateNpc`、`onUpdateFactionMembers`
+
+#### **`src/components/LorebookModal.tsx`**
+- 新增 `onUpdateFactionMembers` prop
+- 成員 checkbox 的 `onChange` 改走 `onUpdateFactionMembers`（原本走 `onUpdateFaction`，造成 `Npc.factionIds` 單邊未更新）
+- 新增 `pendingEditFactionId` state + `useEffect`：新增勢力後自動偵測其出現於 `factions` 陣列，切換表單到編輯模式（讓使用者可立即選成員）
+- 新增邏輯分支：新增按鈕不再呼叫 `setFactionAction(null)`，改呼叫 `setPendingEditFactionId(newId)`，由 `useEffect` 接手跳轉
+
+#### **`src/components/NpcModal.tsx`**
+- 補 `Faction` import（`from '../types'`）
+- 新增 `factions`、`onUpdateNpc`、`onUpdateFactionMembers` props
+- **編輯模式**：在「其他」textarea 後、儲存按鈕前新增「所屬勢力」多選色票區塊，點擊 tag 即呼叫 `onUpdateFactionMembers` 雙向同步；勢力陣列空時不顯示
+- **顯示模式**：背景故事下方新增所屬勢力唯讀色票列（有 `factionIds` 且勢力 `isActive` 時才顯示）
+
+---
+
 ### 開場隨機化（地點 / 時間 / 天氣）2026-04-04 [Claude Sonnet 4.6]
 
 **目標**：新遊戲開始時，隨機產生初始地點、時間、天氣，取代固定預設值。

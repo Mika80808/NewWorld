@@ -31,6 +31,9 @@
 
 ## ✅ 已完成
 
+- [x] 勢力成員雙向綁定 + NPC 側勢力設定
+  2026-04-04 [Claude Sonnet 4.6]: App.tsx 新增 `handleUpdateNpc` 與 `handleUpdateFactionMembers`（雙向同步 Faction.npcIds ↔ Npc.factionIds），並傳入 LorebookModal（`onUpdateFactionMembers`）與 NpcModal（`factions`、`onUpdateNpc`、`onUpdateFactionMembers`）；LorebookModal 成員 checkbox onChange 改走 `onUpdateFactionMembers`、新增模式完成後以 `pendingEditFactionId` + useEffect 自動切換到編輯模式可選成員；NpcModal 新增 `Faction` import 與三個 props，編輯模式加入所屬勢力多選 tag、顯示模式加入所屬勢力唯讀色票列
+
 - [x] 開場隨機化（地點 / 時間 / 天氣）
   2026-04-04 [Claude Sonnet 4.6]: 新增 `getRandomStartState()` helper（`useGameStore.ts`），`saveDataMapper` 加入 `isNewGame` 判斷並呼叫隨機函式；`INITIAL_MESSAGES`（`constants.ts`）改為通用開場白，移除固定森林描述
 

@@ -947,6 +947,31 @@ ${poolText}
     setSelectedNpc(prev => prev?.id === npcId ? { ...prev, name } : prev);
   };
 
+  const handleUpdateNpc = (npcId: number, updates: Partial<Npc>) => {
+    setNpcs(prev => prev.map(n => n.id === npcId ? { ...n, ...updates } : n));
+    if (selectedNpc?.id === npcId) setSelectedNpc(prev => prev ? { ...prev, ...updates } : prev);
+  };
+
+  /**
+   * 更新勢力成員（雙向同步）
+   * - 更新 Faction.npcIds
+   * - 同步更新所有相關 Npc.factionIds
+   */
+  const handleUpdateFactionMembers = (factionId: number, newNpcIds: number[]) => {
+    updateFaction(factionId, { npcIds: newNpcIds });
+
+    setNpcs(prev => prev.map(npc => {
+      const wasIn = (npc.factionIds ?? []).includes(factionId);
+      const nowIn = newNpcIds.includes(npc.id);
+      if (wasIn === nowIn) return npc;
+      const updated = nowIn
+        ? { ...npc, factionIds: [...(npc.factionIds ?? []), factionId] }
+        : { ...npc, factionIds: (npc.factionIds ?? []).filter(id => id !== factionId) };
+      if (selectedNpc?.id === npc.id) setSelectedNpc(updated);
+      return updated;
+    }));
+  };
+
   const handleDeleteNpc = (npcId: number, lorebookId?: number) => {
     setNpcs(prev => prev.filter(n => n.id !== npcId));
     if (lorebookId !== undefined) {
@@ -2391,6 +2416,7 @@ ${recentContext}
         factions={factions}
         onAddFaction={addFaction}
         onUpdateFaction={updateFaction}
+        onUpdateFactionMembers={handleUpdateFactionMembers}
       />
 
       {/* NPC Modal Overlay */}
@@ -2407,6 +2433,9 @@ ${recentContext}
         onDeleteNpc={handleDeleteNpc}
         onClearNewMemories={handleClearNewMemories}
         onUpdateNpcName={handleUpdateNpcName}
+        factions={factions}
+        onUpdateNpc={handleUpdateNpc}
+        onUpdateFactionMembers={handleUpdateFactionMembers}
       />
 
       {/* System Prompt Modal Overlay */}

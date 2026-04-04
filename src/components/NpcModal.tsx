@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Users, BookPlus, Pin, Star, Trash2, Lock, ChevronDown, ChevronUp, Edit2, Check, X, BookOpen, Heart, AlertTriangle } from 'lucide-react';
-import { Npc, NpcMemory, LorebookEntry } from '../types';
+import { Npc, NpcMemory, LorebookEntry, Faction } from '../types';
 
 // ── 好感度顏色 ────────────────────────────────────────────────────────────────
 export function affectionColor(affection: number): string {
@@ -36,6 +36,9 @@ interface NpcModalProps {
   onDeleteNpc: (npcId: number, lorebookId?: number) => void;
   onClearNewMemories: (npcId: number) => void;
   onUpdateNpcName?: (npcId: number, name: string) => void;
+  factions?: Faction[];
+  onUpdateNpc?: (npcId: number, updates: Partial<Npc>) => void;
+  onUpdateFactionMembers?: (factionId: number, newNpcIds: number[]) => void;
 }
 
 export const NpcModal: React.FC<NpcModalProps> = ({
@@ -51,6 +54,9 @@ export const NpcModal: React.FC<NpcModalProps> = ({
   onDeleteNpc,
   onClearNewMemories,
   onUpdateNpcName,
+  factions = [],
+  onUpdateNpc: _onUpdateNpc,
+  onUpdateFactionMembers,
 }) => {
   const [activeTab, setActiveTab] = useState<'info' | 'memories'>('info');
   const [showArchived, setShowArchived] = useState(false);
@@ -401,6 +407,46 @@ export const NpcModal: React.FC<NpcModalProps> = ({
                       />
                     </div>
                   ))}
+                  {/* 所屬勢力（僅在有勢力資料時顯示） */}
+                  {factions.length > 0 && (
+                    <div>
+                      <p className="text-sm ml-3 uppercase tracking-wider mb-1" style={{ color: 'var(--text-body)' }}>所屬勢力</p>
+                      <div className="flex flex-wrap gap-1.5 px-1">
+                        {factions.filter(f => f.isActive).map(faction => {
+                          const isMember = (selectedNpc.factionIds ?? []).includes(faction.id);
+                          return (
+                            <button
+                              key={faction.id}
+                              onClick={() => {
+                                if (!onUpdateFactionMembers) return;
+                                const currentFactionNpcIds = faction.npcIds ?? [];
+                                const newNpcIds = isMember
+                                  ? currentFactionNpcIds.filter(id => id !== selectedNpc.id)
+                                  : [...currentFactionNpcIds, selectedNpc.id];
+                                onUpdateFactionMembers(faction.id, newNpcIds);
+                              }}
+                              className="flex items-center gap-1 px-2 py-1 rounded-full text-xs transition border"
+                              style={{
+                                background: isMember ? faction.color + '33' : 'transparent',
+                                borderColor: isMember ? faction.color : 'var(--border-default)',
+                                color: isMember ? faction.color : 'var(--text-muted)',
+                              }}
+                              onMouseEnter={e => { e.currentTarget.style.opacity = '0.8'; }}
+                              onMouseLeave={e => { e.currentTarget.style.opacity = '1'; }}
+                            >
+                              <span style={{
+                                width: 6, height: 6, borderRadius: '50%',
+                                background: isMember ? faction.color : 'var(--text-muted)',
+                                display: 'inline-block', flexShrink: 0,
+                              }} />
+                              {faction.name}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+
                   <div className="flex items-center pt-1">
                     {/* 左：刪除（與 LorebookModal 樣式一致） */}
                     <button
@@ -477,6 +523,26 @@ export const NpcModal: React.FC<NpcModalProps> = ({
                       </p>
                     )}
                   </div>
+
+                  {/* 所屬勢力（顯示模式，唯讀） */}
+                  {factions.length > 0 && (selectedNpc.factionIds ?? []).length > 0 && (
+                    <div className="px-1 pb-1">
+                      <p className="text-xs uppercase tracking-wider mb-1" style={{ color: 'var(--text-muted)' }}>所屬勢力</p>
+                      <div className="flex flex-wrap gap-1.5">
+                        {(selectedNpc.factionIds ?? []).map(fid => {
+                          const f = factions.find(x => x.id === fid);
+                          if (!f || !f.isActive) return null;
+                          return (
+                            <span key={fid} className="flex items-center gap-1 px-2 py-0.5 rounded-full text-xs border"
+                              style={{ borderColor: f.color, color: f.color, background: (f.color ?? '') + '22' }}>
+                              <span style={{ width: 5, height: 5, borderRadius: '50%', background: f.color, display: 'inline-block' }} />
+                              {f.name}
+                            </span>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
                 </>
               )}
             </div>

@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { BookOpen, Plus, Search, CheckSquare, Square, Trash2, Heart, MoreHorizontal } from 'lucide-react';
 import { LorebookEntry, Npc, Faction } from '../types';
 import { debounce } from '../utils/debounce';
@@ -27,6 +27,7 @@ interface LorebookModalProps {
   factions?: Faction[];
   onAddFaction?: (faction: Faction) => void;
   onUpdateFaction?: (id: number, updates: Partial<Faction>) => void;
+  onUpdateFactionMembers?: (factionId: number, newNpcIds: number[]) => void;
 }
 
 const FACTION_PALETTE = ['#7F77DD', '#E24B4A', '#1D9E75', '#EF9F27', '#5f93d3', '#C47D3E', '#FF637E'];
@@ -51,6 +52,7 @@ export const LorebookModal: React.FC<LorebookModalProps> = ({
   factions = [],
   onAddFaction,
   onUpdateFaction,
+  onUpdateFactionMembers,
 }) => {
   const [editingLorebookId, setEditingLorebookId] = useState<number | null>(null);
   const [lorebookFilter, setLorebookFilter] = useState<string>('地點');
@@ -60,6 +62,21 @@ export const LorebookModal: React.FC<LorebookModalProps> = ({
   const [factionAction, setFactionAction] = useState<'add' | number | null>(null); // 'add' or faction.id for edit
   const [factionForm, setFactionForm] = useState<FactionFormData>(EMPTY_FACTION_FORM);
   const [factionMenuId, setFactionMenuId] = useState<number | null>(null); // three-dot menu
+  const [pendingEditFactionId, setPendingEditFactionId] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (pendingEditFactionId === null) return;
+    const found = factions.find(f => f.id === pendingEditFactionId);
+    if (found) {
+      setFactionForm({
+        name: found.name, type: found.type,
+        description: found.description, color: found.color ?? '#7F77DD',
+        homeId: found.homeId ? String(found.homeId) : '',
+      });
+      setFactionAction(pendingEditFactionId);
+      setPendingEditFactionId(null);
+    }
+  }, [factions, pendingEditFactionId]);
 
   // ─── Phase 3: Debounced search (300ms delay) ─────────────────────────────────
   const debouncedSetSearch = useMemo(
@@ -739,8 +756,8 @@ export const LorebookModal: React.FC<LorebookModalProps> = ({
             {locationEntries.map(e => <option key={e.id} value={String(e.id)}>{e.title}</option>)}
           </select>
         </div>
-        {/* Member checkboxes */}
-        {isEdit && existing && (
+        {/* Member checkboxes — 編輯時直接顯示；新增時不顯示（新增後 useEffect 自動切換到編輯模式）*/}
+        {isEdit && existing && npcs.length > 0 && (
           <div>
             <div className="text-xs mb-2" style={{ color: 'var(--text-muted)' }}>成員</div>
             <div className="grid grid-cols-2 gap-1 max-h-32 overflow-y-auto">
@@ -753,10 +770,10 @@ export const LorebookModal: React.FC<LorebookModalProps> = ({
                     onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.05)'; }}
                     onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'transparent'; }}>
                     <input type="checkbox" checked={isMember} onChange={() => {
-                      if (!onUpdateFaction) return;
+                      if (!onUpdateFactionMembers) return;
                       const cur = existing.npcIds ?? npcs.filter(n => (n.factionIds ?? []).includes(existing.id)).map(n => n.id);
                       const next = isMember ? cur.filter(id => id !== npc.id) : [...cur, npc.id];
-                      onUpdateFaction(existing.id, { npcIds: next });
+                      onUpdateFactionMembers(existing.id, next);
                     }} className="w-3 h-3 accent-blue-500" />
                     {npc.name}
                   </label>
@@ -795,16 +812,18 @@ export const LorebookModal: React.FC<LorebookModalProps> = ({
                     description: factionForm.description, color: factionForm.color,
                     homeId: homeIdNum,
                   });
+                  setFactionAction(null);
+                  showToast('✓ 勢力已更新');
                 } else {
                   const newId = Math.max(0, ...factions.map(f => f.id)) + 1;
                   onAddFaction?.({
                     id: newId, name: factionForm.name, type: factionForm.type,
                     description: factionForm.description, color: factionForm.color,
-                    isActive: true, homeId: homeIdNum, relations: [],
+                    isActive: true, homeId: homeIdNum, npcIds: [], relations: [],
                   });
+                  setPendingEditFactionId(newId);
+                  showToast('✓ 勢力已新增，請繼續選擇成員');
                 }
-                setFactionAction(null);
-                showToast(isEdit ? '✓ 勢力已更新' : '✓ 勢力已新增');
               }}
               className="text-sm px-3 py-1.5 rounded-[8px] transition"
               style={{ background: 'var(--btn-primary)', color: 'var(--btn--text)',
