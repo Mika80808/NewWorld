@@ -298,12 +298,26 @@ ${newPool.map((s, i) => `${i + 1}. ${s}`).join('\n')}`;
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  // ─── 登入後從雲端載入存檔 ──────────────────────────────────────────────────
+  // ─── 登入後從雲端載入存檔（讀最新槽；若無存檔則自動建立）─────────────────
   useEffect(() => {
     if (!authUser) return;
     const init = async () => {
-      const raw = await loadFromCloud(authUser.id, currentSlotName);
-      if (raw) loadFromData(raw);
+      // 1. 列出所有存檔槽
+      const slots = await listCloudSaves(authUser.id);
+      if (slots.length > 0) {
+        // 2a. 有存檔：讀最新的槽
+        const latest = slots[0]; // 已按 updated_at DESC 排序
+        const raw = await loadFromCloud(authUser.id, latest.slot_name);
+        if (raw) {
+          loadFromData(raw);
+          setCurrentSlotName(latest.slot_name);
+        }
+      } else {
+        // 2b. 全新玩家：建立「存檔一」
+        const snapshot = buildSaveSnapshot();
+        await saveToCloud(authUser.id, '存檔一', snapshot);
+        setCurrentSlotName('存檔一');
+      }
       setIsStoreReady(true);
     };
     init();
