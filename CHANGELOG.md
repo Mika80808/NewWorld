@@ -5,6 +5,19 @@
 
 ---
 
+### 開場隨機化（地點 / 時間 / 天氣）2026-04-04 [Claude Sonnet 4.6]
+
+**目標**：新遊戲開始時，隨機產生初始地點、時間、天氣，取代固定預設值。
+
+#### **`src/hooks/useGameStore.ts`**
+- 新增 `getRandomStartState()` helper：從 `INITIAL_LOREBOOK_ENTRIES` 中隨機選取 `category === '地點'` 的地點；時間從排除深夜（0–4）與正午（12）的合法小時中隨機選取；月份 1–12、日期 1–28、天氣從五種選項隨機
+- `saveDataMapper` 函式最開頭新增 `isNewGame` 判斷（`!d.currentLocation && !d.timeState`），空存檔時呼叫 `getRandomStartState()` 取得隨機值作為 fallback，舊存檔原有值不受影響
+
+#### **`src/constants.ts`**
+- `INITIAL_MESSAGES` 開場白改為通用模糊描述（「陌生的地方」），移除固定森林場景細節，讓 AI 第一回合根據隨機地點/時間自由描繪；引路者台詞保持不變
+
+---
+
 ### Bug 修正：NPC 記憶融合型別錯誤 2026-04-03 [Claude Sonnet 4.6]
 
 **問題**：`NPC_THOUGHT` 指令觸發記憶壓縮時，使用了錯誤的 `MemoryEntry` 型別（世界記憶格式）來儲存 NPC 個人記憶，導致：
