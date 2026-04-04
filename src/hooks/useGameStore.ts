@@ -140,9 +140,34 @@ function runMigrations(raw: Record<string, unknown>): Record<string, unknown> {
   return { ...data, schemaVersion: CURRENT_SCHEMA };
 }
 
+// ─── 新遊戲隨機初始狀態 ───────────────────────────────────────────────────────
+function getRandomStartState(): { currentLocation: string; timeState: TimeState } {
+  const locationEntries = INITIAL_LOREBOOK_ENTRIES.filter(e => e.category === '地點');
+  const randomEntry = locationEntries[Math.floor(Math.random() * locationEntries.length)];
+  const currentLocation = randomEntry?.title ?? '迷霧森林';
+
+  const validHours = [5,6,7,8,9,10,11,13,14,15,16,17,18,19,20,21,22,23];
+  const hour = validHours[Math.floor(Math.random() * validHours.length)];
+  const minute = Math.floor(Math.random() * 60);
+
+  const month = Math.floor(Math.random() * 12) + 1;
+  const day = Math.floor(Math.random() * 28) + 1;
+
+  const weathers: TimeState['weather'][] = ['晴朗', '陰天', '下雨', '下雪', '起霧'];
+  const weather = weathers[Math.floor(Math.random() * weathers.length)];
+
+  return {
+    currentLocation,
+    timeState: { year: 1024, month, day, hour, minute, weather },
+  };
+}
+
 // ─── saveDataMapper：唯一欄位映射入口 ────────────────────────────────────────
 export function saveDataMapper(raw: Record<string, unknown>): GameSaveData {
   const d = runMigrations(raw);
+
+  const isNewGame = !d.currentLocation && !d.timeState;
+  const randomStart = isNewGame ? getRandomStartState() : null;
 
   const p = (d.profile as Partial<Profile>) || {};
   const t = (d.timeState as Partial<TimeState>) || {};
@@ -168,17 +193,17 @@ export function saveDataMapper(raw: Record<string, unknown>): GameSaveData {
     appearingNpcs:   (d.appearingNpcs   as string[])        || [],
     equipment:       Array.isArray(d.equipment) ? migrateEquipment(d.equipment as unknown[]) : [],
     items:           Array.isArray(d.items)     ? migrateItems(d.items as unknown[])         : [],
-    currentLocation: (d.currentLocation as string)          || '迷霧森林',
+    currentLocation: (d.currentLocation as string)          || randomStart?.currentLocation || '迷霧森林',
     messages:        (d.messages        as Message[])        || INITIAL_MESSAGES,
     memories:        (d.memories        as MemoryEntry[])    || [],
     quickOptions:    (d.quickOptions    as string[])         || ['觀察四周', '檢查自己', '大聲求助'],
     timeState: {
       year:    t.year    ?? 1024,
-      month:   t.month   ?? 4,
-      day:     t.day     ?? 15,
-      hour:    t.hour    ?? 21,
-      minute:  t.minute  ?? 30,
-      weather: t.weather || '晴朗',
+      month:   t.month   ?? randomStart?.timeState.month   ?? 4,
+      day:     t.day     ?? randomStart?.timeState.day     ?? 15,
+      hour:    t.hour    ?? randomStart?.timeState.hour    ?? 21,
+      minute:  t.minute  ?? randomStart?.timeState.minute  ?? 30,
+      weather: t.weather || randomStart?.timeState.weather || '晴朗',
     },
     quests:       ((d.quests as Quest[]) || []).map(q => ({ isGoalMet: false, ...q })),
     adventureLog:  (d.adventureLog  as string[]) || [],

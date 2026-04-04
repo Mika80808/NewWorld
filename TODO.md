@@ -31,6 +31,9 @@
 
 ## ✅ 已完成
 
+- [x] 開場隨機化（地點 / 時間 / 天氣）
+  2026-04-04 [Claude Sonnet 4.6]: 新增 `getRandomStartState()` helper（`useGameStore.ts`），`saveDataMapper` 加入 `isNewGame` 判斷並呼叫隨機函式；`INITIAL_MESSAGES`（`constants.ts`）改為通用開場白，移除固定森林描述
+
 - [x] 勢力系統 — UI 層（MapModal 整合 + 勢力管理）
   2026-04-02 [Claude Sonnet 4.6]: Faction 型別新增 homeId/npcIds；MapModal 加入地理/勢力雙 tab（tab 切換器、花瓣 + 色點 overlay、勢力網絡 SVG、右側欄點擊展示）；LorebookModal 新增「勢力」tab（卡片列表、inline 新增/編輯表單、成員 checkbox、三點選單）；App.tsx 傳入 factions/npcs/onOpenNpcModal 給 MapModal，factions/onAddFaction/onUpdateFaction 給 LorebookModal
 
