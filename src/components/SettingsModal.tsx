@@ -4,12 +4,13 @@ import { User } from '@supabase/supabase-js';
 import { GMConfig, SubGMConfig } from '../types';
 
 const GEMINI_MODELS = [
+  { value: 'gemini-2.5-pro',          label: 'Gemini 2.5 Pro（最強／較慢）' },
   { value: 'gemini-2.5-flash',        label: 'Gemini 2.5 Flash（快速／輕量）' },
   { value: 'gemini-2.5-flash-lite',   label: 'Gemini 2.5 Flash Lite（最省費）' },
-  { value: 'gemini-2.5-pro',          label: 'Gemini 2.5 Pro（最強／較慢）' },
-  { value: 'gemini-2.0-flash-lite',   label: 'Gemini 2.0 Flash Lite（舊版輕量）' },
-  { value: 'gemini-1.5-pro',          label: 'Gemini 1.5 Pro（穩定版）' },
-  { value: 'gemini-1.5-flash',        label: 'Gemini 1.5 Flash（穩定輕量）' },
+  { value: 'gemini-2.0-flash',        label: 'Gemini 2.0 Flash（穩定快速）' },
+  { value: 'gemini-2.0-flash-lite',   label: 'Gemini 2.0 Flash Lite（輕量省費）' },
+  { value: 'gemini-1.5-pro',          label: 'Gemini 1.5 Pro（舊穩定版）' },
+  { value: 'gemini-1.5-flash',        label: 'Gemini 1.5 Flash（舊輕量版）' },
 ];
 
 interface SettingsModalProps {
