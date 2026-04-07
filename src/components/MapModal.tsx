@@ -298,8 +298,8 @@ export const MapModal: React.FC<MapModalProps> = ({
         }
         .map-pin-animate { animation: pinBounce 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) forwards; }
       `}</style>
-      <div className={`fixed inset-0 bg-black/85 backdrop-blur-sm z-50 flex items-center justify-center${isMobile ? '' : ' p-4'}`}>
-        <div className="flex flex-col overflow-hidden" style={{
+      <div className={`fixed inset-0 bg-black/85 backdrop-blur-sm z-[60] flex items-center justify-center${isMobile ? '' : ' p-4'}`}>
+        <div className="flex flex-col overflow-hidden relative z-[61]" style={{
           background: 'var(--bg-elevated)', border: '0.5px solid var(--border-default)',
           borderTop: '1.5px solid #fde68a', borderRadius: isMobile ? '0' : '10px',
           boxShadow: '0 0 80px rgba(0,0,0,0.8)',

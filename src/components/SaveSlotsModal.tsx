@@ -29,13 +29,13 @@ export function SaveSlotsModal({
     <AnimatePresence>
       {isOpen && (
         <motion.div
-          className="fixed inset-0 z-[70] flex items-center justify-center p-4"
+          className="fixed inset-0 z-[60] flex items-center justify-center p-4"
           style={{ background: 'rgba(0,0,0,0.6)' }}
           initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
           onClick={onClose}
         >
           <motion.div
-            className="w-full max-w-sm rounded-[12px] p-5 flex flex-col gap-4"
+            className="w-full max-w-sm rounded-[12px] p-5 flex flex-col gap-4 relative z-[61]"
             style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-default)', maxHeight: '80vh', overflowY: 'auto' }}
             initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }}
             onClick={e => e.stopPropagation()}

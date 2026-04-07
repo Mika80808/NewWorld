@@ -1612,7 +1612,7 @@ ${recentContext}
                 animate={{ opacity: 1, x: 0, scale: 1 }}
                 exit={{ opacity: 0, x: -10, scale: 0.95 }}
                 transition={{ duration: 0.2, ease: "easeOut" }}
-                className="fixed w-72 backdrop-blur-xl rounded-[8px] z-[200] flex flex-col overflow-hidden"
+                className="fixed w-72 backdrop-blur-xl rounded-[8px] z-[110] flex flex-col overflow-hidden"
                 style={{ maxHeight: '60vh', top: inventoryPanelPos.top, left: inventoryPanelPos.left, border: `1px solid var(--border-default)`, background: 'color-mix(in srgb, var(--bg-elevated) 95%, transparent)' }}
               >
                 <div className="sticky top-0 backdrop-blur-md p-3 flex justify-between items-center z-10" style={{ background: 'color-mix(in srgb, var(--bg-elevated) 90%, transparent)', borderBottom: `1px solid rgba(0, 0, 0, 0.1)` }}>
@@ -1695,7 +1695,7 @@ ${recentContext}
                 animate={{ opacity: 1, x: 0, scale: 1 }}
                 exit={{ opacity: 0, x: -10, scale: 0.95 }}
                 transition={{ duration: 0.2, ease: "easeOut" }}
-                className="fixed w-72 backdrop-blur-xl rounded-[8px] z-[200] flex flex-col overflow-hidden"
+                className="fixed w-72 backdrop-blur-xl rounded-[8px] z-[110] flex flex-col overflow-hidden"
                 style={{ maxHeight: '60vh', top: consumablesPanelPos.top, left: consumablesPanelPos.left, border: `1px solid var(--border-default)`, background: 'color-mix(in srgb, var(--bg-elevated) 95%, transparent)' }}
               >
                 <div className="sticky top-0 backdrop-blur-md p-3 flex justify-between items-center z-10" style={{ background: 'color-mix(in srgb, var(--bg-elevated) 90%, transparent)', borderBottom: `1px solid rgba(0, 0, 0, 0.1)` }}>
@@ -2478,7 +2478,7 @@ ${recentContext}
             animate={{ opacity: 1, x: 0, scale: 1 }}
             exit={{ opacity: 0, x: -10, scale: 0.97 }}
             transition={{ duration: 0.18, ease: 'easeOut' }}
-            className="fixed z-[200] flex flex-col overflow-hidden rounded-[8px]"
+            className="fixed z-[110] flex flex-col overflow-hidden rounded-[8px]"
             style={{
               top: questPanelPos.top,
               left: questPanelPos.left,

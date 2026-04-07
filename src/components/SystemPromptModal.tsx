@@ -25,7 +25,7 @@ export const SystemPromptModal: React.FC<SystemPromptModalProps> = ({
 
   return (
     <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[60] flex items-center justify-center p-4">
-      <div className="backdrop-blur-xl w-full max-w-2xl rounded-[8px] shadow-[0_0_40px_rgba(0,0,0,0.5)] flex flex-col overflow-hidden border border-white/10 relative h-[80vh]" style={{ background: 'color-mix(in srgb, var(--bg-elevated) 70%, transparent)', color: 'var(--text-title)' }}>
+      <div className="backdrop-blur-xl w-full max-w-2xl rounded-[8px] shadow-[0_0_40px_rgba(0,0,0,0.5)] flex flex-col overflow-hidden border border-white/10 relative z-[61] h-[80vh]" style={{ background: 'color-mix(in srgb, var(--bg-elevated) 70%, transparent)', color: 'var(--text-title)' }}>
         <div className="p-4 border-b border-white/5 flex justify-between items-center" style={{ background: 'color-mix(in srgb, var(--bg-elevated) 50%, transparent)' }}>
           <div className="flex items-center">
             <h2 className="text-lg font-bold flex items-center" style={{ color: 'var(--text-primary)' }}>
