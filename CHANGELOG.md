@@ -5,6 +5,20 @@
 
 ---
 
+### Bug 修正：MapModal 桌機版直式顯示 2026-04-07 [Claude Haiku 4.5]
+
+**問題**：MapModal 的地理與勢力地圖（SVG 容器）在桌機版呈現直式細條，而非正確的橫式填滿。
+
+**根本原因**：SVG 容器在桌機模式下 `height` 為 `undefined`，導致 `<svg height="100%">` 找不到參考高度，SVG 縮到內容最小高度，視覺上變成直式。
+
+#### **`src/components/MapModal.tsx`**
+- **地理地圖 SVG 容器 (350 行)**：`height: isMobile ? '55%' : undefined` → `height: isMobile ? '55%' : '100%'`
+- **勢力地圖 SVG 容器 (706 行)**：`height: isMobile ? '55%' : undefined` → `height: isMobile ? '55%' : '100%'`
+
+**結果**：桌機版 MapModal 地圖現在正確填滿容器，呈現橫式。
+
+---
+
 ### UI｜Z-Index 層級系統統一 2026-04-07 [Claude Haiku 4.5]
 
 **目標**：統一所有跳出式視窗的 z-index 層級，避免 Modal 意外覆蓋或被抽屜遮蔽。

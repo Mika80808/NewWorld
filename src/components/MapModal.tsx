@@ -349,7 +349,7 @@ export const MapModal: React.FC<MapModalProps> = ({
                 {/* Geo Map SVG */}
                 <div className="relative overflow-hidden select-none" style={{
                   background: MAP_PALETTE.paper, flex: isMobile ? 'none' : '3',
-                  height: isMobile ? '55%' : undefined,
+                  height: isMobile ? '55%' : '100%',
                 }}>
                   <svg width="100%" height="100%" viewBox={`0 0 ${SVG_W} ${SVG_H}`}
                     preserveAspectRatio="xMidYMid slice" style={{ display: 'block' }}
@@ -705,7 +705,7 @@ export const MapModal: React.FC<MapModalProps> = ({
                 {/* Faction SVG */}
                 <div className="relative overflow-hidden select-none" style={{
                   background: 'var(--bg-base)', flex: isMobile ? 'none' : '3',
-                  height: isMobile ? '55%' : undefined,
+                  height: isMobile ? '55%' : '100%',
                 }}>
                   <svg width="100%" height="100%" viewBox={`0 0 ${SVG_W} ${SVG_H}`}
                     preserveAspectRatio="xMidYMid slice" style={{ display: 'block' }}

@@ -99,4 +99,7 @@
 
 - [x] UI｜Z-Index 層級系統統一
   2026-04-07 [Claude Haiku 4.5]: 新增 CSS z-index 變數至 index.css（--z-bg 至 --z-popover）；constants.ts 新增 Z_INDEX 物件；修正 SaveSlotsModal z-[70]→z-[60]、MapModal/NpcModal z-50→z-[60]；所有 Modal 本體加 z-[61]；浮動面板 z-[200]→z-[110]
+
+- [x] Bug 修正｜MapModal 桌機版直式顯示
+  2026-04-07 [Claude Haiku 4.5]: 地理與勢力地圖 SVG 容器在桌機版 `height` 設為 `undefined`，導致 SVG `height="100%"` 無參考高度；修正為 `height: isMobile ? '55%' : '100%'`（MapModal.tsx 352 行、708 行）
       
