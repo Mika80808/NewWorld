@@ -156,7 +156,7 @@ export const MessageCard: React.FC<MessageCardProps> = ({
             </div>
           </div>
         ) : msg.role === 'user' ? (
-          <p className="leading-relaxed whitespace-pre-wrap">{msg.text}</p>
+          <div className="leading-relaxed">{renderMarkdown(msg.text)}</div>
         ) : msg.text === '' && isLoading && msg.id === messages[messages.length - 1]?.id ? (
           <div className="flex items-center space-x-2 py-0.5 select-none">
             <span className="text-sm" style={{ color: 'var(--text-stat-label)' }}>✦ 異世界正在回應</span>
