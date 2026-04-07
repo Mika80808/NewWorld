@@ -9,6 +9,7 @@ const GEMINI_MODELS = [
   { value: 'gemini-2.5-flash-lite',   label: 'Gemini 2.5 Flash Lite（最省費）' },
   { value: 'gemini-2.0-flash',        label: 'Gemini 2.0 Flash（穩定快速）' },
   { value: 'gemini-2.0-flash-lite',   label: 'Gemini 2.0 Flash Lite（輕量省費）' },
+  { value: 'gemma-4-31b-it',          label: 'Gemma 4 31B（開源模型）' },
   { value: 'gemini-1.5-pro',          label: 'Gemini 1.5 Pro（舊穩定版）' },
   { value: 'gemini-1.5-flash',        label: 'Gemini 1.5 Flash（舊輕量版）' },
 ];
