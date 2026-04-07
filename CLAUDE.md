@@ -183,12 +183,15 @@ callAI(prompt: string, options?: { role?: 'main' | 'sub'; maxTokens?: number }):
 **Gemini 靜態模型清單：**
 ```typescript
 const GEMINI_MODELS = [
-  { value: 'gemini-2.5-pro',          label: 'Gemini 2.5 Pro（最強／較慢）' },
-  { value: 'gemini-2.5-flash',        label: 'Gemini 2.5 Flash（快速／均衡）' },
-  { value: 'gemini-2.5-flash-lite',   label: 'Gemini 2.5 Flash Lite（輕量省費）' },
-  { value: 'gemini-2.0-flash',        label: 'Gemini 2.0 Flash（穩定快速）' },
-  { value: 'gemini-2.0-flash-lite',   label: 'Gemini 2.0 Flash Lite（最省費）' },
-  { value: 'gemma-4-31b-it',          label: 'Gemma 4 31B（開源模型）' },
+  { value: 'gemini-3.1-pro-preview',    label: 'Gemini 3.1 Pro Preview（最強推理）' },
+  { value: 'gemini-3-flash-preview',    label: 'Gemini 3 Flash Preview（快速／均衡）' },
+  { value: 'gemini-3.1-flash-lite-preview', label: 'Gemini 3.1 Flash Lite Preview（最省費）' },
+  { value: 'gemini-2.5-pro',            label: 'Gemini 2.5 Pro（穩定最強）' },
+  { value: 'gemini-2.5-flash',          label: 'Gemini 2.5 Flash（穩定快速）' },
+  { value: 'gemini-2.5-flash-lite',     label: 'Gemini 2.5 Flash Lite（穩定輕量）' },
+  { value: 'gemini-2.0-flash',          label: 'Gemini 2.0 Flash（舊版快速）' },
+  { value: 'gemini-2.0-flash-lite',     label: 'Gemini 2.0 Flash Lite（舊版輕量）' },
+  { value: 'gemma-4-31b-it',            label: 'Gemma 4 31B（開源模型）' },
 ]
 ```
 
