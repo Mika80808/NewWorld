@@ -96,4 +96,7 @@
 
 - [x] App.tsx 高價值拆分重構
   2026-03-30 [Claude Code]: 新增 markdownParser.tsx、promptBuilder.ts、SaveSlotsModal.tsx，App.tsx 從 ~3463 行降至 ~2959 行
+
+- [x] UI｜Z-Index 層級系統統一
+  2026-04-07 [Claude Haiku 4.5]: 新增 CSS z-index 變數至 index.css（--z-bg 至 --z-popover）；constants.ts 新增 Z_INDEX 物件；修正 SaveSlotsModal z-[70]→z-[60]、MapModal/NpcModal z-50→z-[60]；所有 Modal 本體加 z-[61]；浮動面板 z-[200]→z-[110]
       
