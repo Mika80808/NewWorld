@@ -53,3 +53,28 @@ export const TOKEN_OPTIONS = [
   { label: '32K', value: 32768 },
   { label: '64K', value: 65536 },
 ];
+
+/**
+ * Z-Index 層級系統
+ * 用於整個應用的堆疊順序控制，確保 Modal、Drawer、菜單的正確堆疊
+ *
+ * 層級說明：
+ * - BG (0-10)：背景、基礎層
+ * - UI (20-30)：導航、菜單
+ * - DRAWER (40-50)：手機抽屜、側欄
+ * - MODAL (60-62)：模態對話框及其內容
+ * - NOTIFICATION (100+)：通知、浮動菜單
+ */
+export const Z_INDEX = {
+  BG: 0,
+  BASE: 10,
+  HUD: 20,
+  MENU: 30,
+  DRAWER_BG: 40,
+  DRAWER: 50,
+  MODAL_BG: 60,
+  MODAL: 61,
+  MODAL_HIGH: 62,
+  TOAST: 100,
+  POPOVER: 110,
+} as const;

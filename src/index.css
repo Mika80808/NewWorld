@@ -101,6 +101,19 @@
   --bg-quest-failed:      rgba(69, 10, 10, 0.10);
   --border-quest-failed:  rgba(153, 27, 27, 0.30);
 
+  /* ── Z-Index 層級系統（由低至高）─────────────────────── */
+  --z-bg:           0;      /* 背景圖層（遊戲背景、天空梯度） */
+  --z-base:         10;     /* 基礎層（欄位標籤、右欄 Lorebook） */
+  --z-hud:          20;     /* 頂部 HUD / 導航欄（搜尋欄、功能按鈕） */
+  --z-menu:         30;     /* 局部菜單（右鍵選單、下拉選項） */
+  --z-drawer-bg:    40;     /* 手機 Drawer 暗色遮罩 */
+  --z-drawer:       50;     /* 手機 Drawer 本體（左側欄、右側欄） */
+  --z-modal-bg:     60;     /* Modal 暗色背景（所有 Modal） */
+  --z-modal:        61;     /* Modal 本體（內容容器） */
+  --z-modal-high:   62;     /* Modal 內部高層（選單、彈窗） */
+  --z-toast:        100;    /* 通知 Toast（頂部居中） */
+  --z-popover:      110;    /* 浮動菜單（Inventory、Consumables） */
+
 }
 
 /* 手機版縮小全站字體}」之後 */

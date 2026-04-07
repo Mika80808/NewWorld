@@ -5,6 +5,62 @@
 
 ---
 
+### Bug 修正：MapModal 桌機版直式顯示 2026-04-07 [Claude Haiku 4.5]
+
+**問題**：MapModal 的地理與勢力地圖（SVG 容器）在桌機版呈現直式細條，而非正確的橫式填滿。
+
+**根本原因**：SVG 容器在桌機模式下 `height` 為 `undefined`，導致 `<svg height="100%">` 找不到參考高度，SVG 縮到內容最小高度，視覺上變成直式。
+
+#### **`src/components/MapModal.tsx`**
+- **地理地圖 SVG 容器 (350 行)**：`height: isMobile ? '55%' : undefined` → `height: isMobile ? '55%' : '100%'`
+- **勢力地圖 SVG 容器 (706 行)**：`height: isMobile ? '55%' : undefined` → `height: isMobile ? '55%' : '100%'`
+
+**結果**：桌機版 MapModal 地圖現在正確填滿容器，呈現橫式。
+
+---
+
+### UI｜Z-Index 層級系統統一 2026-04-07 [Claude Haiku 4.5]
+
+**目標**：統一所有跳出式視窗的 z-index 層級，避免 Modal 意外覆蓋或被抽屜遮蔽。
+
+#### **`src/index.css`**
+- `:root` 尾部新增 11 個 Z-Index CSS 變數：
+  - `--z-bg` (0)：背景圖層
+  - `--z-base` (10)：基礎層
+  - `--z-hud` (20)：HUD / 導航欄
+  - `--z-menu` (30)：局部菜單
+  - `--z-drawer-bg` (40)：手機 Drawer 暗色遮罩
+  - `--z-drawer` (50)：手機 Drawer 本體
+  - `--z-modal-bg` (60)：Modal 暗色背景
+  - `--z-modal` (61)：Modal 本體
+  - `--z-modal-high` (62)：Modal 內部高層
+  - `--z-toast` (100)：Toast 通知
+  - `--z-popover` (110)：浮動菜單
+
+#### **`src/constants.ts`**
+- 新增 `Z_INDEX` constant 物件，與 CSS 變數值對應，供 TypeScript 使用
+
+#### **`src/App.tsx`**
+- 浮動面板更新：`z-[200]` → `z-[110]`
+  - Inventory Panel (1615 行)
+  - Consumables Panel (1698 行)
+  - Quest Panel (2481 行)
+
+#### **`src/components/*.tsx`（所有 Modal 組件）**
+- **SaveSlotsModal.tsx (32 行)**：暗色背景 `z-[70]` → `z-[60]`；本體容器加 `z-[61]`
+- **MapModal.tsx (301 行)**：暗色背景 `z-50` → `z-[60]`；本體容器加 `z-[61]`
+- **NpcModal.tsx (179 行)**：暗色背景 `z-50` → `z-[60]`；本體容器加 `z-[61]`
+- **DiaryModal.tsx (113 行)**：本體容器加 `z-[61]`
+- **LorebookModal.tsx (924 行)**：本體容器加 `z-[61]`
+- **ProfileModal.tsx (27 行)**：本體容器加 `z-[61]`
+- **QuestModal.tsx (37 行)**：本體容器加 `z-[61]`
+- **SettingsModal.tsx (72 行)**：本體容器加 `z-[61]`
+- **SystemPromptModal.tsx (28 行)**：本體容器加 `z-[61]`
+
+**結果**：所有一般 Modal 統一在 z-60 (背景) / z-61 (本體)；浮動菜單降至 z-110（低於 Toast 但高於 Modal）；Mobile Drawer 保持 z-40/50；SaveSlotsModal 不再異常高於其他 Modal。
+
+---
+
 ### 開場隨機化（地點 / 時間 / 天氣）2026-04-04 [Claude Sonnet 4.6]
 
 **目標**：新遊戲開始時，隨機產生初始地點、時間、天氣，取代固定預設值。
