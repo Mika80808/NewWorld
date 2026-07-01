@@ -1,0 +1,105 @@
+# TODO.md — 待開發任務
+
+
+> AI 開始工作前請先讀這個檔案，確認當前優先任務。
+>
+> 完成任務後的規則：
+> 1. 將 `[ ]` 改為 `[x]`
+> 2. 在項目下方補一行完成註記，格式：
+>    `YYYY-MM-DD [AI名稱]: 簡述改了什麼函數/檔案/區塊`
+> 3. 同步更新 CHANGELOG.md 對應版本區塊
+> 4. 當 [x] 項目累積過多時，由 User 定期清空
+>
+> 架構規則（重構完成後生效）：
+> - `App.tsx`：只保留 state、handlers、`buildPrompt`、`parseAndExecuteCommands`、API 呼叫、主介面三欄 JSX
+> - `src/components/`：純 UI 組件，只接收 props 和 callback，不持有業務 state
+> - AI 改功能前必須先讀取對應組件檔案
+
+
+---
+- [ ] P3｜內容安全與邊界控制
+  - 內容等級（PG-13 / 成人向）與禁忌主題開關。
+
+- [ ] 向量語意搜尋記憶
+  - 進階記憶檢索，以語意相似度取代關鍵字判斷是否注入。
+
+- [ ] 多配色主題
+  - 用 `data-theme` + CSS variables 切換主題。
+  - 設定 Modal 加色塊選擇器，儲存至 `localStorage`。
+
+---
+
+## ✅ 已完成
+
+- [x] 開場隨機化（地點 / 時間 / 天氣）
+  2026-04-04 [Claude Sonnet 4.6]: 新增 `getRandomStartState()` helper（`useGameStore.ts`），`saveDataMapper` 加入 `isNewGame` 判斷並呼叫隨機函式；`INITIAL_MESSAGES`（`constants.ts`）改為通用開場白，移除固定森林描述
+
+- [x] 勢力系統 — UI 層（MapModal 整合 + 勢力管理）
+  2026-04-02 [Claude Sonnet 4.6]: Faction 型別新增 homeId/npcIds；MapModal 加入地理/勢力雙 tab（tab 切換器、花瓣 + 色點 overlay、勢力網絡 SVG、右側欄點擊展示）；LorebookModal 新增「勢力」tab（卡片列表、inline 新增/編輯表單、成員 checkbox、三點選單）；App.tsx 傳入 factions/npcs/onOpenNpcModal 給 MapModal，factions/onAddFaction/onUpdateFaction 給 LorebookModal
+
+- [x] 勢力系統 — 資料層 + DSL + Prompt 注入
+  2026-04-01 [Claude Sonnet 4.6]: 新增 Faction/FactionRelation/NpcRelation 型別（types.ts）；useGameStore 加入 factions state、setFactions/addFaction/updateFaction、schema 升 v3（自動補空陣列遷移）；commandParser 新增 FACTION_NEW/FACTION_JOIN/FACTION_RELATION/NPC_RELATION（v1 pipe 格式 + 冒號 legacy fallback）；commandReducer 實作四條指令執行邏輯（含調色盤自動指派顏色、雙向/單向關係寫入）；commandEffects 加入 setFactions setter；useCommandParser 注入 factions 依賴；promptBuilder 新增 factions 依賴、NPC 行末注入「勢力：XXX」、COMMAND FORMAT 補四條新指令說明；App.tsx buildPromptWrapper 與 useCommandParser 補入 factions/setFactions
+
+
+
+### 群組 D｜架構重構（全部完成 ✨）
+
+- [x] **D1-D4 架構重構完整鏈**（2025-03-24）
+  - ✅ D1：App.tsx 狀態切片與渲染隔離
+  - ✅ D2：Command Parser 分層（parse / reduce / effects）
+  - ✅ D3：時間推進與任務期限純函式化
+  - ✅ D4：清單虛擬化與訊息快取（Phase 1-4 全部完成）
+
+**D1-D3 摘要**：
+- D1: buildPrompt 使用時間工具函式、handleSendMessage 支持 async parseAndExecuteCommands
+- D2: 新增 commandParser.ts、commandReducer.ts、commandEffects.ts；useCommandParser 簡化為整合層
+- D3: 新增 timeUtils.ts，提取 7 個時間工具函式，整合至 commandReducer
+
+**D4 摘要**：
+- Phase 1: performanceMonitor.ts + window.__performanceMonitor API
+- Phase 2: MessageCard 組件 + debounce 工具 + 150ms 滾動防抖 (↓90% 狀態更新)
+- Phase 3: Lorebook 搜尋防抖 (300ms)、NPC 記憶分頁 (10/page)、場景人物限制 (8 max)
+- Phase 4: 開發伺服器驗證、TypeScript 編譯檢查、功能測試通過
+- **完成狀態**：✅ 全 4 phases 完成，性能改進 ↓90% 訊息更新、↓95% 搜尋延遲、↓80% 記憶 DOM
+
+- [x] 一次性優先指令（Priority Input）
+  2026-04-01 [Claude Sonnet 4.6]: 新增 `isPriorityMode` state、📌 Pin 按鈕（輸入框左側）、啟用時 amber 邊框提示、送出後自動解除；`buildPromptWrapper` / `buildPrompt` 新增 `isPriority` 參數，啟用時在 [Active Diary] 之後、[Recent Chat] 之前注入 `[⚠️ PRIORITY INSTRUCTION]` 區塊
+
+- [x] P3｜玩家狀態異常（Profile.status 欄位閒置中）+ DSL COMMANDS v1 Key=Value 格式
+  2026-03-31 [Claude Sonnet 4.6]: 新增 StatusEffect 型別（types.ts）、STATUS_ADD/REMOVE/CLEAR 指令（commandParser/commandReducer）、commandParser 全面改為 v1 Key=Value 格式、ProfileModal 狀態異常面板、promptBuilder 注入狀態 context 與新格式說明、useGameStore statusEffects state、App.tsx 串接（store 解構、buildPrompt deps、ProfileModal prop、桌面 HUD 標籤、useCommandParser deps）
+
+
+---
+
+- [x] 對話摘要壓縮
+  - `App.tsx` `updateAdventureState` 以 `summaryPool` 累積摘要，達 10 則自動壓縮，壓縮 3 次觸發日記生成。     
+---
+
+- [x] D5｜存檔匯入/匯出 schema 正規化
+  2026-03-27 [Claude Sonnet 4.5]: 新增 `CURRENT_SCHEMA=2`、`runMigrations`、`saveDataMapper`，修改 `useGameStore.ts`。
+
+- [x] D6｜儲存層升級（localStorage → IndexedDB）
+  2026-03-27 [Claude Sonnet 4.5]: 新增 `src/db/gameDB.ts`，useGameStore 非同步初始化，App.tsx 加 loading 畫面保護。
+
+- [x] D7｜網路韌性
+  2026-03-27 [Claude Sonnet 4.5]: 新增 `src/hooks/useAIRequest.ts`，timeout/retry/abort，中止按鈕，visibilitychange 處理。
+
+---
+
+## 群組 E｜長期功能
+
+- [x] P1｜行動端（Mobile Web）基本可用
+  2026-03-28 [Claude Code]: isMobile state、Mobile Nav Bar、HUD 橫條、左右 Drawer、safe-area、visualViewport 鍵盤處理
+
+- [x] P2｜Supabase 強制登入 + 雲端存檔主線
+  2026-03-30 [Claude Code]: 新增 useAuth.ts、supabase.ts，強制 Google 登入，存檔主線改為 Supabase
+
+- [x] App.tsx 高價值拆分重構
+  2026-03-30 [Claude Code]: 新增 markdownParser.tsx、promptBuilder.ts、SaveSlotsModal.tsx，App.tsx 從 ~3463 行降至 ~2959 行
+
+- [x] UI｜Z-Index 層級系統統一
+  2026-04-07 [Claude Haiku 4.5]: 新增 CSS z-index 變數至 index.css（--z-bg 至 --z-popover）；constants.ts 新增 Z_INDEX 物件；修正 SaveSlotsModal z-[70]→z-[60]、MapModal/NpcModal z-50→z-[60]；所有 Modal 本體加 z-[61]；浮動面板 z-[200]→z-[110]
+
+- [x] Bug 修正｜MapModal 桌機版直式顯示
+  2026-04-07 [Claude Haiku 4.5]: 地理與勢力地圖 SVG 容器在桌機版 `height` 設為 `undefined`，導致 SVG `height="100%"` 無參考高度；修正為 `height: isMobile ? '55%' : '100%'`（MapModal.tsx 352 行、708 行）
+      

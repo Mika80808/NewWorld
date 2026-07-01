@@ -1,0 +1,238 @@
+@import "tailwindcss";
+
+/* ============================================================
+   色票系統 v2.0  |  深色主題  |  2026-03-22
+   規則：
+   - 所有顏色只能用 CSS Variables
+   - Tailwind class 只用於排版、間距、字體、圓角
+   - 顏色禁止硬編碼、禁止 Tailwind color class（如 bg-gray-900）
+   ============================================================ */
+
+:root {
+  font-size: 16px; /* 全站字體基準 */
+
+  /* ── 背景層次 ──────────────────────────────────────────── */
+  --bg-base:         #121212;   /* 最外層背景 */
+  --bg-elevated:     #1b1b1b;   /* 右側欄、Modal 底色 */
+  --bg-ui-card:      #2b2a2a;   /* Modal 內部二次容器（讓 A/B 區塊易於區別） */
+  --bg-overlay:      rgba(0, 0, 0, 0.2);
+  --bg-glass-left:   rgba(20, 18, 10, 0.45);  /* 左欄淡金玻璃底色 */
+  --bg-glass-right:  rgba(20, 18, 10, 0.45);    /* 右欄深色玻璃底色 */
+  --bg-mark:         #ff637e;   /* 新日記亮點「通知」 */
+  --bg-note-paper:   #e8e0d3;   /* 便條紙背景（筆記紙 Widget） */
+  --text-note:       #3d3228;   /* 便條紙深色文字 */
+  --text-note-muted: rgba(80,60,50,0.6); /* 便條紙次要文字 */
+
+  /* ── 邊框 ───────────────────────────────────────────────── */
+  --border-default:  #7e7c7360;   /* 所有邊框 */
+  --border-width:    0.5px;
+  --border-accent:   #C0A060;   /* 選中狀態邊框 */
+
+  /* ── 文字 ───────────────────────────────────────────────── */
+  --text-primary:    #e2d198;   /* 左右欄功能名稱、Modal 名稱（暖黃） */
+  --text-title:      #d3cb9b;   /* 欄位名稱、地名 */
+  --text-tab:        #e7d7ac;   /* 分頁標題（如：人物、怪物） */
+  --text-body:       #F0F0EE;   /* 地點介紹、一般段落 */
+  --text-main:       #e8e8e9;   /* 輸入文字 */
+  --text-muted:      #acacac;   /* 提示文字、時間戳、placeholder */
+  --text-stat-label: #bdb394;   /* 狀態名稱（HP、MP、金幣等標籤） */
+  --text-stat-value: #fafafa;   /* 狀態數值（HP、MP、金幣等數字） */
+  --text-danger:     #ff5757;   /* 危險動作文字（刪除、重置） */
+
+  /* ── 分頁 ───────────────────────────────────────────────── */
+  --tab-active:      #0069a8;   /* 選中分頁標籤底色 */
+  --tab-inactive:    #282929;   /* 未選中分頁標籤底色 */
+
+  /* ── 按鈕：Primary（新增、儲存）───────────────────────── */
+  --btn--text:           #ffffff;   /* 預設 */
+  --btn-primary:         #00598a;   /* 預設 */
+  --btn-primary-hover:   #006aa3;   /* 懸停 */
+  --btn-primary-active:  #007dbe;   /* 按下 */
+
+  /* ── 按鈕：Secondary（取消）────────────────────────────── */
+  --btn-secondary:         #a0a0a1;   /* 預設 */
+  --btn-secondary-hover:   #7d8694;   /* 懸停 */
+  --btn-secondary-active:  #a1a1a1;   /* 按下 */
+
+  /* ── 陰影 ───────────────────────────────────────────────── */
+  --shadow:          0 4px 12px rgba(16, 68, 171, 0.2);
+
+  /* ── 表單 ───────────────────────────────────────────────── */
+  --bg-sys-field:    #454545;   /* 輸入框底色 */
+  --bg-sys-tag:      #0092cc;   /* 關鍵字膠囊底色 */
+
+  /* ── 對話視窗 ───────────────────────────────────────────── */
+  --bg-bubble-self:    rgba(20, 20, 20, 0.699);  /* 玩家對話泡泡 */
+  --bg-bubble-npc:     rgba(0, 0, 0, 0.541);    /* NPC 對話泡泡 */
+  --bg-dialog-input:   #161616;                 /* 玩家輸入框 */
+  --text-dialog-main:  #fafafa;                 /* 對話台詞 */
+  --text-dialog-muted: #b8c9e4;                 /* 敘述描寫 */
+
+  /* ── 語意色（Tailwind 對應，取代 @theme 覆寫） ─────────── */
+  --color-rose:    #ff2222;   /* 刪除／危險動作 */
+  --color-emerald: #fb7185;   /* 好感度愛心（粉紅） */
+  --color-amber:   #ffd037;   /* 警告／稀有 */
+  --color-blue:    #5f93d3;   /* 連結／資訊 */
+  --color-violet:  #7008e7;   /* 魔法／特殊 */
+  --color-success: #4ade80;   /* 成功／進行中 */
+  --color-sky:     #30b1d8;   /* 已完成 */  
+  --color-taupe:   #ac9f9a;   /* 失敗／負面 */
+
+  /* ── 好感度顏色（固定語意色，不隨主題變動） ────────────── */
+  --affection-max:     #ff2d2d;   /* ≥ 100 */
+  --affection-high:    #ff7967;   /* ≥ 80  */
+  --affection-mid:     #ffaa83;   /* ≥ 50  */
+  --affection-low:     #acacac;   /* ≥ 0   */
+  --affection-hostile: #928366;   /* < 0（敵對） */
+
+  /* ── 毛玻璃效果 ──────────────────────────────────────── */
+  --glass-sidebar-bg:    rgba(12, 13, 13, 0.75);    /* 左右欄半透明底 */
+  --glass-sidebar-blur:  blur(16px);                /* 毛玻璃模糊度 */
+  --glass-border:        rgba(255, 255, 255, 0.08); /* 玻璃邊框 */
+  --glass-bubble-self:   rgba(20, 20, 20, 0.6);     /* 玩家對話泡泡 */
+  --glass-bubble-npc:    rgba(40, 40, 40, 0.7);     /* NPC 對話泡泡 */
+  --glass-bubble-blur:   blur(8px);                 /* 對話泡泡模糊度 */
+
+  /* ── 任務卡片背景 ─────────────────────────────────────── */
+  --bg-quest-active:      rgba(22, 101, 52, 0.12);
+  --border-quest-active:  rgba(34, 197, 94, 0.30);
+  --bg-quest-pending:     rgba(120, 53, 15, 0.12);
+  --border-quest-pending: rgba(245, 158, 11, 0.40);
+  --bg-quest-failed:      rgba(69, 10, 10, 0.10);
+  --border-quest-failed:  rgba(153, 27, 27, 0.30);
+
+  /* RPG Visual FX */
+  --fx-vignette:          rgba(0, 0, 0, 0.42);
+  --fx-orb-amber:         rgba(255, 208, 55, 0.16);
+  --fx-orb-violet:        rgba(112, 8, 231, 0.18);
+  --fx-orb-sky:           rgba(48, 177, 216, 0.12);
+  --fx-panel-stroke:      rgba(255, 255, 255, 0.08);
+  --fx-panel-shadow:      0 20px 60px rgba(0, 0, 0, 0.32);
+  --fx-message-shadow:    0 10px 24px rgba(0, 0, 0, 0.22);
+  --fx-scene-line:        rgba(255, 255, 255, 0.16);
+  --fx-scene-chip:        rgba(0, 0, 0, 0.26);
+
+  /* ── Z-Index 層級系統（由低至高）─────────────────────── */
+  --z-bg:           0;      /* 背景圖層（遊戲背景、天空梯度） */
+  --z-base:         10;     /* 基礎層（欄位標籤、右欄 Lorebook） */
+  --z-hud:          20;     /* 頂部 HUD / 導航欄（搜尋欄、功能按鈕） */
+  --z-menu:         30;     /* 局部菜單（右鍵選單、下拉選項） */
+  --z-drawer-bg:    40;     /* 手機 Drawer 暗色遮罩 */
+  --z-drawer:       50;     /* 手機 Drawer 本體（左側欄、右側欄） */
+  --z-modal-bg:     60;     /* Modal 暗色背景（所有 Modal） */
+  --z-modal:        61;     /* Modal 本體（內容容器） */
+  --z-modal-high:   62;     /* Modal 內部高層（選單、彈窗） */
+  --z-toast:        100;    /* 通知 Toast（頂部居中） */
+  --z-popover:      110;    /* 浮動菜單（Inventory、Consumables） */
+
+}
+
+/* 手機版縮小全站字體}」之後 */
+@media (max-width: 640px) {
+  :root { font-size: 14px; }
+}
+
+/* ── Scrollbar ──────────────────────────────────────────── */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(160, 160, 160, 0.25) transparent;
+}
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(160, 160, 160, 0.25);
+  border-radius: 99px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(160, 160, 160, 0.45);
+}
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* ── @theme：只保留字體，移除所有顏色覆寫 ──────────────── */
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+}
+
+
+/* ── 遊戲字體 ───────────────────────────────────────────── */
+.font-game-sans  { font-family: 'Noto Sans TC', sans-serif; }
+.font-game-serif { font-family: 'Noto Serif TC', serif; line-height: 1.9; letter-spacing: 0.02em; }
+.font-game-spell { font-family: 'Yuji Syuku', serif; line-height: 2; letter-spacing: 0.05em; }
+
+/* ── Mobile Safe Area ─────────────────────────────────── */
+.mobile-input-safe {
+  padding-bottom: max(0.25rem, env(safe-area-inset-bottom));
+  transform: translateY(calc(-1 * var(--keyboard-inset, 0px)));
+  transition: transform 0.15s ease;
+}
+
+@media (max-width: 640px) {
+  :root { font-size: 14px; }
+}
+
+/* ── 動畫 ───────────────────────────────────────────────── */
+@keyframes blink-dot {
+  0%, 80%, 100% { opacity: 0.2; transform: translateY(0); }
+  40%           { opacity: 1;   transform: translateY(-4px); }
+}
+
+@keyframes rpg-orb-drift {
+  0%   { transform: translate3d(0, 0, 0) scale(1); }
+  50%  { transform: translate3d(0, -14px, 0) scale(1.08); }
+  100% { transform: translate3d(0, 0, 0) scale(1); }
+}
+
+@keyframes rpg-shimmer {
+  0%   { transform: translateX(-140%); opacity: 0; }
+  35%  { opacity: 0.22; }
+  100% { transform: translateX(180%); opacity: 0; }
+}
+
+@keyframes rpg-card-rise {
+  0%   { opacity: 0; transform: translateY(14px) scale(0.985); }
+  100% { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.rpg-vignette {
+  background:
+    radial-gradient(circle at top, transparent 0%, transparent 45%, var(--fx-vignette) 100%),
+    linear-gradient(to bottom, rgba(0, 0, 0, 0.12), rgba(0, 0, 0, 0.34));
+}
+
+.rpg-orb {
+  position: absolute;
+  border-radius: 9999px;
+  filter: blur(64px);
+  animation: rpg-orb-drift 9s ease-in-out infinite;
+}
+
+.rpg-scene-panel {
+  border: 1px solid var(--fx-panel-stroke);
+  box-shadow: var(--fx-panel-shadow);
+}
+
+.rpg-message-card {
+  box-shadow: var(--fx-message-shadow);
+  animation: rpg-card-rise 0.34s ease-out;
+}
+
+.rpg-message-card::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(120deg, transparent 0%, rgba(255, 255, 255, 0.18) 50%, transparent 100%);
+  transform: translateX(-140%);
+  pointer-events: none;
+}
+
+.rpg-message-card-assistant::after {
+  animation: rpg-shimmer 5.6s ease-in-out infinite;
+}
