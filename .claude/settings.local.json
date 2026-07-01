@@ -1,0 +1,22 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx tsc:*)",
+      "Bash(GIT_EDITOR=true git rebase --continue)",
+      "mcp__Claude_Preview__preview_start",
+      "Bash(where npm:*)",
+      "Bash(where node:*)",
+      "Bash(ls F:AINew-world*.md F:AINew-world*.txt F:AINew-world*.json)",
+      "Bash(where.exe node:*)",
+      "Read(//c/Program Files/**)",
+      "Read(//c/Users/Mika/AppData/Roaming/**)",
+      "Bash(npm run:*)",
+      "Bash(npx tailwindcss:*)",
+      "Bash(npm install:*)",
+      "Bash(curl -s http://localhost:3001/)",
+      "Bash(/c/Users/Mika/.nvm/versions/node/v22.12.0/bin/node.exe node_modules/.bin/tsc --noEmit)",
+      "Bash(/c/Users/Mika/.nvm/versions/node/v22.12.0/bin/node.exe node_modules/typescript/bin/tsc --noEmit)",
+      "Bash(/c/Users/Mika/.nvm/versions/node/v22.12.0/bin/node.exe -e \"const rw = require\\(''./node_modules/react-window''\\); console.log\\(Object.keys\\(rw\\)\\);\")"
+    ]
+  }
+}
