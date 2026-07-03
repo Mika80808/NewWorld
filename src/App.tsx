@@ -9,6 +9,7 @@ import { ProfileModal } from './components/ProfileModal';
 import { SystemPromptModal } from './components/SystemPromptModal';
 import { MessageCard } from './components/MessageCard';
 import { ChatInput } from './components/ChatInput';
+import { ConfirmDialog, DialogRequest } from './components/ConfirmDialog';
 
 // 大型 Modal 延遲載入：不進首屏 bundle，開啟時才下載對應 chunk
 const DiaryModal    = lazy(() => import('./components/DiaryModal').then(m => ({ default: m.DiaryModal })));
@@ -90,7 +91,8 @@ ${itemClassifySection}
 對話內容：
 ${lastMessages}`;
 
-      const text = await callAI(prompt);
+      // structured output 直接回 JSON；``` 圍欄清理保留作為 Gemma 等不支援模型的 fallback
+      const text = await callAI(prompt, { responseJson: true });
       if (!text) return;
       const clean = text.replace(/```json|```/g, '').trim();
       const data = JSON.parse(clean);
@@ -183,6 +185,7 @@ ${newPool.map((s, i) => `${i + 1}. ${s}`).join('\n')}`;
   const [editingMemoryId, setEditingMemoryId] = useState<string | null>(null);
   const [editingMemoryContent, setEditingMemoryContent] = useState('');
   const [isMapOpen, setIsMapOpen] = useState(false);
+  const [dialogRequest, setDialogRequest] = useState<DialogRequest | null>(null);
   const [isLoadingQuickOptions, setIsLoadingQuickOptions] = useState(false);
   const [showQuickMenu, setShowQuickMenu] = useState(false);
   // ─── 雲端存檔 / 帳號 ─────────────────────────────────────────────────────────
@@ -890,13 +893,20 @@ ${poolText}
   };
 
   // ─── 重置遊戲 ────────────────────────────────────────────────────────────────
-  const handleResetGame = async () => {
-    if (!window.confirm('確定要重置遊戲嗎？雲端存檔也會一併清除。')) return;
-    if (authUser) {
-      await deleteCloudSave(authUser.id, currentSlotName);
-    }
-    localStorage.removeItem('rpworld_last_saved');
-    window.location.reload();
+  const handleResetGame = () => {
+    setDialogRequest({
+      title: '重置遊戲',
+      message: '確定要重置遊戲嗎？雲端存檔也會一併清除。',
+      confirmLabel: '重置',
+      danger: true,
+      onConfirm: async () => {
+        if (authUser) {
+          await deleteCloudSave(authUser.id, currentSlotName);
+        }
+        localStorage.removeItem('rpworld_last_saved');
+        window.location.reload();
+      },
+    });
   };
 
   // ─── 存檔槽操作 ──────────────────────────────────────────────────────────────
@@ -913,32 +923,47 @@ ${poolText}
     }
   };
 
-  const handleDeleteSlot = async (slotName: string) => {
-    if (!authUser || !window.confirm(`確定要刪除「${slotName}」？`)) return;
-    const ok = await deleteCloudSave(authUser.id, slotName);
-    if (ok) {
-      setCloudSaves(prev => prev.filter(s => s.slot_name !== slotName));
-      if (slotName === currentSlotName) setCurrentSlotName('存檔一');
-      showToast(`已刪除「${slotName}」`);
-    }
+  const handleDeleteSlot = (slotName: string) => {
+    if (!authUser) return;
+    setDialogRequest({
+      title: '刪除存檔槽',
+      message: `確定要刪除「${slotName}」？此動作無法復原。`,
+      confirmLabel: '刪除',
+      danger: true,
+      onConfirm: async () => {
+        const ok = await deleteCloudSave(authUser.id, slotName);
+        if (ok) {
+          setCloudSaves(prev => prev.filter(s => s.slot_name !== slotName));
+          if (slotName === currentSlotName) setCurrentSlotName('存檔一');
+          showToast(`已刪除「${slotName}」`);
+        }
+      },
+    });
   };
 
-  const handleCreateSlot = async () => {
+  const handleCreateSlot = () => {
     if (!authUser) return;
-    const name = window.prompt('新存檔槽名稱（最多 10 字）')?.trim();
-    if (!name || name.length > 10) return;
-    if (cloudSaves.some(s => s.slot_name === name)) {
-      showToast('已有相同名稱的存檔槽');
-      return;
-    }
-    const snapshot = buildSaveSnapshot();
-    const ok = await saveToCloud(authUser.id, name, snapshot);
-    if (ok) {
-      setCurrentSlotName(name);
-      const updated = await listCloudSaves(authUser.id);
-      setCloudSaves(updated);
-      showToast(`已建立「${name}」`);
-    }
+    setDialogRequest({
+      title: '新增存檔槽',
+      input: { placeholder: '新存檔槽名稱（最多 10 字）', maxLength: 10 },
+      confirmLabel: '建立',
+      onConfirm: async (value) => {
+        const name = value?.trim();
+        if (!name) return;
+        if (cloudSaves.some(s => s.slot_name === name)) {
+          showToast('已有相同名稱的存檔槽');
+          return;
+        }
+        const snapshot = buildSaveSnapshot();
+        const ok = await saveToCloud(authUser.id, name, snapshot);
+        if (ok) {
+          setCurrentSlotName(name);
+          const updated = await listCloudSaves(authUser.id);
+          setCloudSaves(updated);
+          showToast(`已建立「${name}」`);
+        }
+      },
+    });
   };
 
   // selectedNpc 與 npcs 同步：NPC 資料更新後讓開啟中的 Modal 顯示最新內容。
@@ -1088,12 +1113,7 @@ ${recentContext}
     const userMessage: Message = { id: Date.now(), role: 'user', text: text };
     const newMessages = historyToUse ? [...historyToUse, userMessage] : [...messages, userMessage];
     setMessages(newMessages);
-    if (authUser) {
-      const snapshot = buildSaveSnapshot({ messages: newMessages });
-      setIsCloudSaving(true);
-      saveToCloud(authUser.id, currentSlotName, snapshot)
-        .finally(() => setIsCloudSaving(false));
-    }
+    // 送出時不立即上傳雲端：AI 回應後的自動存檔（含本則玩家訊息）已涵蓋，上傳次數減半
     setAiRequestStatus('loading');
 
     let aiMessageId: number | null = null;
@@ -2566,6 +2586,9 @@ ${recentContext}
         }}
       />
       </Suspense>}
+
+      {/* 確認 / 輸入對話框（取代 window.confirm / window.prompt） */}
+      <ConfirmDialog request={dialogRequest} onClose={() => setDialogRequest(null)} />
 
       {/* ── Quest Side Panel ── */}
       <AnimatePresence>

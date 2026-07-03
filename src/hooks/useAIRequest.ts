@@ -54,6 +54,8 @@ export function useAIRequest(mainGMConfig: GMConfig, subGMConfig: SubGMConfig) {
       onChunk?: (chunk: string) => void;
       /** 每次串流 attempt 開始時呼叫（重試會再次觸發），供呼叫端重置累積的串流文字 */
       onStreamStart?: () => void;
+      /** 要求模型直接輸出 JSON（structured output）。Gemma 開源模型不支援，會自動略過 */
+      responseJson?: boolean;
     }
   ): Promise<string> => {
     const { role = 'sub' } = options ?? {};
@@ -65,6 +67,11 @@ export function useAIRequest(mainGMConfig: GMConfig, subGMConfig: SubGMConfig) {
 
     const model  = cfg.model || 'gemini-2.0-flash';
     const tokens = options?.maxTokens ?? cfg.maxTokens;
+
+    const callConfig: Record<string, unknown> = { maxOutputTokens: tokens };
+    if (options?.responseJson && !model.startsWith('gemma')) {
+      callConfig.responseMimeType = 'application/json';
+    }
 
     abortedRef.current = false;
 
@@ -82,7 +89,7 @@ export function useAIRequest(mainGMConfig: GMConfig, subGMConfig: SubGMConfig) {
             // Streaming path（主 GM）
             options.onStreamStart?.();
             const response = await ai.models.generateContentStream({
-              model, contents: prompt, config: { maxOutputTokens: tokens },
+              model, contents: prompt, config: callConfig,
             });
             let fullText = '';
             for await (const chunk of response) {
@@ -99,7 +106,7 @@ export function useAIRequest(mainGMConfig: GMConfig, subGMConfig: SubGMConfig) {
           } else {
             // Non-streaming path（Sub GM）
             const response = await ai.models.generateContent({
-              model, contents: prompt, config: { maxOutputTokens: tokens },
+              model, contents: prompt, config: callConfig,
             });
             return response.text?.trim() || '';
           }
