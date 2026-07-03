@@ -497,7 +497,7 @@ ${newPool.map((s, i) => `${i + 1}. ${s}`).join('\n')}`;
   // callAI 已由 useAIRequest hook 提供（D7）
 
   // ─── 指令解析器（useCommandParser）─────────────────────────────────────────
-  const { parseAndExecuteCommands, useItem, scanKeywords, isMemoryTriggered, tickMemoryCounters } =
+  const { parseAndExecuteCommands, consumeItem, scanKeywords, isMemoryTriggered, tickMemoryCounters } =
     useCommandParser({
       timeState, profile, currentLocation, quests, memories, items, npcs,
       stickyCounters, cooldownCounters, messages, lorebookEntries, statusEffects,
@@ -1516,55 +1516,6 @@ ${recentContext}
         </div>
       )}
 
-      {/* ── Mobile HUD 橫條（手機專用）── */}
-      {false && isMobile && (
-        <div
-          className="relative z-20 flex items-center px-3 gap-3 shrink-0"
-          style={{
-            height: '30px',
-            background: 'rgba(6,8,6,0.75)',
-            backdropFilter: 'blur(12px)',
-            WebkitBackdropFilter: 'blur(12px)',
-            borderBottom: '0.5px solid rgba(255,255,255,0.04)',
-          }}
-        >
-          {/* HP */}
-          <div className="flex items-center gap-1">
-            <span style={{ fontSize: '9.5px', fontWeight: 500, color: 'var(--text-stat-label)' }}>HP</span>
-            <div style={{ width: '36px', height: '4px', background: 'rgba(255,255,255,0.1)', borderRadius: '2px', overflow: 'hidden' }}>
-              <div style={{ height: '100%', borderRadius: '2px', background: 'linear-gradient(90deg,#b83030,#ff5050)', width: `${Math.max(0, Math.min(100, (profile.hp / (profile.maxHp ?? 100)) * 100))}%` }} />
-            </div>
-            <span style={{ fontSize: '9.5px', fontWeight: 600, color: 'var(--text-stat-value)' }}>{profile.hp}</span>
-          </div>
-
-          {/* 分隔線 */}
-          <div style={{ width: '0.5px', height: '12px', background: 'rgba(255,255,255,0.1)' }} />
-
-          {/* MP */}
-          <div className="flex items-center gap-1">
-            <span style={{ fontSize: '9.5px', fontWeight: 500, color: 'var(--text-stat-label)' }}>MP</span>
-            <div style={{ width: '36px', height: '4px', background: 'rgba(255,255,255,0.1)', borderRadius: '2px', overflow: 'hidden' }}>
-              <div style={{ height: '100%', borderRadius: '2px', background: 'linear-gradient(90deg,#2060a8,#5090d0)', width: `${Math.max(0, Math.min(100, (profile.mp / (profile.maxMp ?? 100)) * 100))}%` }} />
-            </div>
-            <span style={{ fontSize: '9.5px', fontWeight: 600, color: 'var(--text-stat-value)' }}>{profile.mp}</span>
-          </div>
-
-          {/* 分隔線 */}
-          <div style={{ width: '0.5px', height: '12px', background: 'rgba(255,255,255,0.1)' }} />
-
-          {/* 天氣 */}
-          <div className="flex items-center gap-1" style={{ fontSize: '10px', color: 'var(--text-muted)' }}>
-            {getWeatherIcon()}
-            <span>{timeState.weather}</span>
-          </div>
-
-          {/* 金幣（推到最右） */}
-          <div className="flex items-center gap-1 ml-auto" style={{ fontSize: '10px', fontWeight: 500, color: 'var(--color-amber)' }}>
-            <Coins className="w-3 h-3" />
-            <span>{(profile.gold ?? 0).toLocaleString()} G</span>
-          </div>
-        </div>
-      )}
 
       {/* Main Content */}
       <div className="flex flex-1 overflow-hidden relative z-10">
@@ -1889,7 +1840,7 @@ ${recentContext}
                               onMouseLeave={e => e.currentTarget.style.background = 'color-mix(in srgb, var(--color-emerald) 10%, transparent)'}
                               onClick={(e) => {
                                 e.stopPropagation();
-                                useItem(item.name);
+                                consumeItem(item.name);
                                 setSelectedConsumableItem(null);
                                 handleSendMessage(`（我使用了 ${item.name}（${item.description}））`);
                               }}
@@ -2870,7 +2821,7 @@ ${recentContext}
                               <AnimatePresence>
                                 {selectedConsumableItem === item.id && (
                                   <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="flex space-x-2 mt-2.5 pt-2.5 overflow-hidden" style={{ borderTop: '1px solid color-mix(in srgb, var(--bg-elevated) 50%, transparent)' }}>
-                                    <button className="flex-1 border text-sm py-1.5 rounded-[8px] transition font-medium" style={{ background: 'color-mix(in srgb, var(--color-emerald) 10%, transparent)', color: 'var(--color-emerald)', borderColor: 'color-mix(in srgb, var(--color-emerald) 20%, transparent)' }} onClick={(e) => { e.stopPropagation(); useItem(item.name); setSelectedConsumableItem(null); handleSendMessage(`（我使用了 ${item.name}（${item.description}））`); }}>使用</button>
+                                    <button className="flex-1 border text-sm py-1.5 rounded-[8px] transition font-medium" style={{ background: 'color-mix(in srgb, var(--color-emerald) 10%, transparent)', color: 'var(--color-emerald)', borderColor: 'color-mix(in srgb, var(--color-emerald) 20%, transparent)' }} onClick={(e) => { e.stopPropagation(); consumeItem(item.name); setSelectedConsumableItem(null); handleSendMessage(`（我使用了 ${item.name}（${item.description}））`); }}>使用</button>
                                     <button className="flex-1 border text-sm py-1.5 rounded-[8px] transition font-medium" style={{ background: 'color-mix(in srgb, var(--color-rose) 10%, transparent)', color: 'var(--text-danger)', borderColor: 'color-mix(in srgb, var(--color-rose) 20%, transparent)' }} onClick={(e) => { e.stopPropagation(); setItems(prev => prev.filter(i => i.id !== item.id)); showToast(`丟棄了 ${item.name}`); setSelectedConsumableItem(null); }}>丟棄</button>
                                   </motion.div>
                                 )}

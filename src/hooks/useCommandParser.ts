@@ -61,7 +61,7 @@ export interface ParseResult {
 
 export interface UseCommandParserReturn {
   parseAndExecuteCommands: (fullText: string) => Promise<ParseResult>;
-  useItem: (itemName: string, qty?: number) => boolean;
+  consumeItem: (itemName: string, qty?: number) => boolean;
   scanKeywords: (keywords: string[], depth?: number) => boolean;
   isMemoryTriggered: (mem: MemoryEntry, userInput: string, location: string) => boolean;
   tickMemoryCounters: (triggeredIds: string[]) => void;
@@ -75,7 +75,7 @@ export function useCommandParser(deps: CommandParserDeps): UseCommandParserRetur
     factions,
     stickyCounters, cooldownCounters, messages,
     setTimeState, setProfile, setCurrentLocation, setQuests, setMemories,
-    setEquipment, setItems, setNpcs, setLorebookEntries, setQuickOptions,
+    setItems, setNpcs, setLorebookEntries,
     setStickyCounters, setCooldownCounters, setStatusEffects, setFactions,
     showToast, notifyCommandResult, callAI,
   } = deps;
@@ -235,7 +235,7 @@ export function useCommandParser(deps: CommandParserDeps): UseCommandParserRetur
 
   // ─── 工具函數：使用道具 ────────────────────────────────────────────────────────
 
-  const useItem = (itemName: string, qty: number = 1): boolean => {
+  const consumeItem = (itemName: string, qty: number = 1): boolean => {
     const item = items.find(i => i.name === itemName);
     if (!item || item.quantity < qty) {
       return false;
@@ -262,7 +262,7 @@ export function useCommandParser(deps: CommandParserDeps): UseCommandParserRetur
 
   return {
     parseAndExecuteCommands,
-    useItem,
+    consumeItem,
     scanKeywords,
     isMemoryTriggered,
     tickMemoryCounters,

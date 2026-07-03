@@ -42,9 +42,11 @@ function parseKV(parts: string[]): Record<string, string> {
 
 export function parseCommandsToAST(rawText: string): ParseResult {
   const commands: CommandAST[] = [];
-  let narrative = rawText;
+  let narrative: string;
 
-  const commandBlockRegex = /<<COMMANDS>>([\s\S]*?)<\/COMMANDS>>/i;
+  // 結尾容忍 <</COMMANDS>> 與 </COMMANDS>> 兩種寫法；
+  // 舊 regex 只吃掉 </COMMANDS>>，殘留的 < 會被誤解析成一條 UNKNOWN 指令
+  const commandBlockRegex = /<<COMMANDS>>([\s\S]*?)<{1,2}\/COMMANDS>>/i;
   const blockMatch = rawText.match(commandBlockRegex);
 
   if (blockMatch && blockMatch[1]) {
@@ -246,53 +248,24 @@ function parseSingleCommand(line: string): CommandAST | null {
       };
     }
 
-    // MEMORY_ADD — 支援 v1 pipe 格式及 legacy 冒號格式
+    // MEMORY_ADD — v1 pipe 格式（冒號 legacy 格式無 pipe，cmdType 不會等於
+    // MEMORY_ADD，由 default case 的 parseLegacyMemoryAdd 處理）
     // v1:  MEMORY_ADD|type=region|importance=normal|content=...|locations=...|keywords=...|sticky=3
-    // leg: MEMORY_ADD:type:importance:content:locations=...:keywords=...:sticky=N
     case 'MEMORY_ADD': {
-      if (parts.length > 1 && (kv.type || kv.content)) {
-        // v1 pipe 格式
-        const memType = (kv.type || 'scene') as 'world' | 'region' | 'scene' | 'npc';
-        const importance = (kv.importance || 'normal') as 'critical' | 'normal' | 'flavor';
-        const content = kv.content || kv.text || '';
-        if (!content) return null;
-        return {
-          type: 'MEMORY_ADD', raw: trimmed,
-          parsed: {
-            memType, importance, content,
-            locations: kv.locations ? kv.locations.split(',').map(s => s.trim()).filter(Boolean) : [],
-            npcs: kv.npcs ? kv.npcs.split(',').map(s => s.trim()).filter(Boolean) : [],
-            factions: kv.factions ? kv.factions.split(',').map(s => s.trim()).filter(Boolean) : [],
-            keywords: kv.keywords ? kv.keywords.split(',').map(s => s.trim()).filter(Boolean) : [],
-            sticky: kv.sticky ? parseInt(kv.sticky) : 0,
-            cooldown: kv.cooldown ? parseInt(kv.cooldown) : 0,
-          },
-        };
-      }
-      // legacy 冒號格式：MEMORY_ADD:type:importance:content[:key=val...]
-      const afterPrefix = trimmed.slice('MEMORY_ADD'.length + 1);
-      const colonParts = afterPrefix.split(':');
-      if (colonParts.length < 3) return null;
-      const memType = colonParts[0].trim() as 'world' | 'region' | 'scene' | 'npc';
-      const importance = colonParts[1].trim() as 'critical' | 'normal' | 'flavor';
-      const content = colonParts[2].trim();
+      const memType = (kv.type || 'scene') as 'world' | 'region' | 'scene' | 'npc';
+      const importance = (kv.importance || 'normal') as 'critical' | 'normal' | 'flavor';
+      const content = kv.content || kv.text || '';
       if (!content) return null;
-      const metaParts = colonParts.slice(3);
-      const metaKv: Record<string, string> = {};
-      for (const mp of metaParts) {
-        const eqIdx = mp.indexOf('=');
-        if (eqIdx !== -1) metaKv[mp.slice(0, eqIdx).trim()] = mp.slice(eqIdx + 1).trim();
-      }
       return {
         type: 'MEMORY_ADD', raw: trimmed,
         parsed: {
           memType, importance, content,
-          locations: metaKv.locations ? metaKv.locations.split(',').map(s => s.trim()).filter(Boolean) : [],
-          npcs: metaKv.npcs ? metaKv.npcs.split(',').map(s => s.trim()).filter(Boolean) : [],
-          factions: metaKv.factions ? metaKv.factions.split(',').map(s => s.trim()).filter(Boolean) : [],
-          keywords: metaKv.keywords ? metaKv.keywords.split(',').map(s => s.trim()).filter(Boolean) : [],
-          sticky: metaKv.sticky ? parseInt(metaKv.sticky) : 0,
-          cooldown: metaKv.cooldown ? parseInt(metaKv.cooldown) : 0,
+          locations: kv.locations ? kv.locations.split(',').map(s => s.trim()).filter(Boolean) : [],
+          npcs: kv.npcs ? kv.npcs.split(',').map(s => s.trim()).filter(Boolean) : [],
+          factions: kv.factions ? kv.factions.split(',').map(s => s.trim()).filter(Boolean) : [],
+          keywords: kv.keywords ? kv.keywords.split(',').map(s => s.trim()).filter(Boolean) : [],
+          sticky: kv.sticky ? parseInt(kv.sticky) : 0,
+          cooldown: kv.cooldown ? parseInt(kv.cooldown) : 0,
         },
       };
     }
@@ -373,6 +346,10 @@ function parseSingleCommand(line: string): CommandAST | null {
     // ── Legacy fallback（舊格式相容）────────────────────────────────────────────
 
     default: {
+      // MEMORY_ADD:type:importance:content[:key=val...]（CLAUDE.md 約定的冒號格式）
+      if (/^MEMORY_ADD:/i.test(trimmed)) {
+        return parseLegacyMemoryAdd(trimmed);
+      }
       // HP:+10 / HP:-5
       const numMatch = trimmed.match(/^(HP|MP|GOLD):\s*([+-])(\d+)$/i);
       if (numMatch) {
@@ -436,6 +413,36 @@ function parseSingleCommand(line: string): CommandAST | null {
       return { type: 'UNKNOWN', raw: trimmed, parsed: { text: trimmed } };
     }
   }
+}
+
+// ─── Legacy MEMORY_ADD（冒號格式）─────────────────────────────────────────────
+// MEMORY_ADD:type:importance:content[:locations=...:keywords=...:sticky=N]
+function parseLegacyMemoryAdd(trimmed: string): CommandAST | null {
+  const afterPrefix = trimmed.slice('MEMORY_ADD'.length + 1);
+  const colonParts = afterPrefix.split(':');
+  if (colonParts.length < 3) return null;
+  const memType = colonParts[0].trim() as 'world' | 'region' | 'scene' | 'npc';
+  const importance = colonParts[1].trim() as 'critical' | 'normal' | 'flavor';
+  const content = colonParts[2].trim();
+  if (!content) return null;
+  const metaParts = colonParts.slice(3);
+  const metaKv: Record<string, string> = {};
+  for (const mp of metaParts) {
+    const eqIdx = mp.indexOf('=');
+    if (eqIdx !== -1) metaKv[mp.slice(0, eqIdx).trim()] = mp.slice(eqIdx + 1).trim();
+  }
+  return {
+    type: 'MEMORY_ADD', raw: trimmed,
+    parsed: {
+      memType, importance, content,
+      locations: metaKv.locations ? metaKv.locations.split(',').map(s => s.trim()).filter(Boolean) : [],
+      npcs: metaKv.npcs ? metaKv.npcs.split(',').map(s => s.trim()).filter(Boolean) : [],
+      factions: metaKv.factions ? metaKv.factions.split(',').map(s => s.trim()).filter(Boolean) : [],
+      keywords: metaKv.keywords ? metaKv.keywords.split(',').map(s => s.trim()).filter(Boolean) : [],
+      sticky: metaKv.sticky ? parseInt(metaKv.sticky) : 0,
+      cooldown: metaKv.cooldown ? parseInt(metaKv.cooldown) : 0,
+    },
+  };
 }
 
 // ─── Bare Command Extractor ───────────────────────────────────────────────────
