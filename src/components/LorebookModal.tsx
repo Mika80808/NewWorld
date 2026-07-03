@@ -595,7 +595,7 @@ export const LorebookModal: React.FC<LorebookModalProps> = ({
           const relationship = npcData?.relationship ?? '';
 
           const handleCardClick = () => {
-            const target = npcData ?? {
+            const fallbackNpc: Npc = {
               id: -(entry.id),
               name: entry.title,
               job: entry.job ?? '',
@@ -607,8 +607,10 @@ export const LorebookModal: React.FC<LorebookModalProps> = ({
               isPinned: false,
               memories: [],
               thoughts: [],
+              category: 'NPC',
+              isActive: true,
             };
-            onSelectNpc(target as Npc);
+            onSelectNpc(npcData ?? fallbackNpc);
           };
 
           return (

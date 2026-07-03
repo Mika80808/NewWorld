@@ -784,14 +784,14 @@ ${poolText}
 
   const handleAddNpc = () => {
     const newId = Date.now();
-    const newNpc = {
+    const newNpc: Npc = {
       id: newId, name: '新角色', job: '', affection: 0, affectionLabel: '陌生人',
       appearance: '', personality: '', gender: '', race: '',
       backstory: '', other: '', relationship: '',
       location: '', lastSeenLocation: '',
       category: 'NPC', isActive: true, isPinned: false, memories: [], thoughts: [],
     };
-    const newLore = {
+    const newLore: LorebookEntry = {
       id: newId + 1, title: '新角色', category: 'NPC', content: '',
       isActive: true, insertionOrder: 100, selective: false, secondaryKeys: [], keywords: [],
       gender: '', race: '', age: '', job: '', appearance: '', personality: '', backstory: '', other: '',

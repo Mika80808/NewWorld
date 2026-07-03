@@ -15,7 +15,8 @@ LLM 擔任 GM 的開放式世界文字冒險 RPG，玩家以自由文字輸入�
 
 ## 技術棧
 
-- **框架**：React 19 + TypeScript + Vite
+- **框架**：React 19 + TypeScript + Vite（`noImplicitAny` 啟用）
+- **測試 / Lint**：`npm test`（vitest，純函數層測試）、`npm run lint`（tsc + eslint，含 react-hooks 規則）——改完功能請跑這兩個
 - **樣式**：Tailwind CSS v4（`@tailwindcss/vite` plugin）
 - **AI**：Google Gemini（`@google/genai`），透過 `callAI` 封裝層呼叫（實作在 `src/hooks/useAIRequest.ts`），不直接散落在各處
 - **儲存**：Supabase 雲端存檔（Google 登入，強制登入才能遊玩）；API 設定另存 localStorage
@@ -182,11 +183,18 @@ localStorage key: 'subGM_config'    → 助理 GM 設定
 
 **callAI 簽名（`src/hooks/useAIRequest.ts`）：**
 ```typescript
-callAI(prompt: string, options?: { role?: 'main' | 'sub'; maxTokens?: number; onChunk?: (chunk: string) => void }): Promise<string>
+callAI(prompt: string, options?: {
+  role?: 'main' | 'sub';
+  maxTokens?: number;
+  onChunk?: (chunk: string) => void;      // streaming 即時回傳
+  onStreamStart?: () => void;             // 每次串流 attempt 開始（重試會再觸發），供重置累積文字
+  responseJson?: boolean;                 // structured output（Gemma 模型自動略過）
+}): Promise<string>
 // role 預設 'sub'
-// handleSendMessage 傳 { role: 'main', onChunk }（streaming）
-// updateAdventureState / NPC 記憶融合 傳 { role: 'sub' }（預設，可省略）
+// handleSendMessage 傳 { role: 'main', onChunk, onStreamStart }（streaming 即時顯示，偵測 << 停止追加）
+// updateAdventureState 傳 { responseJson: true }（預設 sub）
 // 內建 timeout（main 90s / sub 30s）、retry（timeout/429/500/503，指數退避）、abort
+// timeout 觸發時會讓背景串流停止，不再消耗配額
 ```
 
 **Gemini 靜態模型清單：**
@@ -418,4 +426,5 @@ MEMORY_ADD:region:normal:迷霧森林昨日大火:locations=迷霧森林:keyword
 | `useGameStore` `buildSaveSnapshot(partial?)` | 組裝存檔快照，供 `saveToCloud` 上傳 |
 | `useGameStore` `loadFromData(data)` | 匯入存檔並自動 migrate 舊格式（`saveDataMapper` + `runMigrations`）|
 | `useAuth` `saveToCloud / loadFromCloud / listCloudSaves / deleteCloudSave` | Supabase `saves` 表 CRUD |
-| `NpcModal.tsx` `affectionColor(affection)` | 回傳好感度對應 CSS 變數字串 |
+| `utils/affectionColor.ts` `affectionColor(affection)` | 回傳好感度對應 CSS 變數字串（唯一入口） |
+| `useCommandParser` `consumeItem(name, qty?)` | 使用道具（原名 useItem，因 hook 命名慣例改名） |
