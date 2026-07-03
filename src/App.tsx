@@ -96,22 +96,23 @@ ${lastMessages}`;
         setCurrentGoals(data.goals);
       }
 
-      // 道具分類
+      // 道具分類（讀 itemsRef 取最新道具清單，寫入一律 functional update）
       if (data.item_types && typeof data.item_types === 'object') {
         const toEquip: string[] = Object.entries(data.item_types)
           .filter(([, v]) => v === 'equipment')
           .map(([k]) => k);
         if (toEquip.length > 0) {
-          const moving = items.filter(i => toEquip.includes(i.name));
-          const remainingItems = items.filter(i => !toEquip.includes(i.name));
-          const newEquipment = [...equipment];
-          moving.forEach(item => {
-            if (!newEquipment.some(e => e.name === item.name)) {
-              newEquipment.push({ id: item.id, name: item.name, description: item.description, isEquipped: false });
-            }
+          const moving = itemsRef.current.filter(i => toEquip.includes(i.name));
+          setItems(prev => prev.filter(i => !toEquip.includes(i.name)));
+          setEquipment(prev => {
+            const next = [...prev];
+            moving.forEach(item => {
+              if (!next.some(e => e.name === item.name)) {
+                next.push({ id: item.id, name: item.name, description: item.description, isEquipped: false });
+              }
+            });
+            return next;
           });
-          setItems(remainingItems);
-          setEquipment(newEquipment);
         }
       }
 
@@ -120,8 +121,8 @@ ${lastMessages}`;
         // 左欄只顯示最新一則
         setAdventureLog([data.summary]);
 
-        // 加入暫存池，達 10 則觸發壓縮
-        const newPool = [...summaryPool, data.summary];
+        // 加入暫存池，達 10 則觸發壓縮（讀 ref 取最新池，避免 await 期間的 stale closure）
+        const newPool = [...summaryPoolRef.current, data.summary];
         if (newPool.length >= 10) {
           // ── 階段二：壓縮摘要（靜默背景）──────────────────────────────────
           const compressPrompt = `你是 RPG 後台資料整理員。
@@ -139,13 +140,12 @@ ${newPool.map((s, i) => `${i + 1}. ${s}`).join('\n')}`;
 
           const compressed = await callAI(compressPrompt);
           if (compressed) {
-            const newCompressCount = compressCount + 1;
+            const newCompressCount = compressCountRef.current + 1;
             setSummaryPool([compressed.trim()]);
-            setCompressCount(newCompressCount);
+            setCompressCount(newCompressCount >= 3 ? 0 : newCompressCount);
 
             // ── 階段三：壓縮 3 次後自動生成日記（靜默）────────────────────
             if (newCompressCount >= 3) {
-              setCompressCount(0);
               // 取出目前暫存池（含剛壓縮的這段）作為日記素材
               handleGenerateDiaryFromPool([compressed.trim()]);
             }
@@ -275,6 +275,15 @@ ${newPool.map((s, i) => `${i + 1}. ${s}`).join('\n')}`;
     setIsStoreReady,
   } = store;
 
+  // 最新值 refs：updateAdventureState 在 await AI 回應後讀取這些 ref，
+  // 避免 async 閉包捕獲舊快照（stale closure）覆蓋等待期間的狀態變更
+  const itemsRef = useRef(items);
+  itemsRef.current = items;
+  const summaryPoolRef = useRef(summaryPool);
+  summaryPoolRef.current = summaryPool;
+  const compressCountRef = useRef(compressCount);
+  compressCountRef.current = compressCount;
+
   const fileInputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const INITIAL_VISIBLE_MESSAGES = 10;
@@ -349,6 +358,7 @@ ${newPool.map((s, i) => `${i + 1}. ${s}`).join('\n')}`;
 
   // ─── Phase 1: Expose Performance Monitor for Development ──────────────────────
   useEffect(() => {
+    if (!import.meta.env.DEV) return;
     (window as any).__performanceMonitor = {
       getScrollMetrics: () => performanceMonitor.getScrollMetrics(),
       getRenderMetrics: () => performanceMonitor.getRenderMetrics(),
@@ -560,7 +570,7 @@ ${newPool.map((s, i) => `${i + 1}. ${s}`).join('\n')}`;
 
   const handleAddDiary = () => {
     const newId = Date.now();
-    setDiaryEntries([{ id: newId, title: '', text: '', isActive: true, keywords: [] }, ...diaryEntries]);
+    setDiaryEntries(prev => [{ id: newId, title: '', text: '', isActive: true, keywords: [] }, ...prev]);
     return newId;
   };
 
@@ -587,11 +597,11 @@ ${newPool.map((s, i) => `${i + 1}. ${s}`).join('\n')}`;
   };
 
   const handleDeleteDiary = (id: number) => {
-    setDiaryEntries(diaryEntries.filter(entry => entry.id !== id));
+    setDiaryEntries(prev => prev.filter(entry => entry.id !== id));
   };
 
   const handleToggleDiary = (id: number) => {
-    setDiaryEntries(diaryEntries.map(entry => 
+    setDiaryEntries(prev => prev.map(entry =>
       entry.id === id ? { ...entry, isActive: !entry.isActive } : entry
     ));
   };
@@ -749,14 +759,14 @@ ${poolText}
   };
 
   const handleDiaryChange = (id: number, text: string) => {
-    setDiaryEntries(diaryEntries.map(entry => 
+    setDiaryEntries(prev => prev.map(entry =>
       entry.id === id ? { ...entry, text } : entry
     ));
   };
 
   const handleAddLorebook = (category: string) => {
     const newId = Date.now();
-    setLorebookEntries([{ id: newId, title: '新設定', content: '', category, isActive: true, insertionOrder: 100, selective: false, secondaryKeys: [] }, ...lorebookEntries]);
+    setLorebookEntries(prev => [{ id: newId, title: '新設定', content: '', category, isActive: true, insertionOrder: 100, selective: false, secondaryKeys: [] }, ...prev]);
     return newId;
   };
 
@@ -805,17 +815,23 @@ ${poolText}
   };
 
   // ─── 每次 AI 回應結束後自動存檔 ─────────────────────────────────────────────
+  // 「上次儲存」時間只在雲端寫入成功後更新，失敗時 toast 提醒，避免玩家誤以為已存檔
   useEffect(() => {
     if (!isLoading && !isUpdatingLog && messages.length > 0 && messages[messages.length - 1]?.role === 'assistant') {
+      if (!authUser) return;
       const snapshot = buildSaveSnapshot();
-      if (authUser) {
-        setIsCloudSaving(true);
-        saveToCloud(authUser.id, currentSlotName, snapshot)
-          .finally(() => setIsCloudSaving(false));
-      }
-      const now = new Date();
-      localStorage.setItem('rpworld_last_saved', now.toISOString());
-      setLastSavedAt(now);
+      setIsCloudSaving(true);
+      saveToCloud(authUser.id, currentSlotName, snapshot)
+        .then(ok => {
+          if (ok) {
+            const now = new Date();
+            localStorage.setItem('rpworld_last_saved', now.toISOString());
+            setLastSavedAt(now);
+          } else {
+            showToast('☁️ 雲端存檔失敗，請檢查網路連線');
+          }
+        })
+        .finally(() => setIsCloudSaving(false));
     }
   }, [isLoading, isUpdatingLog]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -916,6 +932,16 @@ ${poolText}
     }
   };
 
+  // selectedNpc 與 npcs 同步：NPC 資料更新後讓開啟中的 Modal 顯示最新內容。
+  // 取代原本在 setNpcs updater 內呼叫 setSelectedNpc 的做法（updater 必須是純函數）
+  useEffect(() => {
+    setSelectedNpc(prev => {
+      if (!prev) return prev;
+      const fresh = npcs.find(n => n.id === prev.id);
+      return fresh && fresh !== prev ? fresh : prev;
+    });
+  }, [npcs]);
+
   const handleAddNpcMemory = (npcId: number, text: string, importance: 'core' | 'normal' = 'normal') => {
     if (!text.trim()) return;
     const newMem: NpcMemory = {
@@ -926,47 +952,35 @@ ${poolText}
       importance,
       isMerged: false,
     };
-    setNpcs(prev => prev.map(n => {
-      if (n.id !== npcId) return n;
-      const updatedNpc = { ...n, memories: [...(n.memories || []), newMem] };
-      if (selectedNpc?.id === npcId) setSelectedNpc(updatedNpc);
-      return updatedNpc;
-    }));
+    setNpcs(prev => prev.map(n =>
+      n.id === npcId ? { ...n, memories: [...(n.memories || []), newMem] } : n
+    ));
   };
 
   const handleRemoveNpcMemory = (npcId: number, memId: string) => {
-    setNpcs(prev => prev.map(n => {
-      if (n.id !== npcId) return n;
-      const updatedNpc = { ...n, memories: n.memories.filter(m => m.id !== memId) };
-      if (selectedNpc?.id === npcId) setSelectedNpc(updatedNpc);
-      return updatedNpc;
-    }));
+    setNpcs(prev => prev.map(n =>
+      n.id === npcId ? { ...n, memories: n.memories.filter(m => m.id !== memId) } : n
+    ));
   };
 
   const handleUpdateNpcMemory = (npcId: number, memId: string, updates: Partial<NpcMemory>) => {
-    setNpcs(prev => prev.map(n => {
-      if (n.id !== npcId) return n;
-      const updatedNpc = {
-        ...n,
-        memories: n.memories.map(m => m.id === memId ? { ...m, ...updates } : m),
-      };
-      if (selectedNpc?.id === npcId) setSelectedNpc(updatedNpc);
-      return updatedNpc;
-    }));
+    setNpcs(prev => prev.map(n =>
+      n.id === npcId
+        ? { ...n, memories: n.memories.map(m => m.id === memId ? { ...m, ...updates } : m) }
+        : n
+    ));
   };
 
   const handleClearNewMemories = (npcId: number) => {
-    setNpcs(prev => prev.map(n => {
-      if (n.id !== npcId) return n;
-      const updatedNpc = { ...n, memories: n.memories.map(m => m.isNew ? { ...m, isNew: false } : m) };
-      if (selectedNpc?.id === npcId) setSelectedNpc(updatedNpc);
-      return updatedNpc;
-    }));
+    setNpcs(prev => prev.map(n =>
+      n.id === npcId
+        ? { ...n, memories: n.memories.map(m => m.isNew ? { ...m, isNew: false } : m) }
+        : n
+    ));
   };
 
   const handleUpdateNpcName = (npcId: number, name: string) => {
     setNpcs(prev => prev.map(n => n.id === npcId ? { ...n, name } : n));
-    setSelectedNpc(prev => prev?.id === npcId ? { ...prev, name } : prev);
   };
 
   const handleDeleteNpc = (npcId: number, lorebookId?: number) => {
@@ -979,21 +993,9 @@ ${poolText}
   };
 
   const handleTogglePinNpc = (npcId: number) => {
-    setNpcs(prevNpcs => {
-      return prevNpcs.map(n => {
-        if (n.id === npcId) {
-          return { ...n, isPinned: !n.isPinned };
-        }
-        return n;
-      });
-    });
-
-    setSelectedNpc(prev => {
-      if (prev && prev.id === npcId) {
-        return { ...prev, isPinned: !prev.isPinned };
-      }
-      return prev;
-    });
+    setNpcs(prevNpcs => prevNpcs.map(n =>
+      n.id === npcId ? { ...n, isPinned: !n.isPinned } : n
+    ));
 
     const npc = npcs.find(n => n.id === npcId);
     if (npc) {
@@ -1024,7 +1026,7 @@ ${poolText}
       content: ''
     };
     
-    setLorebookEntries([newEntry, ...lorebookEntries]);
+    setLorebookEntries(prev => [newEntry, ...prev]);
     showToast(`已將 ${npc.name} 記下並加入設定集`);
   };
 

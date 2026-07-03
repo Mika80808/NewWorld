@@ -11,6 +11,7 @@ import {
 import { parseCommandsToAST } from '../utils/commandParser';
 import { reduceCommands } from '../utils/commandReducer';
 import { applyStateChanges } from '../utils/commandEffects';
+import { calculateTotalDays, getTotalDaysFromTimeState } from '../utils/timeUtils';
 
 // ─── 型別定義 ──────────────────────────────────────────────────────────────────
 
@@ -147,15 +148,17 @@ export function useCommandParser(deps: CommandParserDeps): UseCommandParserRetur
   const isMemoryTriggered = (mem: MemoryEntry, userInput: string, location: string): boolean => {
     if (!mem.isActive) return false;
 
-    // 過期判斷
+    // 過期判斷：支援「年/月/日」與「月/日」兩種格式（月/日視為當前年度）
     if (mem.expiresAt) {
-      const parts = mem.expiresAt.split('/');
-      if (parts.length === 2) {
-        const expMonth = parseInt(parts[0]);
-        const expDay = parseInt(parts[1]);
-        const currentTotalMins = timeState.month * 30 + timeState.day;
-        const expTotalMins = expMonth * 30 + expDay;
-        if (currentTotalMins > expTotalMins) return false;
+      const parts = mem.expiresAt.split('/').map(p => parseInt(p, 10));
+      let expTotalDays: number | null = null;
+      if (parts.length === 3 && parts.every(n => !isNaN(n))) {
+        expTotalDays = calculateTotalDays(parts[0], parts[1], parts[2]);
+      } else if (parts.length === 2 && parts.every(n => !isNaN(n))) {
+        expTotalDays = calculateTotalDays(timeState.year, parts[0], parts[1]);
+      }
+      if (expTotalDays !== null && getTotalDaysFromTimeState(timeState) > expTotalDays) {
+        return false;
       }
     }
 
@@ -190,7 +193,14 @@ export function useCommandParser(deps: CommandParserDeps): UseCommandParserRetur
   // ─── 工具函數：記憶計數器更新 ─────────────────────────────────────────────────
 
   const tickMemoryCounters = (triggeredIds: string[]) => {
+    // 不在 updater 內呼叫另一個 setState（updater 必須是純函數）。
+    // 改以區域變數捕捉遞減前的 sticky 值：useGameStore 中 stickyCounters 的
+    // useState 宣告在 cooldownCounters 之前，因此 sticky 的 updater 會先執行，
+    // 捕捉到的值在 cooldown 的 updater 執行時已就緒。
+    let stickyBeforeTick: Record<string, number> = {};
+
     setStickyCounters(prev => {
+      stickyBeforeTick = prev;
       const updated = { ...prev };
       for (const id of triggeredIds) {
         const mem = memories.find(m => m.id === id);
@@ -205,27 +215,21 @@ export function useCommandParser(deps: CommandParserDeps): UseCommandParserRetur
       return updated;
     });
 
-    // Bug #7 fix: 改用 setStickyCounters 的 functional update 結果推導 cooldown
-    // 不依賴閉包捕獲的舊 stickyCounters，改由 setCooldownCounters 接收 prevSticky 參數
-    setStickyCounters(prevSticky => {
-      setCooldownCounters(prevCooldown => {
-        const updated = { ...prevCooldown };
-        for (const id in updated) {
-          updated[id] = Math.max(0, updated[id] - 1);
-        }
-        // 若 sticky 剛歸零（=1 → 0），且未被此回合觸發，進入 cooldown
-        for (const id in prevSticky) {
-          if (!triggeredIds.includes(id) && prevSticky[id] === 1) {
-            const mem = memories.find(m => m.id === id);
-            if (mem && mem.trigger?.cooldown) {
-              updated[id] = mem.trigger.cooldown;
-            }
+    setCooldownCounters(prevCooldown => {
+      const updated = { ...prevCooldown };
+      for (const id in updated) {
+        updated[id] = Math.max(0, updated[id] - 1);
+      }
+      // 若 sticky 剛歸零（=1 → 0），且未被此回合觸發，進入 cooldown
+      for (const id in stickyBeforeTick) {
+        if (!triggeredIds.includes(id) && stickyBeforeTick[id] === 1) {
+          const mem = memories.find(m => m.id === id);
+          if (mem && mem.trigger?.cooldown) {
+            updated[id] = mem.trigger.cooldown;
           }
         }
-        return updated;
-      });
-      // 返回不變（sticky 遞減已在前面的 setStickyCounters 處理）
-      return prevSticky;
+      }
+      return updated;
     });
   };
 
