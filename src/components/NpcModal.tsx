@@ -1,15 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Users, BookPlus, Pin, Star, Trash2, Lock, ChevronDown, ChevronUp, Edit2, Check, X, BookOpen, Heart, AlertTriangle } from 'lucide-react';
 import { Npc, NpcMemory, LorebookEntry } from '../types';
-
-// ── 好感度顏色 ────────────────────────────────────────────────────────────────
-export function affectionColor(affection: number): string {
-  if (affection < 0)   return 'var(--affection-hostile)';
-  if (affection < 50)  return 'var(--affection-low)';
-  if (affection < 80)  return 'var(--affection-mid)';
-  if (affection < 100) return 'var(--affection-high)';
-  return 'var(--affection-max)';
-}
+import { affectionColor } from '../utils/affectionColor';
 
 const SOURCE_LABEL: Record<NpcMemory['source'], string> = {
   manual:    '手動',

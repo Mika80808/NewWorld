@@ -2,14 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { BookOpen, Plus, Search, CheckSquare, Square, Trash2, Heart, MoreHorizontal } from 'lucide-react';
 import { LorebookEntry, Npc, Faction } from '../types';
 import { debounce } from '../utils/debounce';
-
-function affectionColor(affection: number): string {
-  if (affection < 0)   return 'var(--affection-hostile)';
-  if (affection < 50)  return 'var(--affection-low)';
-  if (affection < 80)  return 'var(--affection-mid)';
-  if (affection < 100) return 'var(--affection-high)';
-  return 'var(--affection-max)';
-}
+import { affectionColor } from '../utils/affectionColor';
 
 interface LorebookModalProps {
   isOpen: boolean;

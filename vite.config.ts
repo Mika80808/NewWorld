@@ -9,6 +9,21 @@ export default defineConfig(() => {
   return {
     base,
     plugins: [react(), tailwindcss()],
+    build: {
+      rollupOptions: {
+        output: {
+          // 依套件拆 vendor chunk：與遊戲程式碼分開快取，改版時玩家只需重新下載變動的部分
+          manualChunks(id: string) {
+            if (!id.includes('node_modules')) return undefined;
+            if (id.includes('@google/genai')) return 'genai';
+            if (id.includes('@supabase')) return 'supabase';
+            if (id.includes('node_modules/motion') || id.includes('framer-motion')) return 'motion';
+            if (id.includes('react-dom') || id.includes('node_modules/react/')) return 'react';
+            return 'vendor';
+          },
+        },
+      },
+    },
     resolve: {
       alias: {
         '@': path.resolve(__dirname, '.'),

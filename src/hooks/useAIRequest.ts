@@ -52,6 +52,8 @@ export function useAIRequest(mainGMConfig: GMConfig, subGMConfig: SubGMConfig) {
       role?: 'main' | 'sub';
       maxTokens?: number;
       onChunk?: (chunk: string) => void;
+      /** 每次串流 attempt 開始時呼叫（重試會再次觸發），供呼叫端重置累積的串流文字 */
+      onStreamStart?: () => void;
     }
   ): Promise<string> => {
     const { role = 'sub' } = options ?? {};
@@ -78,6 +80,7 @@ export function useAIRequest(mainGMConfig: GMConfig, subGMConfig: SubGMConfig) {
         const doCall = async (): Promise<string> => {
           if (options?.onChunk) {
             // Streaming path（主 GM）
+            options.onStreamStart?.();
             const response = await ai.models.generateContentStream({
               model, contents: prompt, config: { maxOutputTokens: tokens },
             });

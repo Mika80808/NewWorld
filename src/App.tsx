@@ -1,17 +1,21 @@
-import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useRef, useEffect, useCallback, useMemo, lazy, Suspense } from 'react';
 import { Settings, Send, RefreshCw, MoreVertical, Book, BookOpen, User, Package, Beaker, Users, Heart, MapPin, Zap, Coins, Calendar, Shield, CheckSquare, ChevronDown, ChevronRight, Map as MapIcon, Cloud, Sun, CloudRain, Snowflake, Moon, Wind, Sparkles, Brain, ScrollText, History, X, Edit2, Trash2, Pin } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useAIRequest } from './hooks/useAIRequest';
-import { DiaryModal } from './components/DiaryModal';
-import { LorebookModal } from './components/LorebookModal';
 import { Npc, LorebookEntry, MemoryEntry, Message, NpcMemory, EquipmentItem, ItemEntry, GMConfig, SubGMConfig } from './types';
-import { NpcModal, affectionColor } from './components/NpcModal';
+import { affectionColor } from './utils/affectionColor';
 import { QuestModal } from './components/QuestModal';
 import { ProfileModal } from './components/ProfileModal';
 import { SystemPromptModal } from './components/SystemPromptModal';
-import { SettingsModal } from './components/SettingsModal';
-import { MapModal } from './components/MapModal';
 import { MessageCard } from './components/MessageCard';
+import { ChatInput } from './components/ChatInput';
+
+// 大型 Modal 延遲載入：不進首屏 bundle，開啟時才下載對應 chunk
+const DiaryModal    = lazy(() => import('./components/DiaryModal').then(m => ({ default: m.DiaryModal })));
+const LorebookModal = lazy(() => import('./components/LorebookModal').then(m => ({ default: m.LorebookModal })));
+const NpcModal      = lazy(() => import('./components/NpcModal').then(m => ({ default: m.NpcModal })));
+const SettingsModal = lazy(() => import('./components/SettingsModal').then(m => ({ default: m.SettingsModal })));
+const MapModal      = lazy(() => import('./components/MapModal').then(m => ({ default: m.MapModal })));
 import { MONTHS_DATA } from './constants';
 import { useGameStore } from './hooks/useGameStore';
 import { useCommandParser } from './hooks/useCommandParser';
@@ -24,7 +28,7 @@ import { buildPrompt, BuildPromptDeps } from './utils/promptBuilder';
 import { SaveSlotsModal } from './components/SaveSlotsModal';
 
 export default function App() {
-  const backgroundImageUrl = `${import.meta.env.BASE_URL}background.jpg`;
+  const backgroundImageUrl = `${import.meta.env.BASE_URL}background.webp`;
 
   // ─── UI 狀態（Modal / 輸入 / 載入）──────────────────────────────────────────
   const [isPriorityMode, setIsPriorityMode] = useState(false);
@@ -179,7 +183,6 @@ ${newPool.map((s, i) => `${i + 1}. ${s}`).join('\n')}`;
   const [editingMemoryId, setEditingMemoryId] = useState<string | null>(null);
   const [editingMemoryContent, setEditingMemoryContent] = useState('');
   const [isMapOpen, setIsMapOpen] = useState(false);
-  const [inputText, setInputText] = useState('');
   const [isLoadingQuickOptions, setIsLoadingQuickOptions] = useState(false);
   const [showQuickMenu, setShowQuickMenu] = useState(false);
   // ─── 雲端存檔 / 帳號 ─────────────────────────────────────────────────────────
@@ -283,6 +286,12 @@ ${newPool.map((s, i) => `${i + 1}. ${s}`).join('\n')}`;
   summaryPoolRef.current = summaryPool;
   const compressCountRef = useRef(compressCount);
   compressCountRef.current = compressCount;
+  // 供 MessageCard 的穩定 callbacks（useCallback []）在事件觸發時讀取最新值，
+  // 讓 React.memo 不因 callback 引用變動而失效
+  const messagesRef = useRef(messages);
+  messagesRef.current = messages;
+  const buildSaveSnapshotRef = useRef(buildSaveSnapshot);
+  buildSaveSnapshotRef.current = buildSaveSnapshot;
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -1070,14 +1079,13 @@ ${recentContext}
     }
   };
 
-  const handleSendMessage = async (textToUse?: string | React.MouseEvent | React.KeyboardEvent, historyToUse?: any[], locationOverride?: string) => {
-    const text = typeof textToUse === 'string' ? textToUse : inputText;
+  const handleSendMessage = async (text: string, historyToUse?: Message[], locationOverride?: string) => {
     if (!text.trim() || isLoading) return;
 
     lastInputRef.current = text;
     const currentIsPriority = isPriorityMode;
     if (isPriorityMode) setIsPriorityMode(false);
-    const userMessage = { id: Date.now(), role: 'user', text: text };
+    const userMessage: Message = { id: Date.now(), role: 'user', text: text };
     const newMessages = historyToUse ? [...historyToUse, userMessage] : [...messages, userMessage];
     setMessages(newMessages);
     if (authUser) {
@@ -1086,7 +1094,6 @@ ${recentContext}
       saveToCloud(authUser.id, currentSlotName, snapshot)
         .finally(() => setIsCloudSaving(false));
     }
-    if (typeof textToUse !== 'string') setInputText('');
     setAiRequestStatus('loading');
 
     let aiMessageId: number | null = null;
@@ -1102,8 +1109,33 @@ ${recentContext}
       aiMessageId = Date.now() + 1;
       setMessages(prev => [...prev, { id: aiMessageId!, role: 'assistant', text: '' }]);
 
-      // 使用 streaming（避免長回應 timeout），背景累積不即時顯示，避免 <<COMMANDS>> 閃現
-      const fullText = await callAI(prompt, { role: 'main', onChunk: () => {} });
+      // 使用 streaming 即時顯示敘事；偵測到 << 起停止追加，避免 <<COMMANDS>> 閃現。
+      // [出場:] 標記在串流中同步遮蔽（含跨 chunk 的未閉合片段），最終文字仍以串流結束後的完整解析為準
+      let streamedText = '';
+      let commandsStarted = false;
+      const streamMsgId = aiMessageId;
+      const fullText = await callAI(prompt, {
+        role: 'main',
+        onStreamStart: () => {
+          // 重試時重置累積文字，避免前一次 attempt 的半截輸出重複疊加
+          streamedText = '';
+          commandsStarted = false;
+          setMessages(prev => prev.map(m => m.id === streamMsgId ? { ...m, text: '' } : m));
+        },
+        onChunk: (chunk) => {
+          if (commandsStarted) return;
+          streamedText += chunk;
+          const cutIdx = streamedText.indexOf('<<');
+          if (cutIdx !== -1) commandsStarted = true;
+          let visible = cutIdx === -1 ? streamedText : streamedText.slice(0, cutIdx);
+          visible = visible.replace(/\[出場:[^\]]*\]/g, '');
+          const lastOpen = visible.lastIndexOf('[出場');
+          if (lastOpen !== -1 && !visible.includes(']', lastOpen)) {
+            visible = visible.slice(0, lastOpen);
+          }
+          setMessages(prev => prev.map(m => m.id === streamMsgId ? { ...m, text: visible } : m));
+        },
+      });
       if (!fullText) {
         showToast('❌ AI 沒有回應，請檢查 API Key 或網路連線');
         if (aiMessageId !== null) setMessages(prev => prev.filter(m => m.id !== aiMessageId));
@@ -1226,14 +1258,20 @@ ${recentContext}
     };
   }, [isMobile]);
 
-  const handleRegenerate = (msgId: number) => {
-    if (isLoading) return;
-    const msgIndex = messages.findIndex(m => m.id === msgId);
+  // ─── 訊息卡片 callbacks ──────────────────────────────────────────────────────
+  // 全部以 useCallback + 最新值 ref 穩定引用，讓 MessageCard 的 React.memo 生效；
+  // callback 內一律讀 ref / functional update，不捕獲 render 當下的 state
+  const handleSendMessageRef = useRef(handleSendMessage);
+  handleSendMessageRef.current = handleSendMessage;
+
+  const handleRegenerate = useCallback((msgId: number) => {
+    const msgs = messagesRef.current;
+    const msgIndex = msgs.findIndex(m => m.id === msgId);
     if (msgIndex === -1) return;
 
     let lastUserMsgIndex = -1;
     for (let i = msgIndex - 1; i >= 0; i--) {
-      if (messages[i].role === 'user') {
+      if (msgs[i].role === 'user') {
         lastUserMsgIndex = i;
         break;
       }
@@ -1241,11 +1279,70 @@ ${recentContext}
 
     if (lastUserMsgIndex === -1) return;
 
-    const userMsgText = messages[lastUserMsgIndex].text;
-    const historyToUse = messages.slice(0, lastUserMsgIndex);
-    
-    handleSendMessage(userMsgText, historyToUse);
-  };
+    const userMsgText = msgs[lastUserMsgIndex].text;
+    const historyToUse = msgs.slice(0, lastUserMsgIndex);
+
+    handleSendMessageRef.current(userMsgText, historyToUse);
+  }, []);
+
+  const handleMenuToggle = useCallback((msgId: number) => {
+    setActiveMenuId(prev => prev === msgId ? null : msgId);
+  }, []);
+
+  const handleCopyMessage = useCallback((text: string) => {
+    const fallbackCopy = () => {
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+      showToast('已複製');
+    };
+    if (navigator.clipboard?.writeText) {
+      navigator.clipboard.writeText(text).then(() => showToast('已複製')).catch(fallbackCopy);
+    } else {
+      fallbackCopy();
+    }
+    setActiveMenuId(null);
+  }, [showToast]);
+
+  const handleEditMessage = useCallback((msgId: number, text: string) => {
+    setEditingMessageId(msgId);
+    setEditMessageText(text);
+    setActiveMenuId(null);
+  }, []);
+
+  const handleEditCancel = useCallback(() => setEditingMessageId(null), []);
+
+  // saveToCloud（useAuth）行為只依賴模組層的 supabase client，可安全排除於 deps
+  const handleDeleteMessage = useCallback((msgId: number) => {
+    const newMessages = messagesRef.current.filter(m => m.id !== msgId);
+    setMessages(newMessages);
+    if (authUser) {
+      const snapshot = buildSaveSnapshotRef.current({ messages: newMessages });
+      setIsCloudSaving(true);
+      saveToCloud(authUser.id, currentSlotName, snapshot)
+        .finally(() => setIsCloudSaving(false));
+    }
+    showToast('已刪除');
+    setActiveMenuId(null);
+  }, [authUser, currentSlotName, showToast]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const handleEditSave = useCallback((msgId: number, newText: string) => {
+    const newMessages = messagesRef.current.map(m => m.id === msgId ? { ...m, text: newText } : m);
+    setMessages(newMessages);
+    if (authUser) {
+      const snapshot = buildSaveSnapshotRef.current({ messages: newMessages });
+      setIsCloudSaving(true);
+      saveToCloud(authUser.id, currentSlotName, snapshot)
+        .finally(() => setIsCloudSaving(false));
+    }
+    setEditingMessageId(null);
+    showToast('已更新');
+  }, [authUser, currentSlotName, showToast]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ─── Auth loading ────────────────────────────────────────────────────────────
   if (authLoading) {
@@ -1984,77 +2081,22 @@ ${recentContext}
               <MessageCard
                 key={msg.id}
                 msg={msg}
-                profile={profile}
+                playerName={profile.name}
                 activeMenuId={activeMenuId}
                 editingMessageId={editingMessageId}
                 editMessageText={editMessageText}
                 isLoading={isLoading}
-                messages={messages}
+                isThinking={isLoading && msg.text === '' && msg.id === messages[messages.length - 1]?.id}
                 onRegenerate={handleRegenerate}
-                onMenuToggle={(msgId) => setActiveMenuId(activeMenuId === msgId ? null : msgId)}
-                onCopy={(text) => {
-                  const copyText = (text: string) => {
-                    if (navigator.clipboard?.writeText) {
-                      navigator.clipboard.writeText(text).then(() => showToast('已複製')).catch(() => {
-                        const ta = document.createElement('textarea');
-                        ta.value = text;
-                        ta.style.position = 'fixed';
-                        ta.style.opacity = '0';
-                        document.body.appendChild(ta);
-                        ta.select();
-                        document.execCommand('copy');
-                        document.body.removeChild(ta);
-                        showToast('已複製');
-                      });
-                    } else {
-                      const ta = document.createElement('textarea');
-                      ta.value = text;
-                      ta.style.position = 'fixed';
-                      ta.style.opacity = '0';
-                      document.body.appendChild(ta);
-                      ta.select();
-                      document.execCommand('copy');
-                      document.body.removeChild(ta);
-                      showToast('已複製');
-                    }
-                  };
-                  copyText(text);
-                  setActiveMenuId(null);
-                }}
-                onEdit={(msgId, text) => {
-                  setEditingMessageId(msgId);
-                  setEditMessageText(text);
-                  setActiveMenuId(null);
-                }}
-                onDelete={(msgId) => {
-                  const newMessages = messages.filter(m => m.id !== msgId);
-                  setMessages(newMessages);
-                  if (authUser) {
-                    const snapshot = buildSaveSnapshot({ messages: newMessages });
-                    setIsCloudSaving(true);
-                    saveToCloud(authUser.id, currentSlotName, snapshot)
-                      .finally(() => setIsCloudSaving(false));
-                  }
-                  showToast('已刪除');
-                  setActiveMenuId(null);
-                }}
+                onMenuToggle={handleMenuToggle}
+                onCopy={handleCopyMessage}
+                onEdit={handleEditMessage}
+                onDelete={handleDeleteMessage}
                 onEditChange={setEditMessageText}
-                onEditCancel={() => setEditingMessageId(null)}
-                onEditSave={(msgId, newText) => {
-                  const newMessages = messages.map(m => m.id === msgId ? { ...m, text: newText } : m);
-                  setMessages(newMessages);
-                  if (authUser) {
-                    const snapshot = buildSaveSnapshot({ messages: newMessages });
-                    setIsCloudSaving(true);
-                    saveToCloud(authUser.id, currentSlotName, snapshot)
-                      .finally(() => setIsCloudSaving(false));
-                  }
-                  setEditingMessageId(null);
-                  showToast('已更新');
-                }}
+                onEditCancel={handleEditCancel}
+                onEditSave={handleEditSave}
                 renderMarkdown={renderMarkdown}
                 stripBareCommands={stripBareCommands}
-                showToast={showToast}
               />
             ))}
             <div ref={messagesEndRef} />
@@ -2128,49 +2170,7 @@ ${recentContext}
                   }
                 </button>
 
-                <textarea
-                  className="w-full bg-transparent pl-2 pr-2 outline-none resize-none max-h-32 disabled:opacity-80"
-                  style={{ color: 'var(--text-main)', lineHeight: '20px', paddingTop: '8px', paddingBottom: '8px' }}
-                  placeholder={isLoading ? "..." : "輸入你的行動或對話..."}
-                  rows={1}
-                  value={inputText}
-                  onChange={(e) => setInputText(e.target.value)}
-                  disabled={isLoading}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' && !e.shiftKey) {
-                      e.preventDefault();
-                      handleSendMessage();
-                    }
-                  }}
-                  onInput={(e) => {
-                    const el = e.currentTarget;
-                    el.style.height = 'auto';
-                    el.style.height = Math.min(el.scrollHeight, 128) + 'px';
-                  }}
-                ></textarea>
-                {isLoading ? (
-                  /* 中止按鈕（D7）*/
-                  <button
-                    className="px-3 transition"
-                    style={{ height: '40px', display: 'flex', alignItems: 'center', color: 'var(--color-rose)', cursor: 'pointer' }}
-                    onClick={abortAI}
-                    title="中止請求"
-                  >
-                    <X className="w-5 h-5" />
-                  </button>
-                ) : (
-                  /* 送出按鈕 */
-                  <button
-                    className="px-3 transition"
-                    style={{ height: '40px', display: 'flex', alignItems: 'center', color: !inputText.trim() ? 'var(--text-muted)' : 'var(--btn-primary)', cursor: !inputText.trim() ? 'not-allowed' : 'pointer', opacity: !inputText.trim() ? 0.4 : 1 }}
-                    onMouseEnter={e => { if (inputText.trim()) (e.currentTarget as HTMLButtonElement).style.color = 'var(--btn-primary-hover)'; }}
-                    onMouseLeave={e => { if (inputText.trim()) (e.currentTarget as HTMLButtonElement).style.color = 'var(--btn-primary)'; }}
-                    onClick={handleSendMessage}
-                    disabled={!inputText.trim()}
-                  >
-                    <Send className="w-5 h-5" />
-                  </button>
-                )}
+                <ChatInput isLoading={isLoading} onSend={handleSendMessage} onAbort={abortAI} />
               </div>
 
               {/* D7：中斷 / 超時 / 錯誤 重試列 */}
@@ -2446,6 +2446,7 @@ ${recentContext}
       />
 
       {/* Diary Modal Overlay */}
+      {isDiaryModalOpen && <Suspense fallback={null}>
       <DiaryModal
         isOpen={isDiaryModalOpen}
         onClose={() => setIsDiaryModalOpen(false)}
@@ -2461,8 +2462,10 @@ ${recentContext}
         onDeleteDiary={handleDeleteDiary}
         scanKeywords={scanKeywords}
       />
+      </Suspense>}
 
       {/* Lorebook Modal Overlay */}
+      {isLorebookModalOpen && <Suspense fallback={null}>
       <LorebookModal
         isOpen={isLorebookModalOpen}
         onClose={() => setIsLorebookModalOpen(false)}
@@ -2480,8 +2483,10 @@ ${recentContext}
         onAddFaction={addFaction}
         onUpdateFaction={updateFaction}
       />
+      </Suspense>}
 
       {/* NPC Modal Overlay */}
+      {selectedNpc && <Suspense fallback={null}>
       <NpcModal
         selectedNpc={selectedNpc}
         lorebookEntries={lorebookEntries}
@@ -2496,6 +2501,7 @@ ${recentContext}
         onClearNewMemories={handleClearNewMemories}
         onUpdateNpcName={handleUpdateNpcName}
       />
+      </Suspense>}
 
       {/* System Prompt Modal Overlay */}
       <SystemPromptModal
@@ -2507,6 +2513,7 @@ ${recentContext}
       />
 
       {/* Settings Modal Overlay */}
+      {isSettingsModalOpen && <Suspense fallback={null}>
       <SettingsModal
         isOpen={isSettingsModalOpen}
         onClose={() => setIsSettingsModalOpen(false)}
@@ -2525,6 +2532,7 @@ ${recentContext}
         }}
         isCloudSaving={isCloudSaving}
       />
+      </Suspense>}
 
       {/* 存檔槽 Modal */}
       <SaveSlotsModal
@@ -2540,6 +2548,7 @@ ${recentContext}
       />
 
       {/* Map Modal */}
+      {isMapOpen && <Suspense fallback={null}>
       <MapModal
         isOpen={isMapOpen}
         onClose={() => setIsMapOpen(false)}
@@ -2556,6 +2565,7 @@ ${recentContext}
           if (npc) setSelectedNpc(npc);
         }}
       />
+      </Suspense>}
 
       {/* ── Quest Side Panel ── */}
       <AnimatePresence>
