@@ -12,14 +12,11 @@ export default defineConfig(() => {
     build: {
       rollupOptions: {
         output: {
-          // 依套件拆 vendor chunk：與遊戲程式碼分開快取，改版時玩家只需重新下載變動的部分
+          // 所有 node_modules 合為單一 vendor chunk，與遊戲程式碼分開快取。
+          // ⚠️ 不要把 react 與依賴它的套件（lucide/motion 等）拆到不同 chunk：
+          // 會造成模組初始化順序錯亂（React.forwardRef undefined → 整頁空白）
           manualChunks(id: string) {
-            if (!id.includes('node_modules')) return undefined;
-            if (id.includes('@google/genai')) return 'genai';
-            if (id.includes('@supabase')) return 'supabase';
-            if (id.includes('node_modules/motion') || id.includes('framer-motion')) return 'motion';
-            if (id.includes('react-dom') || id.includes('node_modules/react/')) return 'react';
-            return 'vendor';
+            return id.includes('node_modules') ? 'vendor' : undefined;
           },
         },
       },
