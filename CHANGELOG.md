@@ -5,6 +5,72 @@
 
 ---
 
+### 工具鏈｜ESLint + vitest 測試 + noImplicitAny 2026-07-04 [Claude Code]
+
+**目標**：建立測試與 lint 安全網，漸進收緊型別。
+
+#### 新增檔案
+- `eslint.config.js`：flat config（typescript-eslint + react-hooks）；rules-of-hooks / exhaustive-deps 維持嚴格，React Compiler 世代新規則（refs/purity/set-state-in-effect）降為警告漸進清理
+- `src/utils/__tests__/`：timeUtils（進位/任務期限）、commandParser（區塊/pipe/legacy/裸指令）、commandReducer（數值/道具/好感度/狀態異常/任務逾期/勢力）共 3 個測試檔
+- `src/hooks/__tests__/saveDataMapper.test.ts`：預設值 / v1→v3 遷移 / 舊格式 NPC 記憶
+
+#### 測試揪出的潛伏 Bug（已修復）
+1. **`commandParser.ts` 結尾標記**：`<</COMMANDS>>` 的 regex 只吃掉 `</COMMANDS>>`，殘留 `<` 每回合被解析成一條 UNKNOWN 垃圾指令 → regex 改為容忍 `<{1,2}/COMMANDS>>`
+2. **`MEMORY_ADD:` 冒號格式從未生效**：switch 用整行當 cmdType，冒號格式永遠掉進 default 而 default 無對應規則，AI 寫入的記憶被靜默丟棄 → 抽出 `parseLegacyMemoryAdd` 由 default case 處理
+
+#### 其他
+- `package.json`：`lint` = tsc + eslint、新增 `test` = vitest run
+- `tsconfig.json`：啟用 `noImplicitAny`（補齊 `handleAddNpc` / LorebookModal fallback NPC 型別標註）
+- `useItem` → `consumeItem`（遊戲動作撞 hook 命名慣例，被 rules-of-hooks 誤判）
+- 補上遺失的 `@types/react` / `@types/react-dom`（先前由 `@types/react-window` 間接提供，依賴清理後遺失）
+- 移除被 `false &&` 停用的 Mobile HUD 死 JSX 區塊
+
+---
+
+### 效能與體驗優化批次 2026-07-04 [Claude Code]
+
+**目標**：首載速度、打字/長對話效能、AI 回應體感、錯誤韌性。
+
+#### 效能
+- **`public/background.jpg` 3.2MB → `background.webp` 532KB**（q55，上有天空漸層覆蓋層，視覺無感）
+- **新增 `src/components/ChatInput.tsx`**：輸入框 state 內收，打字不再重渲染整個 App；`handleSendMessage` 簽名簡化為必傳字串
+- **`MessageCard` 加 `React.memo`**：props 收緊（`playerName`/`isThinking` 取代整包 `profile`/`messages`），App 端卡片 callbacks 以 `useCallback` + 最新值 ref（`messagesRef`/`buildSaveSnapshotRef`）穩定引用
+- **Bundle 拆分**：MapModal / LorebookModal / NpcModal / DiaryModal / SettingsModal 改 `React.lazy`（開啟才載入）；`vite.config.ts` `manualChunks` 拆 genai / supabase / motion / react vendor chunk——主 chunk 1096KB → 181KB
+- 雲端存檔改為每回合一次（移除送出時的立即上傳）
+
+#### 體驗
+- **串流即時顯示**：`onChunk` 邊收邊顯示敘事，偵測 `<<` 停止追加（COMMANDS 不閃現），`[出場:]` 標記同步遮蔽；`useAIRequest` 新增 `onStreamStart` 供重試時重置累積文字
+- **新增 `src/components/ErrorBoundary.tsx`**：渲染錯誤顯示可重新載入的 fallback，不再白屏（掛在 `main.tsx`）
+- **新增 `src/components/ConfirmDialog.tsx`**：取代 `window.confirm` / `window.prompt`（重置遊戲、刪除/新增存檔槽）
+- Sub GM 改用 structured output：`callAI` 新增 `responseJson` 選項（Gemma 自動略過），`updateAdventureState` 啟用
+- `affectionColor` 移至 `src/utils/affectionColor.ts` 統一入口（原 NpcModal 匯出 + LorebookModal 重複實作）
+
+---
+
+### 檢視報告修復批次 2026-07-04 [Claude Code]
+
+**目標**：修復專案全面檢視發現的正確性問題與規範違反。
+
+#### 正確性
+- **自動存檔回饋**（`App.tsx`）：「上次儲存」時間只在雲端寫入成功後更新，失敗 toast 提醒
+- **`updateAdventureState` stale closure**：`await` 後改讀最新值 ref（`itemsRef`/`summaryPoolRef`/`compressCountRef`），道具分類與摘要池改 functional update——修正 Sub GM 等待期間道具變動被舊快照覆蓋
+- **不純 setState updater**：NPC 記憶 handlers 移除 updater 內的 `setSelectedNpc`（改由同步 effect）；`tickMemoryCounters` 移除巢狀 setState
+- **`useAIRequest` 逾時邊界**：逾時後背景串流停止（不再空耗配額）、計時器清除、abort 旗標涵蓋重試退避空檔
+- **記憶過期判斷**：改用 `timeUtils` 年感知天數計算，修正跨年後過期記憶復活
+- 日記/設定集 handlers 改 functional update；開場隨機時間補回中午 12 點
+
+#### 清理
+- 刪除 `src/db/`（舊 IndexedDB 層）、未使用的 `SAVE_KEY`
+- 移除未使用依賴：express、better-sqlite3、dotenv、react-window、tsx、autoprefixer 等（-125 套件）；建置工具移至 devDependencies
+- 個人素材與存檔備份移出版控並加入 `.gitignore`
+- `window.__performanceMonitor` 只在開發模式掛載
+
+#### 文件
+- CLAUDE.md 與現行架構同步（Supabase 存檔、utils 純函數層、useAIRequest、關鍵函數索引）
+- 顏色硬編碼例外明文化（天空漸層、HP/MP 條、地圖調色盤、Faction.color、Google 品牌色）
+
+---
+
 ### Bug 修正：MapModal 桌機版直式顯示 2026-04-07 [Claude Haiku 4.5]
 
 **問題**：MapModal 的地理與勢力地圖（SVG 容器）在桌機版呈現直式細條，而非正確的橫式填滿。
