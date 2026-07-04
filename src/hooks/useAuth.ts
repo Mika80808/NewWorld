@@ -33,9 +33,11 @@ export function useAuth() {
       return
     }
 
+    // GitHub Pages 部署在子路徑（/NewWorld/），origin 會丟失路徑導致登入後 404，
+    // 需帶上 BASE_URL 完整路徑
     await supabase.auth.signInWithOAuth({
       provider: 'google',
-      options: { redirectTo: window.location.origin },
+      options: { redirectTo: window.location.origin + import.meta.env.BASE_URL },
     })
   }
 

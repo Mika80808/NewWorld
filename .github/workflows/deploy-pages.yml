@@ -30,6 +30,9 @@ jobs:
 
       - name: Configure Pages
         uses: actions/configure-pages@v5
+        with:
+          # 嘗試自動啟用 Pages（若 token 權限不足，仍需在 Settings → Pages 手動啟用）
+          enablement: true
 
       - name: Determine base path
         shell: bash
