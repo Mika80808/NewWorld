@@ -9,28 +9,32 @@
 
 LLM 擔任 GM 的開放式世界文字冒險 RPG，玩家以自由文字輸入推進劇情。
 具有單機遊戲的道具、金錢、好感度、地圖等數據化功能。
-後期規劃玩家可登入 Google 帳號跨裝置同步存檔。
+玩家以 Google 帳號登入，存檔透過 Supabase 跨裝置同步（強制登入才能遊玩）。
 
 ---
 
 ## 技術棧
 
-- **框架**：React 19 + TypeScript + Vite
-- **樣式**：Tailwind CSS v4
-- **AI**：Google Gemini（`@google/genai`），透過 `callAI` 封裝層呼叫，不直接散落在各處
-- **儲存**：localStorage（未來規劃 Firebase 或 SQLite 等技術）
-- **主要邏輯檔案**：`src/App.tsx`（所有邏輯集中此處，不新增其他邏輯檔案）
-- **自訂 Hooks**：`src/hooks/useGameStore.ts`（state）、`src/hooks/useCommandParser.ts`（指令解析）
+- **框架**：React 19 + TypeScript + Vite（`noImplicitAny` 啟用）
+- **測試 / Lint**：`npm test`（vitest，純函數層測試）、`npm run lint`（tsc + eslint，含 react-hooks 規則）——改完功能請跑這兩個
+- **樣式**：Tailwind CSS v4（`@tailwindcss/vite` plugin）
+- **AI**：Google Gemini（`@google/genai`），透過 `callAI` 封裝層呼叫（實作在 `src/hooks/useAIRequest.ts`），不直接散落在各處
+- **儲存**：Supabase 雲端存檔（Google 登入，強制登入才能遊玩）；API 設定另存 localStorage
+- **主要邏輯檔案**：`src/App.tsx`（state 組裝、handlers、主介面 JSX）
+- **自訂 Hooks**：`src/hooks/useGameStore.ts`（state + 存檔快照/遷移）、`src/hooks/useCommandParser.ts`（指令整合層）、`src/hooks/useAIRequest.ts`（callAI：timeout/abort/retry）、`src/hooks/useAuth.ts`（Supabase 登入與雲端存檔 CRUD）
+- **純函數層**：`src/utils/`（`promptBuilder`、`commandParser` → `commandReducer` → `commandEffects` 三層、`timeUtils`、`markdownParser` 等）
 - **組件**：`src/components/`（純 UI，只接收 props 和 callback）
 
 ---
 
 ## 架構規則
 
-- `App.tsx` 只保留：state、handlers、`buildPrompt`、API 呼叫、主介面三欄 JSX
+- `App.tsx` 只保留：state 組裝、handlers、API 呼叫接線、主介面三欄 JSX
+- Prompt 組裝在 `src/utils/promptBuilder.ts`；指令解析採 parse → reduce → effects 三層（`src/utils/commandParser|commandReducer|commandEffects.ts`），`useCommandParser` 只是整合層
 - `src/components/` 純 UI 組件，不持有業務 state
-- **所有 AI 呼叫統一走 `callAI` 函數**，不直接 `new GoogleGenAI(...)` 散落在各地
-- State 更新一律用 functional update：`setState(prev => ...)`
+- **所有 AI 呼叫統一走 `callAI` 函數**（`useAIRequest`），不直接 `new GoogleGenAI(...)` 散落在各地
+- State 更新一律用 functional update：`setState(prev => ...)`；updater 內不得呼叫其他 setState（updater 必須是純函數）
+- async 函數在 `await` 之後不要讀取閉包捕獲的 state，改讀最新值 ref（見 `App.tsx` 的 `itemsRef` / `summaryPoolRef` / `compressCountRef`）
 
 ---
 
@@ -57,8 +61,13 @@ LLM 擔任 GM 的開放式世界文字冒險 RPG，玩家以自由文字輸入�
 <div className="bg-gray-900 text-amber-400">
 ```
 
-### 唯一例外
-- `affectionColor()` 函數回傳的 CSS 變數字串，用於 `style={{ color }}` — **這是唯一允許的動態顏色**
+### 明文例外（除此之外一律禁止）
+- `affectionColor()` 函數回傳的 CSS 變數字串，用於 `style={{ color }}`
+- `App.tsx` `getSkyGradient()` 的天空漸層色碼 — 場景氛圍色，隨遊戲時間變化，非 UI 主題色
+- `App.tsx` HP / MP 條的 `linear-gradient` 色碼 — 遊戲數值語意色
+- `MapModal.tsx` 頂部的手繪地圖調色盤物件 — 羊皮紙地圖風格，獨立於 UI 主題
+- `Faction.color` — 由調色盤自動指派、存於存檔資料的勢力色
+- Google 登入按鈕 SVG 的品牌色（Google 規範要求）
 
 ---
 
@@ -172,12 +181,20 @@ localStorage key: 'mainGM_config'   → 主 GM 設定
 localStorage key: 'subGM_config'    → 助理 GM 設定
 ```
 
-**callAI 簽名：**
+**callAI 簽名（`src/hooks/useAIRequest.ts`）：**
 ```typescript
-callAI(prompt: string, options?: { role?: 'main' | 'sub'; maxTokens?: number }): Promise<string>
+callAI(prompt: string, options?: {
+  role?: 'main' | 'sub';
+  maxTokens?: number;
+  onChunk?: (chunk: string) => void;      // streaming 即時回傳
+  onStreamStart?: () => void;             // 每次串流 attempt 開始（重試會再觸發），供重置累積文字
+  responseJson?: boolean;                 // structured output（Gemma 模型自動略過）
+}): Promise<string>
 // role 預設 'sub'
-// handleSendMessage 傳 { role: 'main' }
-// updateAdventureState / NPC 記憶融合 傳 { role: 'sub' }（預設，可省略）
+// handleSendMessage 傳 { role: 'main', onChunk, onStreamStart }（streaming 即時顯示，偵測 << 停止追加）
+// updateAdventureState 傳 { responseJson: true }（預設 sub）
+// 內建 timeout（main 90s / sub 30s）、retry（timeout/429/500/503，指數退避）、abort
+// timeout 觸發時會讓背景串流停止，不再消耗配額
 ```
 
 **Gemini 靜態模型清單：**
@@ -342,8 +359,8 @@ MEMORY_ADD:region:normal:迷霧森林昨日大火:locations=迷霧森林:keyword
 | 決策 | 原因 |
 |---|---|
 | HP / MP 無上限 | 支援升級後成長感 |
-| 所有邏輯在 App.tsx | 維持簡單，避免跨檔依賴 |
-| localStorage 儲存 | 先做 UI，Firebase 之後再加 |
+| 邏輯集中：App.tsx 組裝 + utils 純函數層 | 業務邏輯可測試，App.tsx 只做接線 |
+| Supabase 雲端存檔（強制登入） | 跨裝置同步；`saveDataMapper` + schema migration 統一入口 |
 | API Key 不進存檔 | 安全性考量 |
 | callAI 封裝層 | 未來換 API 服務只需改一處 |
 | 記憶四層架構 | world / region / scene / npc，依影響範圍分層注入 |
@@ -393,18 +410,21 @@ MEMORY_ADD:region:normal:迷霧森林昨日大火:locations=迷霧森林:keyword
 
 | 函數 / 位置 | 說明 |
 |---|---|
-| `App.tsx` `buildPrompt(userInput, messages)` | 組裝送給主 GM 的完整 prompt |
+| `utils/promptBuilder.ts` `buildPrompt(deps, userInput, messages, ...)` | 組裝送給主 GM 的完整 prompt（App.tsx 以 `buildPromptWrapper` 注入依賴） |
 | `App.tsx` `handleSendMessage()` | 主要對話送出與 AI 串流邏輯 |
-| `App.tsx` `callAI(prompt, options)` | 統一 AI 呼叫入口（主/助理 GM 分流） |
-| `App.tsx` `updateAdventureState(history, newItems)` | 觸發助理 GM 整理摘要與目標 |
+| `useAIRequest` `callAI(prompt, options)` | 統一 AI 呼叫入口（主/助理 GM 分流、timeout/abort/retry） |
+| `App.tsx` `updateAdventureState(history, newItems, hasKeyEvent)` | 觸發助理 GM 整理摘要與目標（每 3 回合節流，關鍵事件跳過） |
 | `App.tsx` `handleGenerateDiary()` | 水晶球日記：AI 自動生成日記 |
 | `App.tsx` `handleMergeDiary(ids)` | 融合多條日記 |
-| `useCommandParser` `parseAndExecuteCommands(text)` | 解析並執行 COMMANDS 區塊 |
-| `useCommandParser` `applyItemEffect(item, qty)` | 道具數值效果套用 |
+| `useCommandParser` `parseAndExecuteCommands(text)` | 整合 parse → reduce → effects 三層，執行 COMMANDS 區塊 |
+| `utils/commandParser.ts` `parseCommandsToAST(text)` | 解析 COMMANDS 區塊為 AST |
+| `utils/commandReducer.ts` `reduceCommands(commands, state)` | 純函數：計算狀態變更 |
+| `utils/commandEffects.ts` `applyStateChanges(...)` | 套用狀態變更與副作用 |
 | `useCommandParser` `scanKeywords(keywords, depth)` | 掃描最近 N 則對話是否含關鍵字 |
 | `useCommandParser` `isMemoryTriggered(mem, input, loc)` | 判斷記憶是否應該注入 |
 | `useCommandParser` `tickMemoryCounters(triggeredIds)` | 每回合更新 sticky/cooldown |
-| `useCommandParser` `triggerNpcMemoryMerge(npc)` | 呼叫助理 GM 融合 NPC 舊記憶 |
-| `useGameStore` `saveToStorage(snapshot?)` | 統一存檔入口（key: `rpworld_save`）|
-| `useGameStore` `loadFromData(data)` | 匯入存檔並自動 migrate 舊格式 |
-| `NpcModal.tsx` `affectionColor(affection)` | 回傳好感度對應 CSS 變數字串 |
+| `useGameStore` `buildSaveSnapshot(partial?)` | 組裝存檔快照，供 `saveToCloud` 上傳 |
+| `useGameStore` `loadFromData(data)` | 匯入存檔並自動 migrate 舊格式（`saveDataMapper` + `runMigrations`）|
+| `useAuth` `saveToCloud / loadFromCloud / listCloudSaves / deleteCloudSave` | Supabase `saves` 表 CRUD |
+| `utils/affectionColor.ts` `affectionColor(affection)` | 回傳好感度對應 CSS 變數字串（唯一入口） |
+| `useCommandParser` `consumeItem(name, qty?)` | 使用道具（原名 useItem，因 hook 命名慣例改名） |

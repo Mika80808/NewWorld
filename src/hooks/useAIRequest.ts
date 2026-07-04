@@ -42,6 +42,8 @@ export function useAIRequest(mainGMConfig: GMConfig, subGMConfig: SubGMConfig) {
 
   // Per-request abort token：每次呼叫 callAI 遞增，舊請求的 for-await 迴圈偵測到不符即停止
   const requestTokenRef = useRef(0);
+  // abort 旗標：涵蓋重試退避空檔（token 已被下一次 attempt 重設時仍能偵測到中止）
+  const abortedRef = useRef(false);
 
   // ── callAI ──────────────────────────────────────────────────────────────────
   const callAI = useCallback(async (
@@ -50,6 +52,10 @@ export function useAIRequest(mainGMConfig: GMConfig, subGMConfig: SubGMConfig) {
       role?: 'main' | 'sub';
       maxTokens?: number;
       onChunk?: (chunk: string) => void;
+      /** 每次串流 attempt 開始時呼叫（重試會再次觸發），供呼叫端重置累積的串流文字 */
+      onStreamStart?: () => void;
+      /** 要求模型直接輸出 JSON（structured output）。Gemma 開源模型不支援，會自動略過 */
+      responseJson?: boolean;
     }
   ): Promise<string> => {
     const { role = 'sub' } = options ?? {};
@@ -62,10 +68,18 @@ export function useAIRequest(mainGMConfig: GMConfig, subGMConfig: SubGMConfig) {
     const model  = cfg.model || 'gemini-2.0-flash';
     const tokens = options?.maxTokens ?? cfg.maxTokens;
 
-    // 標記本次請求的 token
-    const myToken = ++requestTokenRef.current;
+    const callConfig: Record<string, unknown> = { maxOutputTokens: tokens };
+    if (options?.responseJson && !model.startsWith('gemma')) {
+      callConfig.responseMimeType = 'application/json';
+    }
+
+    abortedRef.current = false;
 
     for (let attempt = 0; attempt <= MAX_RETRIES[role]; attempt++) {
+      if (abortedRef.current) throw new DOMException('Aborted', 'AbortError');
+      // 每次 attempt 使用新 token：逾時或 abort 後遞增 token，
+      // 讓前一次 attempt 的串流迴圈停止，不再於背景消耗配額
+      const myToken = ++requestTokenRef.current;
       try {
         const ai = new GoogleGenAI({ apiKey: key.trim() });
 
@@ -73,8 +87,9 @@ export function useAIRequest(mainGMConfig: GMConfig, subGMConfig: SubGMConfig) {
         const doCall = async (): Promise<string> => {
           if (options?.onChunk) {
             // Streaming path（主 GM）
+            options.onStreamStart?.();
             const response = await ai.models.generateContentStream({
-              model, contents: prompt, config: { maxOutputTokens: tokens },
+              model, contents: prompt, config: callConfig,
             });
             let fullText = '';
             for await (const chunk of response) {
@@ -91,18 +106,27 @@ export function useAIRequest(mainGMConfig: GMConfig, subGMConfig: SubGMConfig) {
           } else {
             // Non-streaming path（Sub GM）
             const response = await ai.models.generateContent({
-              model, contents: prompt, config: { maxOutputTokens: tokens },
+              model, contents: prompt, config: callConfig,
             });
             return response.text?.trim() || '';
           }
         };
 
         // ── Timeout race ─────────────────────────────────────────────────────
-        const timeoutPromise = new Promise<never>((_, reject) =>
-          setTimeout(() => reject(new Error('REQUEST_TIMEOUT')), TIMEOUT_MS[role])
-        );
+        let timeoutTimer: ReturnType<typeof setTimeout> | undefined;
+        const timeoutPromise = new Promise<never>((_, reject) => {
+          timeoutTimer = setTimeout(() => {
+            // 讓進行中的串流迴圈偵測到 token 不符而停止
+            if (requestTokenRef.current === myToken) requestTokenRef.current++;
+            reject(new Error('REQUEST_TIMEOUT'));
+          }, TIMEOUT_MS[role]);
+        });
 
-        return await Promise.race([doCall(), timeoutPromise]);
+        try {
+          return await Promise.race([doCall(), timeoutPromise]);
+        } finally {
+          clearTimeout(timeoutTimer);
+        }
 
       } catch (err) {
         // Abort：不重試，直接往上拋
@@ -121,6 +145,7 @@ export function useAIRequest(mainGMConfig: GMConfig, subGMConfig: SubGMConfig) {
 
   // ── abort：廢棄當前請求 ──────────────────────────────────────────────────────
   const abort = useCallback(() => {
+    abortedRef.current = true;
     requestTokenRef.current++; // 讓進行中的 for-await 迴圈偵測到 token 不符
     setAiRequestStatus('aborted');
   }, []);

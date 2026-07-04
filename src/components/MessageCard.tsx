@@ -5,12 +5,13 @@ import { Message } from '../types';
 
 interface MessageCardProps {
   msg: Message;
-  profile: { name: string };
+  playerName: string;
   activeMenuId: number | null;
   editingMessageId: number | null;
   editMessageText: string;
   isLoading: boolean;
-  messages: Message[];
+  /** 這張卡片是否為「主 GM 思考中」的空泡泡（由父層計算，取代傳入整個 messages 陣列） */
+  isThinking: boolean;
   onRegenerate: (msgId: number) => void;
   onMenuToggle: (msgId: number) => void;
   onCopy: (text: string) => void;
@@ -21,17 +22,17 @@ interface MessageCardProps {
   onEditSave: (msgId: number, newText: string) => void;
   renderMarkdown: (text: string) => React.ReactNode;
   stripBareCommands: (text: string) => string;
-  showToast: (msg: string) => void;
 }
 
-export const MessageCard: React.FC<MessageCardProps> = ({
+// React.memo：callbacks 由 App 以 useCallback 穩定，長對話下只有內容變動的卡片會重渲染
+export const MessageCard: React.FC<MessageCardProps> = React.memo(({
   msg,
-  profile,
+  playerName,
   activeMenuId,
   editingMessageId,
   editMessageText,
   isLoading,
-  messages,
+  isThinking,
   onRegenerate,
   onMenuToggle,
   onCopy,
@@ -56,7 +57,7 @@ export const MessageCard: React.FC<MessageCardProps> = ({
     >
       <div className={`flex items-center space-x-2 mb-1 ${isUser ? 'mr-2 flex-row-reverse space-x-reverse' : 'ml-2'}`}>
         <span className="text-sm text-[var(--text-muted)] font-bold">
-          {isUser ? profile.name : '主 GM'}
+          {isUser ? playerName : '主 GM'}
         </span>
         <div className={`flex items-center space-x-1 opacity-0 group-hover:opacity-100 transition ${activeMenuId === msg.id ? 'opacity-100' : ''}`}>
           {!isUser && (
@@ -176,7 +177,7 @@ export const MessageCard: React.FC<MessageCardProps> = ({
           </div>
         ) : isUser ? (
           <p className="leading-relaxed whitespace-pre-wrap">{msg.text}</p>
-        ) : msg.text === '' && isLoading && msg.id === messages[messages.length - 1]?.id ? (
+        ) : isThinking ? (
           <div className="flex items-center space-x-2 py-0.5 select-none">
             <span className="text-sm" style={{ color: 'var(--text-stat-label)' }}>主 GM 思考中</span>
             <span className="flex items-end space-x-0.5 pb-0.5">
@@ -195,4 +196,6 @@ export const MessageCard: React.FC<MessageCardProps> = ({
       </div>
     </motion.div>
   );
-};
+});
+
+MessageCard.displayName = 'MessageCard';

@@ -2,14 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { BookOpen, Plus, Search, CheckSquare, Square, Trash2, Heart, MoreHorizontal } from 'lucide-react';
 import { LorebookEntry, Npc, Faction } from '../types';
 import { debounce } from '../utils/debounce';
-
-function affectionColor(affection: number): string {
-  if (affection < 0)   return 'var(--affection-hostile)';
-  if (affection < 50)  return 'var(--affection-low)';
-  if (affection < 80)  return 'var(--affection-mid)';
-  if (affection < 100) return 'var(--affection-high)';
-  return 'var(--affection-max)';
-}
+import { affectionColor } from '../utils/affectionColor';
 
 interface LorebookModalProps {
   isOpen: boolean;
@@ -602,7 +595,7 @@ export const LorebookModal: React.FC<LorebookModalProps> = ({
           const relationship = npcData?.relationship ?? '';
 
           const handleCardClick = () => {
-            const target = npcData ?? {
+            const fallbackNpc: Npc = {
               id: -(entry.id),
               name: entry.title,
               job: entry.job ?? '',
@@ -614,8 +607,10 @@ export const LorebookModal: React.FC<LorebookModalProps> = ({
               isPinned: false,
               memories: [],
               thoughts: [],
+              category: 'NPC',
+              isActive: true,
             };
-            onSelectNpc(target as Npc);
+            onSelectNpc(npcData ?? fallbackNpc);
           };
 
           return (

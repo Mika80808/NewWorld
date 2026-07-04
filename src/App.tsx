@@ -1,17 +1,22 @@
-import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useRef, useEffect, useCallback, useMemo, lazy, Suspense } from 'react';
 import { Settings, Send, RefreshCw, MoreVertical, Book, BookOpen, User, Package, Beaker, Users, Heart, MapPin, Zap, Coins, Calendar, Shield, CheckSquare, ChevronDown, ChevronRight, Map as MapIcon, Cloud, Sun, CloudRain, Snowflake, Moon, Wind, Sparkles, Brain, ScrollText, History, X, Edit2, Trash2, Pin } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useAIRequest } from './hooks/useAIRequest';
-import { DiaryModal } from './components/DiaryModal';
-import { LorebookModal } from './components/LorebookModal';
 import { Npc, LorebookEntry, MemoryEntry, Message, NpcMemory, EquipmentItem, ItemEntry, GMConfig, SubGMConfig } from './types';
-import { NpcModal, affectionColor } from './components/NpcModal';
+import { affectionColor } from './utils/affectionColor';
 import { QuestModal } from './components/QuestModal';
 import { ProfileModal } from './components/ProfileModal';
 import { SystemPromptModal } from './components/SystemPromptModal';
-import { SettingsModal } from './components/SettingsModal';
-import { MapModal } from './components/MapModal';
 import { MessageCard } from './components/MessageCard';
+import { ChatInput } from './components/ChatInput';
+import { ConfirmDialog, DialogRequest } from './components/ConfirmDialog';
+
+// 大型 Modal 延遲載入：不進首屏 bundle，開啟時才下載對應 chunk
+const DiaryModal    = lazy(() => import('./components/DiaryModal').then(m => ({ default: m.DiaryModal })));
+const LorebookModal = lazy(() => import('./components/LorebookModal').then(m => ({ default: m.LorebookModal })));
+const NpcModal      = lazy(() => import('./components/NpcModal').then(m => ({ default: m.NpcModal })));
+const SettingsModal = lazy(() => import('./components/SettingsModal').then(m => ({ default: m.SettingsModal })));
+const MapModal      = lazy(() => import('./components/MapModal').then(m => ({ default: m.MapModal })));
 import { MONTHS_DATA } from './constants';
 import { useGameStore } from './hooks/useGameStore';
 import { useCommandParser } from './hooks/useCommandParser';
@@ -24,7 +29,7 @@ import { buildPrompt, BuildPromptDeps } from './utils/promptBuilder';
 import { SaveSlotsModal } from './components/SaveSlotsModal';
 
 export default function App() {
-  const backgroundImageUrl = `${import.meta.env.BASE_URL}background.jpg`;
+  const backgroundImageUrl = `${import.meta.env.BASE_URL}background.webp`;
 
   // ─── UI 狀態（Modal / 輸入 / 載入）──────────────────────────────────────────
   const [isPriorityMode, setIsPriorityMode] = useState(false);
@@ -86,7 +91,8 @@ ${itemClassifySection}
 對話內容：
 ${lastMessages}`;
 
-      const text = await callAI(prompt);
+      // structured output 直接回 JSON；``` 圍欄清理保留作為 Gemma 等不支援模型的 fallback
+      const text = await callAI(prompt, { responseJson: true });
       if (!text) return;
       const clean = text.replace(/```json|```/g, '').trim();
       const data = JSON.parse(clean);
@@ -96,22 +102,23 @@ ${lastMessages}`;
         setCurrentGoals(data.goals);
       }
 
-      // 道具分類
+      // 道具分類（讀 itemsRef 取最新道具清單，寫入一律 functional update）
       if (data.item_types && typeof data.item_types === 'object') {
         const toEquip: string[] = Object.entries(data.item_types)
           .filter(([, v]) => v === 'equipment')
           .map(([k]) => k);
         if (toEquip.length > 0) {
-          const moving = items.filter(i => toEquip.includes(i.name));
-          const remainingItems = items.filter(i => !toEquip.includes(i.name));
-          const newEquipment = [...equipment];
-          moving.forEach(item => {
-            if (!newEquipment.some(e => e.name === item.name)) {
-              newEquipment.push({ id: item.id, name: item.name, description: item.description, isEquipped: false });
-            }
+          const moving = itemsRef.current.filter(i => toEquip.includes(i.name));
+          setItems(prev => prev.filter(i => !toEquip.includes(i.name)));
+          setEquipment(prev => {
+            const next = [...prev];
+            moving.forEach(item => {
+              if (!next.some(e => e.name === item.name)) {
+                next.push({ id: item.id, name: item.name, description: item.description, isEquipped: false });
+              }
+            });
+            return next;
           });
-          setItems(remainingItems);
-          setEquipment(newEquipment);
         }
       }
 
@@ -120,8 +127,8 @@ ${lastMessages}`;
         // 左欄只顯示最新一則
         setAdventureLog([data.summary]);
 
-        // 加入暫存池，達 10 則觸發壓縮
-        const newPool = [...summaryPool, data.summary];
+        // 加入暫存池，達 10 則觸發壓縮（讀 ref 取最新池，避免 await 期間的 stale closure）
+        const newPool = [...summaryPoolRef.current, data.summary];
         if (newPool.length >= 10) {
           // ── 階段二：壓縮摘要（靜默背景）──────────────────────────────────
           const compressPrompt = `你是 RPG 後台資料整理員。
@@ -139,13 +146,12 @@ ${newPool.map((s, i) => `${i + 1}. ${s}`).join('\n')}`;
 
           const compressed = await callAI(compressPrompt);
           if (compressed) {
-            const newCompressCount = compressCount + 1;
+            const newCompressCount = compressCountRef.current + 1;
             setSummaryPool([compressed.trim()]);
-            setCompressCount(newCompressCount);
+            setCompressCount(newCompressCount >= 3 ? 0 : newCompressCount);
 
             // ── 階段三：壓縮 3 次後自動生成日記（靜默）────────────────────
             if (newCompressCount >= 3) {
-              setCompressCount(0);
               // 取出目前暫存池（含剛壓縮的這段）作為日記素材
               handleGenerateDiaryFromPool([compressed.trim()]);
             }
@@ -179,7 +185,7 @@ ${newPool.map((s, i) => `${i + 1}. ${s}`).join('\n')}`;
   const [editingMemoryId, setEditingMemoryId] = useState<string | null>(null);
   const [editingMemoryContent, setEditingMemoryContent] = useState('');
   const [isMapOpen, setIsMapOpen] = useState(false);
-  const [inputText, setInputText] = useState('');
+  const [dialogRequest, setDialogRequest] = useState<DialogRequest | null>(null);
   const [isLoadingQuickOptions, setIsLoadingQuickOptions] = useState(false);
   const [showQuickMenu, setShowQuickMenu] = useState(false);
   // ─── 雲端存檔 / 帳號 ─────────────────────────────────────────────────────────
@@ -275,6 +281,21 @@ ${newPool.map((s, i) => `${i + 1}. ${s}`).join('\n')}`;
     setIsStoreReady,
   } = store;
 
+  // 最新值 refs：updateAdventureState 在 await AI 回應後讀取這些 ref，
+  // 避免 async 閉包捕獲舊快照（stale closure）覆蓋等待期間的狀態變更
+  const itemsRef = useRef(items);
+  itemsRef.current = items;
+  const summaryPoolRef = useRef(summaryPool);
+  summaryPoolRef.current = summaryPool;
+  const compressCountRef = useRef(compressCount);
+  compressCountRef.current = compressCount;
+  // 供 MessageCard 的穩定 callbacks（useCallback []）在事件觸發時讀取最新值，
+  // 讓 React.memo 不因 callback 引用變動而失效
+  const messagesRef = useRef(messages);
+  messagesRef.current = messages;
+  const buildSaveSnapshotRef = useRef(buildSaveSnapshot);
+  buildSaveSnapshotRef.current = buildSaveSnapshot;
+
   const fileInputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const INITIAL_VISIBLE_MESSAGES = 10;
@@ -349,6 +370,7 @@ ${newPool.map((s, i) => `${i + 1}. ${s}`).join('\n')}`;
 
   // ─── Phase 1: Expose Performance Monitor for Development ──────────────────────
   useEffect(() => {
+    if (!import.meta.env.DEV) return;
     (window as any).__performanceMonitor = {
       getScrollMetrics: () => performanceMonitor.getScrollMetrics(),
       getRenderMetrics: () => performanceMonitor.getRenderMetrics(),
@@ -475,7 +497,7 @@ ${newPool.map((s, i) => `${i + 1}. ${s}`).join('\n')}`;
   // callAI 已由 useAIRequest hook 提供（D7）
 
   // ─── 指令解析器（useCommandParser）─────────────────────────────────────────
-  const { parseAndExecuteCommands, useItem, scanKeywords, isMemoryTriggered, tickMemoryCounters } =
+  const { parseAndExecuteCommands, consumeItem, scanKeywords, isMemoryTriggered, tickMemoryCounters } =
     useCommandParser({
       timeState, profile, currentLocation, quests, memories, items, npcs,
       stickyCounters, cooldownCounters, messages, lorebookEntries, statusEffects,
@@ -560,7 +582,7 @@ ${newPool.map((s, i) => `${i + 1}. ${s}`).join('\n')}`;
 
   const handleAddDiary = () => {
     const newId = Date.now();
-    setDiaryEntries([{ id: newId, title: '', text: '', isActive: true, keywords: [] }, ...diaryEntries]);
+    setDiaryEntries(prev => [{ id: newId, title: '', text: '', isActive: true, keywords: [] }, ...prev]);
     return newId;
   };
 
@@ -587,11 +609,11 @@ ${newPool.map((s, i) => `${i + 1}. ${s}`).join('\n')}`;
   };
 
   const handleDeleteDiary = (id: number) => {
-    setDiaryEntries(diaryEntries.filter(entry => entry.id !== id));
+    setDiaryEntries(prev => prev.filter(entry => entry.id !== id));
   };
 
   const handleToggleDiary = (id: number) => {
-    setDiaryEntries(diaryEntries.map(entry => 
+    setDiaryEntries(prev => prev.map(entry =>
       entry.id === id ? { ...entry, isActive: !entry.isActive } : entry
     ));
   };
@@ -749,27 +771,27 @@ ${poolText}
   };
 
   const handleDiaryChange = (id: number, text: string) => {
-    setDiaryEntries(diaryEntries.map(entry => 
+    setDiaryEntries(prev => prev.map(entry =>
       entry.id === id ? { ...entry, text } : entry
     ));
   };
 
   const handleAddLorebook = (category: string) => {
     const newId = Date.now();
-    setLorebookEntries([{ id: newId, title: '新設定', content: '', category, isActive: true, insertionOrder: 100, selective: false, secondaryKeys: [] }, ...lorebookEntries]);
+    setLorebookEntries(prev => [{ id: newId, title: '新設定', content: '', category, isActive: true, insertionOrder: 100, selective: false, secondaryKeys: [] }, ...prev]);
     return newId;
   };
 
   const handleAddNpc = () => {
     const newId = Date.now();
-    const newNpc = {
+    const newNpc: Npc = {
       id: newId, name: '新角色', job: '', affection: 0, affectionLabel: '陌生人',
       appearance: '', personality: '', gender: '', race: '',
       backstory: '', other: '', relationship: '',
       location: '', lastSeenLocation: '',
       category: 'NPC', isActive: true, isPinned: false, memories: [], thoughts: [],
     };
-    const newLore = {
+    const newLore: LorebookEntry = {
       id: newId + 1, title: '新角色', category: 'NPC', content: '',
       isActive: true, insertionOrder: 100, selective: false, secondaryKeys: [], keywords: [],
       gender: '', race: '', age: '', job: '', appearance: '', personality: '', backstory: '', other: '',
@@ -805,17 +827,23 @@ ${poolText}
   };
 
   // ─── 每次 AI 回應結束後自動存檔 ─────────────────────────────────────────────
+  // 「上次儲存」時間只在雲端寫入成功後更新，失敗時 toast 提醒，避免玩家誤以為已存檔
   useEffect(() => {
     if (!isLoading && !isUpdatingLog && messages.length > 0 && messages[messages.length - 1]?.role === 'assistant') {
+      if (!authUser) return;
       const snapshot = buildSaveSnapshot();
-      if (authUser) {
-        setIsCloudSaving(true);
-        saveToCloud(authUser.id, currentSlotName, snapshot)
-          .finally(() => setIsCloudSaving(false));
-      }
-      const now = new Date();
-      localStorage.setItem('rpworld_last_saved', now.toISOString());
-      setLastSavedAt(now);
+      setIsCloudSaving(true);
+      saveToCloud(authUser.id, currentSlotName, snapshot)
+        .then(ok => {
+          if (ok) {
+            const now = new Date();
+            localStorage.setItem('rpworld_last_saved', now.toISOString());
+            setLastSavedAt(now);
+          } else {
+            showToast('☁️ 雲端存檔失敗，請檢查網路連線');
+          }
+        })
+        .finally(() => setIsCloudSaving(false));
     }
   }, [isLoading, isUpdatingLog]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -865,13 +893,20 @@ ${poolText}
   };
 
   // ─── 重置遊戲 ────────────────────────────────────────────────────────────────
-  const handleResetGame = async () => {
-    if (!window.confirm('確定要重置遊戲嗎？雲端存檔也會一併清除。')) return;
-    if (authUser) {
-      await deleteCloudSave(authUser.id, currentSlotName);
-    }
-    localStorage.removeItem('rpworld_last_saved');
-    window.location.reload();
+  const handleResetGame = () => {
+    setDialogRequest({
+      title: '重置遊戲',
+      message: '確定要重置遊戲嗎？雲端存檔也會一併清除。',
+      confirmLabel: '重置',
+      danger: true,
+      onConfirm: async () => {
+        if (authUser) {
+          await deleteCloudSave(authUser.id, currentSlotName);
+        }
+        localStorage.removeItem('rpworld_last_saved');
+        window.location.reload();
+      },
+    });
   };
 
   // ─── 存檔槽操作 ──────────────────────────────────────────────────────────────
@@ -888,33 +923,58 @@ ${poolText}
     }
   };
 
-  const handleDeleteSlot = async (slotName: string) => {
-    if (!authUser || !window.confirm(`確定要刪除「${slotName}」？`)) return;
-    const ok = await deleteCloudSave(authUser.id, slotName);
-    if (ok) {
-      setCloudSaves(prev => prev.filter(s => s.slot_name !== slotName));
-      if (slotName === currentSlotName) setCurrentSlotName('存檔一');
-      showToast(`已刪除「${slotName}」`);
-    }
+  const handleDeleteSlot = (slotName: string) => {
+    if (!authUser) return;
+    setDialogRequest({
+      title: '刪除存檔槽',
+      message: `確定要刪除「${slotName}」？此動作無法復原。`,
+      confirmLabel: '刪除',
+      danger: true,
+      onConfirm: async () => {
+        const ok = await deleteCloudSave(authUser.id, slotName);
+        if (ok) {
+          setCloudSaves(prev => prev.filter(s => s.slot_name !== slotName));
+          if (slotName === currentSlotName) setCurrentSlotName('存檔一');
+          showToast(`已刪除「${slotName}」`);
+        }
+      },
+    });
   };
 
-  const handleCreateSlot = async () => {
+  const handleCreateSlot = () => {
     if (!authUser) return;
-    const name = window.prompt('新存檔槽名稱（最多 10 字）')?.trim();
-    if (!name || name.length > 10) return;
-    if (cloudSaves.some(s => s.slot_name === name)) {
-      showToast('已有相同名稱的存檔槽');
-      return;
-    }
-    const snapshot = buildSaveSnapshot();
-    const ok = await saveToCloud(authUser.id, name, snapshot);
-    if (ok) {
-      setCurrentSlotName(name);
-      const updated = await listCloudSaves(authUser.id);
-      setCloudSaves(updated);
-      showToast(`已建立「${name}」`);
-    }
+    setDialogRequest({
+      title: '新增存檔槽',
+      input: { placeholder: '新存檔槽名稱（最多 10 字）', maxLength: 10 },
+      confirmLabel: '建立',
+      onConfirm: async (value) => {
+        const name = value?.trim();
+        if (!name) return;
+        if (cloudSaves.some(s => s.slot_name === name)) {
+          showToast('已有相同名稱的存檔槽');
+          return;
+        }
+        const snapshot = buildSaveSnapshot();
+        const ok = await saveToCloud(authUser.id, name, snapshot);
+        if (ok) {
+          setCurrentSlotName(name);
+          const updated = await listCloudSaves(authUser.id);
+          setCloudSaves(updated);
+          showToast(`已建立「${name}」`);
+        }
+      },
+    });
   };
+
+  // selectedNpc 與 npcs 同步：NPC 資料更新後讓開啟中的 Modal 顯示最新內容。
+  // 取代原本在 setNpcs updater 內呼叫 setSelectedNpc 的做法（updater 必須是純函數）
+  useEffect(() => {
+    setSelectedNpc(prev => {
+      if (!prev) return prev;
+      const fresh = npcs.find(n => n.id === prev.id);
+      return fresh && fresh !== prev ? fresh : prev;
+    });
+  }, [npcs]);
 
   const handleAddNpcMemory = (npcId: number, text: string, importance: 'core' | 'normal' = 'normal') => {
     if (!text.trim()) return;
@@ -926,47 +986,35 @@ ${poolText}
       importance,
       isMerged: false,
     };
-    setNpcs(prev => prev.map(n => {
-      if (n.id !== npcId) return n;
-      const updatedNpc = { ...n, memories: [...(n.memories || []), newMem] };
-      if (selectedNpc?.id === npcId) setSelectedNpc(updatedNpc);
-      return updatedNpc;
-    }));
+    setNpcs(prev => prev.map(n =>
+      n.id === npcId ? { ...n, memories: [...(n.memories || []), newMem] } : n
+    ));
   };
 
   const handleRemoveNpcMemory = (npcId: number, memId: string) => {
-    setNpcs(prev => prev.map(n => {
-      if (n.id !== npcId) return n;
-      const updatedNpc = { ...n, memories: n.memories.filter(m => m.id !== memId) };
-      if (selectedNpc?.id === npcId) setSelectedNpc(updatedNpc);
-      return updatedNpc;
-    }));
+    setNpcs(prev => prev.map(n =>
+      n.id === npcId ? { ...n, memories: n.memories.filter(m => m.id !== memId) } : n
+    ));
   };
 
   const handleUpdateNpcMemory = (npcId: number, memId: string, updates: Partial<NpcMemory>) => {
-    setNpcs(prev => prev.map(n => {
-      if (n.id !== npcId) return n;
-      const updatedNpc = {
-        ...n,
-        memories: n.memories.map(m => m.id === memId ? { ...m, ...updates } : m),
-      };
-      if (selectedNpc?.id === npcId) setSelectedNpc(updatedNpc);
-      return updatedNpc;
-    }));
+    setNpcs(prev => prev.map(n =>
+      n.id === npcId
+        ? { ...n, memories: n.memories.map(m => m.id === memId ? { ...m, ...updates } : m) }
+        : n
+    ));
   };
 
   const handleClearNewMemories = (npcId: number) => {
-    setNpcs(prev => prev.map(n => {
-      if (n.id !== npcId) return n;
-      const updatedNpc = { ...n, memories: n.memories.map(m => m.isNew ? { ...m, isNew: false } : m) };
-      if (selectedNpc?.id === npcId) setSelectedNpc(updatedNpc);
-      return updatedNpc;
-    }));
+    setNpcs(prev => prev.map(n =>
+      n.id === npcId
+        ? { ...n, memories: n.memories.map(m => m.isNew ? { ...m, isNew: false } : m) }
+        : n
+    ));
   };
 
   const handleUpdateNpcName = (npcId: number, name: string) => {
     setNpcs(prev => prev.map(n => n.id === npcId ? { ...n, name } : n));
-    setSelectedNpc(prev => prev?.id === npcId ? { ...prev, name } : prev);
   };
 
   const handleDeleteNpc = (npcId: number, lorebookId?: number) => {
@@ -979,21 +1027,9 @@ ${poolText}
   };
 
   const handleTogglePinNpc = (npcId: number) => {
-    setNpcs(prevNpcs => {
-      return prevNpcs.map(n => {
-        if (n.id === npcId) {
-          return { ...n, isPinned: !n.isPinned };
-        }
-        return n;
-      });
-    });
-
-    setSelectedNpc(prev => {
-      if (prev && prev.id === npcId) {
-        return { ...prev, isPinned: !prev.isPinned };
-      }
-      return prev;
-    });
+    setNpcs(prevNpcs => prevNpcs.map(n =>
+      n.id === npcId ? { ...n, isPinned: !n.isPinned } : n
+    ));
 
     const npc = npcs.find(n => n.id === npcId);
     if (npc) {
@@ -1024,7 +1060,7 @@ ${poolText}
       content: ''
     };
     
-    setLorebookEntries([newEntry, ...lorebookEntries]);
+    setLorebookEntries(prev => [newEntry, ...prev]);
     showToast(`已將 ${npc.name} 記下並加入設定集`);
   };
 
@@ -1068,23 +1104,16 @@ ${recentContext}
     }
   };
 
-  const handleSendMessage = async (textToUse?: string | React.MouseEvent | React.KeyboardEvent, historyToUse?: any[], locationOverride?: string) => {
-    const text = typeof textToUse === 'string' ? textToUse : inputText;
+  const handleSendMessage = async (text: string, historyToUse?: Message[], locationOverride?: string) => {
     if (!text.trim() || isLoading) return;
 
     lastInputRef.current = text;
     const currentIsPriority = isPriorityMode;
     if (isPriorityMode) setIsPriorityMode(false);
-    const userMessage = { id: Date.now(), role: 'user', text: text };
+    const userMessage: Message = { id: Date.now(), role: 'user', text: text };
     const newMessages = historyToUse ? [...historyToUse, userMessage] : [...messages, userMessage];
     setMessages(newMessages);
-    if (authUser) {
-      const snapshot = buildSaveSnapshot({ messages: newMessages });
-      setIsCloudSaving(true);
-      saveToCloud(authUser.id, currentSlotName, snapshot)
-        .finally(() => setIsCloudSaving(false));
-    }
-    if (typeof textToUse !== 'string') setInputText('');
+    // 送出時不立即上傳雲端：AI 回應後的自動存檔（含本則玩家訊息）已涵蓋，上傳次數減半
     setAiRequestStatus('loading');
 
     let aiMessageId: number | null = null;
@@ -1100,8 +1129,33 @@ ${recentContext}
       aiMessageId = Date.now() + 1;
       setMessages(prev => [...prev, { id: aiMessageId!, role: 'assistant', text: '' }]);
 
-      // 使用 streaming（避免長回應 timeout），背景累積不即時顯示，避免 <<COMMANDS>> 閃現
-      const fullText = await callAI(prompt, { role: 'main', onChunk: () => {} });
+      // 使用 streaming 即時顯示敘事；偵測到 << 起停止追加，避免 <<COMMANDS>> 閃現。
+      // [出場:] 標記在串流中同步遮蔽（含跨 chunk 的未閉合片段），最終文字仍以串流結束後的完整解析為準
+      let streamedText = '';
+      let commandsStarted = false;
+      const streamMsgId = aiMessageId;
+      const fullText = await callAI(prompt, {
+        role: 'main',
+        onStreamStart: () => {
+          // 重試時重置累積文字，避免前一次 attempt 的半截輸出重複疊加
+          streamedText = '';
+          commandsStarted = false;
+          setMessages(prev => prev.map(m => m.id === streamMsgId ? { ...m, text: '' } : m));
+        },
+        onChunk: (chunk) => {
+          if (commandsStarted) return;
+          streamedText += chunk;
+          const cutIdx = streamedText.indexOf('<<');
+          if (cutIdx !== -1) commandsStarted = true;
+          let visible = cutIdx === -1 ? streamedText : streamedText.slice(0, cutIdx);
+          visible = visible.replace(/\[出場:[^\]]*\]/g, '');
+          const lastOpen = visible.lastIndexOf('[出場');
+          if (lastOpen !== -1 && !visible.includes(']', lastOpen)) {
+            visible = visible.slice(0, lastOpen);
+          }
+          setMessages(prev => prev.map(m => m.id === streamMsgId ? { ...m, text: visible } : m));
+        },
+      });
       if (!fullText) {
         showToast('❌ AI 沒有回應，請檢查 API Key 或網路連線');
         if (aiMessageId !== null) setMessages(prev => prev.filter(m => m.id !== aiMessageId));
@@ -1224,14 +1278,20 @@ ${recentContext}
     };
   }, [isMobile]);
 
-  const handleRegenerate = (msgId: number) => {
-    if (isLoading) return;
-    const msgIndex = messages.findIndex(m => m.id === msgId);
+  // ─── 訊息卡片 callbacks ──────────────────────────────────────────────────────
+  // 全部以 useCallback + 最新值 ref 穩定引用，讓 MessageCard 的 React.memo 生效；
+  // callback 內一律讀 ref / functional update，不捕獲 render 當下的 state
+  const handleSendMessageRef = useRef(handleSendMessage);
+  handleSendMessageRef.current = handleSendMessage;
+
+  const handleRegenerate = useCallback((msgId: number) => {
+    const msgs = messagesRef.current;
+    const msgIndex = msgs.findIndex(m => m.id === msgId);
     if (msgIndex === -1) return;
 
     let lastUserMsgIndex = -1;
     for (let i = msgIndex - 1; i >= 0; i--) {
-      if (messages[i].role === 'user') {
+      if (msgs[i].role === 'user') {
         lastUserMsgIndex = i;
         break;
       }
@@ -1239,11 +1299,70 @@ ${recentContext}
 
     if (lastUserMsgIndex === -1) return;
 
-    const userMsgText = messages[lastUserMsgIndex].text;
-    const historyToUse = messages.slice(0, lastUserMsgIndex);
-    
-    handleSendMessage(userMsgText, historyToUse);
-  };
+    const userMsgText = msgs[lastUserMsgIndex].text;
+    const historyToUse = msgs.slice(0, lastUserMsgIndex);
+
+    handleSendMessageRef.current(userMsgText, historyToUse);
+  }, []);
+
+  const handleMenuToggle = useCallback((msgId: number) => {
+    setActiveMenuId(prev => prev === msgId ? null : msgId);
+  }, []);
+
+  const handleCopyMessage = useCallback((text: string) => {
+    const fallbackCopy = () => {
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+      showToast('已複製');
+    };
+    if (navigator.clipboard?.writeText) {
+      navigator.clipboard.writeText(text).then(() => showToast('已複製')).catch(fallbackCopy);
+    } else {
+      fallbackCopy();
+    }
+    setActiveMenuId(null);
+  }, [showToast]);
+
+  const handleEditMessage = useCallback((msgId: number, text: string) => {
+    setEditingMessageId(msgId);
+    setEditMessageText(text);
+    setActiveMenuId(null);
+  }, []);
+
+  const handleEditCancel = useCallback(() => setEditingMessageId(null), []);
+
+  // saveToCloud（useAuth）行為只依賴模組層的 supabase client，可安全排除於 deps
+  const handleDeleteMessage = useCallback((msgId: number) => {
+    const newMessages = messagesRef.current.filter(m => m.id !== msgId);
+    setMessages(newMessages);
+    if (authUser) {
+      const snapshot = buildSaveSnapshotRef.current({ messages: newMessages });
+      setIsCloudSaving(true);
+      saveToCloud(authUser.id, currentSlotName, snapshot)
+        .finally(() => setIsCloudSaving(false));
+    }
+    showToast('已刪除');
+    setActiveMenuId(null);
+  }, [authUser, currentSlotName, showToast]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const handleEditSave = useCallback((msgId: number, newText: string) => {
+    const newMessages = messagesRef.current.map(m => m.id === msgId ? { ...m, text: newText } : m);
+    setMessages(newMessages);
+    if (authUser) {
+      const snapshot = buildSaveSnapshotRef.current({ messages: newMessages });
+      setIsCloudSaving(true);
+      saveToCloud(authUser.id, currentSlotName, snapshot)
+        .finally(() => setIsCloudSaving(false));
+    }
+    setEditingMessageId(null);
+    showToast('已更新');
+  }, [authUser, currentSlotName, showToast]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ─── Auth loading ────────────────────────────────────────────────────────────
   if (authLoading) {
@@ -1397,55 +1516,6 @@ ${recentContext}
         </div>
       )}
 
-      {/* ── Mobile HUD 橫條（手機專用）── */}
-      {false && isMobile && (
-        <div
-          className="relative z-20 flex items-center px-3 gap-3 shrink-0"
-          style={{
-            height: '30px',
-            background: 'rgba(6,8,6,0.75)',
-            backdropFilter: 'blur(12px)',
-            WebkitBackdropFilter: 'blur(12px)',
-            borderBottom: '0.5px solid rgba(255,255,255,0.04)',
-          }}
-        >
-          {/* HP */}
-          <div className="flex items-center gap-1">
-            <span style={{ fontSize: '9.5px', fontWeight: 500, color: 'var(--text-stat-label)' }}>HP</span>
-            <div style={{ width: '36px', height: '4px', background: 'rgba(255,255,255,0.1)', borderRadius: '2px', overflow: 'hidden' }}>
-              <div style={{ height: '100%', borderRadius: '2px', background: 'linear-gradient(90deg,#b83030,#ff5050)', width: `${Math.max(0, Math.min(100, (profile.hp / (profile.maxHp ?? 100)) * 100))}%` }} />
-            </div>
-            <span style={{ fontSize: '9.5px', fontWeight: 600, color: 'var(--text-stat-value)' }}>{profile.hp}</span>
-          </div>
-
-          {/* 分隔線 */}
-          <div style={{ width: '0.5px', height: '12px', background: 'rgba(255,255,255,0.1)' }} />
-
-          {/* MP */}
-          <div className="flex items-center gap-1">
-            <span style={{ fontSize: '9.5px', fontWeight: 500, color: 'var(--text-stat-label)' }}>MP</span>
-            <div style={{ width: '36px', height: '4px', background: 'rgba(255,255,255,0.1)', borderRadius: '2px', overflow: 'hidden' }}>
-              <div style={{ height: '100%', borderRadius: '2px', background: 'linear-gradient(90deg,#2060a8,#5090d0)', width: `${Math.max(0, Math.min(100, (profile.mp / (profile.maxMp ?? 100)) * 100))}%` }} />
-            </div>
-            <span style={{ fontSize: '9.5px', fontWeight: 600, color: 'var(--text-stat-value)' }}>{profile.mp}</span>
-          </div>
-
-          {/* 分隔線 */}
-          <div style={{ width: '0.5px', height: '12px', background: 'rgba(255,255,255,0.1)' }} />
-
-          {/* 天氣 */}
-          <div className="flex items-center gap-1" style={{ fontSize: '10px', color: 'var(--text-muted)' }}>
-            {getWeatherIcon()}
-            <span>{timeState.weather}</span>
-          </div>
-
-          {/* 金幣（推到最右） */}
-          <div className="flex items-center gap-1 ml-auto" style={{ fontSize: '10px', fontWeight: 500, color: 'var(--color-amber)' }}>
-            <Coins className="w-3 h-3" />
-            <span>{(profile.gold ?? 0).toLocaleString()} G</span>
-          </div>
-        </div>
-      )}
 
       {/* Main Content */}
       <div className="flex flex-1 overflow-hidden relative z-10">
@@ -1770,7 +1840,7 @@ ${recentContext}
                               onMouseLeave={e => e.currentTarget.style.background = 'color-mix(in srgb, var(--color-emerald) 10%, transparent)'}
                               onClick={(e) => {
                                 e.stopPropagation();
-                                useItem(item.name);
+                                consumeItem(item.name);
                                 setSelectedConsumableItem(null);
                                 handleSendMessage(`（我使用了 ${item.name}（${item.description}））`);
                               }}
@@ -1982,77 +2052,22 @@ ${recentContext}
               <MessageCard
                 key={msg.id}
                 msg={msg}
-                profile={profile}
+                playerName={profile.name}
                 activeMenuId={activeMenuId}
                 editingMessageId={editingMessageId}
                 editMessageText={editMessageText}
                 isLoading={isLoading}
-                messages={messages}
+                isThinking={isLoading && msg.text === '' && msg.id === messages[messages.length - 1]?.id}
                 onRegenerate={handleRegenerate}
-                onMenuToggle={(msgId) => setActiveMenuId(activeMenuId === msgId ? null : msgId)}
-                onCopy={(text) => {
-                  const copyText = (text: string) => {
-                    if (navigator.clipboard?.writeText) {
-                      navigator.clipboard.writeText(text).then(() => showToast('已複製')).catch(() => {
-                        const ta = document.createElement('textarea');
-                        ta.value = text;
-                        ta.style.position = 'fixed';
-                        ta.style.opacity = '0';
-                        document.body.appendChild(ta);
-                        ta.select();
-                        document.execCommand('copy');
-                        document.body.removeChild(ta);
-                        showToast('已複製');
-                      });
-                    } else {
-                      const ta = document.createElement('textarea');
-                      ta.value = text;
-                      ta.style.position = 'fixed';
-                      ta.style.opacity = '0';
-                      document.body.appendChild(ta);
-                      ta.select();
-                      document.execCommand('copy');
-                      document.body.removeChild(ta);
-                      showToast('已複製');
-                    }
-                  };
-                  copyText(text);
-                  setActiveMenuId(null);
-                }}
-                onEdit={(msgId, text) => {
-                  setEditingMessageId(msgId);
-                  setEditMessageText(text);
-                  setActiveMenuId(null);
-                }}
-                onDelete={(msgId) => {
-                  const newMessages = messages.filter(m => m.id !== msgId);
-                  setMessages(newMessages);
-                  if (authUser) {
-                    const snapshot = buildSaveSnapshot({ messages: newMessages });
-                    setIsCloudSaving(true);
-                    saveToCloud(authUser.id, currentSlotName, snapshot)
-                      .finally(() => setIsCloudSaving(false));
-                  }
-                  showToast('已刪除');
-                  setActiveMenuId(null);
-                }}
+                onMenuToggle={handleMenuToggle}
+                onCopy={handleCopyMessage}
+                onEdit={handleEditMessage}
+                onDelete={handleDeleteMessage}
                 onEditChange={setEditMessageText}
-                onEditCancel={() => setEditingMessageId(null)}
-                onEditSave={(msgId, newText) => {
-                  const newMessages = messages.map(m => m.id === msgId ? { ...m, text: newText } : m);
-                  setMessages(newMessages);
-                  if (authUser) {
-                    const snapshot = buildSaveSnapshot({ messages: newMessages });
-                    setIsCloudSaving(true);
-                    saveToCloud(authUser.id, currentSlotName, snapshot)
-                      .finally(() => setIsCloudSaving(false));
-                  }
-                  setEditingMessageId(null);
-                  showToast('已更新');
-                }}
+                onEditCancel={handleEditCancel}
+                onEditSave={handleEditSave}
                 renderMarkdown={renderMarkdown}
                 stripBareCommands={stripBareCommands}
-                showToast={showToast}
               />
             ))}
             <div ref={messagesEndRef} />
@@ -2126,49 +2141,7 @@ ${recentContext}
                   }
                 </button>
 
-                <textarea
-                  className="w-full bg-transparent pl-2 pr-2 outline-none resize-none max-h-32 disabled:opacity-80"
-                  style={{ color: 'var(--text-main)', lineHeight: '20px', paddingTop: '8px', paddingBottom: '8px' }}
-                  placeholder={isLoading ? "..." : "輸入你的行動或對話..."}
-                  rows={1}
-                  value={inputText}
-                  onChange={(e) => setInputText(e.target.value)}
-                  disabled={isLoading}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' && !e.shiftKey) {
-                      e.preventDefault();
-                      handleSendMessage();
-                    }
-                  }}
-                  onInput={(e) => {
-                    const el = e.currentTarget;
-                    el.style.height = 'auto';
-                    el.style.height = Math.min(el.scrollHeight, 128) + 'px';
-                  }}
-                ></textarea>
-                {isLoading ? (
-                  /* 中止按鈕（D7）*/
-                  <button
-                    className="px-3 transition"
-                    style={{ height: '40px', display: 'flex', alignItems: 'center', color: 'var(--color-rose)', cursor: 'pointer' }}
-                    onClick={abortAI}
-                    title="中止請求"
-                  >
-                    <X className="w-5 h-5" />
-                  </button>
-                ) : (
-                  /* 送出按鈕 */
-                  <button
-                    className="px-3 transition"
-                    style={{ height: '40px', display: 'flex', alignItems: 'center', color: !inputText.trim() ? 'var(--text-muted)' : 'var(--btn-primary)', cursor: !inputText.trim() ? 'not-allowed' : 'pointer', opacity: !inputText.trim() ? 0.4 : 1 }}
-                    onMouseEnter={e => { if (inputText.trim()) (e.currentTarget as HTMLButtonElement).style.color = 'var(--btn-primary-hover)'; }}
-                    onMouseLeave={e => { if (inputText.trim()) (e.currentTarget as HTMLButtonElement).style.color = 'var(--btn-primary)'; }}
-                    onClick={handleSendMessage}
-                    disabled={!inputText.trim()}
-                  >
-                    <Send className="w-5 h-5" />
-                  </button>
-                )}
+                <ChatInput isLoading={isLoading} onSend={handleSendMessage} onAbort={abortAI} />
               </div>
 
               {/* D7：中斷 / 超時 / 錯誤 重試列 */}
@@ -2444,6 +2417,7 @@ ${recentContext}
       />
 
       {/* Diary Modal Overlay */}
+      {isDiaryModalOpen && <Suspense fallback={null}>
       <DiaryModal
         isOpen={isDiaryModalOpen}
         onClose={() => setIsDiaryModalOpen(false)}
@@ -2459,8 +2433,10 @@ ${recentContext}
         onDeleteDiary={handleDeleteDiary}
         scanKeywords={scanKeywords}
       />
+      </Suspense>}
 
       {/* Lorebook Modal Overlay */}
+      {isLorebookModalOpen && <Suspense fallback={null}>
       <LorebookModal
         isOpen={isLorebookModalOpen}
         onClose={() => setIsLorebookModalOpen(false)}
@@ -2478,8 +2454,10 @@ ${recentContext}
         onAddFaction={addFaction}
         onUpdateFaction={updateFaction}
       />
+      </Suspense>}
 
       {/* NPC Modal Overlay */}
+      {selectedNpc && <Suspense fallback={null}>
       <NpcModal
         selectedNpc={selectedNpc}
         lorebookEntries={lorebookEntries}
@@ -2494,6 +2472,7 @@ ${recentContext}
         onClearNewMemories={handleClearNewMemories}
         onUpdateNpcName={handleUpdateNpcName}
       />
+      </Suspense>}
 
       {/* System Prompt Modal Overlay */}
       <SystemPromptModal
@@ -2505,6 +2484,7 @@ ${recentContext}
       />
 
       {/* Settings Modal Overlay */}
+      {isSettingsModalOpen && <Suspense fallback={null}>
       <SettingsModal
         isOpen={isSettingsModalOpen}
         onClose={() => setIsSettingsModalOpen(false)}
@@ -2523,6 +2503,7 @@ ${recentContext}
         }}
         isCloudSaving={isCloudSaving}
       />
+      </Suspense>}
 
       {/* 存檔槽 Modal */}
       <SaveSlotsModal
@@ -2538,6 +2519,7 @@ ${recentContext}
       />
 
       {/* Map Modal */}
+      {isMapOpen && <Suspense fallback={null}>
       <MapModal
         isOpen={isMapOpen}
         onClose={() => setIsMapOpen(false)}
@@ -2554,6 +2536,10 @@ ${recentContext}
           if (npc) setSelectedNpc(npc);
         }}
       />
+      </Suspense>}
+
+      {/* 確認 / 輸入對話框（取代 window.confirm / window.prompt） */}
+      <ConfirmDialog request={dialogRequest} onClose={() => setDialogRequest(null)} />
 
       {/* ── Quest Side Panel ── */}
       <AnimatePresence>
@@ -2835,7 +2821,7 @@ ${recentContext}
                               <AnimatePresence>
                                 {selectedConsumableItem === item.id && (
                                   <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="flex space-x-2 mt-2.5 pt-2.5 overflow-hidden" style={{ borderTop: '1px solid color-mix(in srgb, var(--bg-elevated) 50%, transparent)' }}>
-                                    <button className="flex-1 border text-sm py-1.5 rounded-[8px] transition font-medium" style={{ background: 'color-mix(in srgb, var(--color-emerald) 10%, transparent)', color: 'var(--color-emerald)', borderColor: 'color-mix(in srgb, var(--color-emerald) 20%, transparent)' }} onClick={(e) => { e.stopPropagation(); useItem(item.name); setSelectedConsumableItem(null); handleSendMessage(`（我使用了 ${item.name}（${item.description}））`); }}>使用</button>
+                                    <button className="flex-1 border text-sm py-1.5 rounded-[8px] transition font-medium" style={{ background: 'color-mix(in srgb, var(--color-emerald) 10%, transparent)', color: 'var(--color-emerald)', borderColor: 'color-mix(in srgb, var(--color-emerald) 20%, transparent)' }} onClick={(e) => { e.stopPropagation(); consumeItem(item.name); setSelectedConsumableItem(null); handleSendMessage(`（我使用了 ${item.name}（${item.description}））`); }}>使用</button>
                                     <button className="flex-1 border text-sm py-1.5 rounded-[8px] transition font-medium" style={{ background: 'color-mix(in srgb, var(--color-rose) 10%, transparent)', color: 'var(--text-danger)', borderColor: 'color-mix(in srgb, var(--color-rose) 20%, transparent)' }} onClick={(e) => { e.stopPropagation(); setItems(prev => prev.filter(i => i.id !== item.id)); showToast(`丟棄了 ${item.name}`); setSelectedConsumableItem(null); }}>丟棄</button>
                                   </motion.div>
                                 )}

@@ -8,3 +8,7 @@ coverage/
 .vscode/
 .env*
 !.env.example
+
+# 個人素材與存檔備份（不進版控）
+RP 遊戲製作/
+RPworld-*.json

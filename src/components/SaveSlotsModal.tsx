@@ -11,8 +11,8 @@ interface SaveSlotsModalProps {
   currentSlotName: string
   authUser: User | null
   onLoadSlot: (slotName: string) => Promise<void>
-  onDeleteSlot: (slotName: string) => Promise<void>
-  onCreateSlot: () => Promise<void>
+  onDeleteSlot: (slotName: string) => void
+  onCreateSlot: () => void
   showToast: (msg: string) => void
 }
 

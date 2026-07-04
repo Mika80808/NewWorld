@@ -18,9 +18,6 @@ import {
   INITIAL_MESSAGES,
 } from '../constants';
 
-// ─── 存檔 Key ─────────────────────────────────────────────────────────────────
-export const SAVE_KEY = 'rpworld_save';
-
 // ─── Schema 版本 ──────────────────────────────────────────────────────────────
 export const CURRENT_SCHEMA = 3;
 
@@ -146,7 +143,7 @@ function getRandomStartState(): { currentLocation: string; timeState: TimeState 
   const randomEntry = locationEntries[Math.floor(Math.random() * locationEntries.length)];
   const currentLocation = randomEntry?.title ?? '迷霧森林';
 
-  const validHours = [5,6,7,8,9,10,11,13,14,15,16,17,18,19,20,21,22,23];
+  const validHours = [5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23];
   const hour = validHours[Math.floor(Math.random() * validHours.length)];
   const minute = Math.floor(Math.random() * 60);
 
