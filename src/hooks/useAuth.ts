@@ -6,6 +6,21 @@ import { CURRENT_SCHEMA } from './useGameStore'
 export function useAuth() {
   const [authUser, setAuthUser] = useState<User | null>(null)
   const [authLoading, setAuthLoading] = useState(isSupabaseConfigured)
+  const [authError, setAuthError] = useState<string | null>(null)
+
+  useEffect(() => {
+    // OAuth 失敗時 Supabase 會把錯誤帶在轉址網址上（hash 或 query），
+    // 不顯示的話玩家只會看到「默默跳回登入頁」，無從除錯
+    const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ''))
+    const queryParams = new URLSearchParams(window.location.search)
+    const errDesc =
+      hashParams.get('error_description') || queryParams.get('error_description') ||
+      hashParams.get('error') || queryParams.get('error')
+    if (errDesc) {
+      setAuthError(decodeURIComponent(errDesc.replace(/\+/g, ' ')))
+      window.history.replaceState(null, '', window.location.pathname)
+    }
+  }, [])
 
   useEffect(() => {
     if (!supabase) {
@@ -26,6 +41,7 @@ export function useAuth() {
   }, [])
 
   const handleGoogleLogin = async () => {
+    setAuthError(null)
     if (!supabase) {
       alert(
         'Supabase 尚未設定，無法登入。\n\n請在專案根目錄建立 .env.local，填入：\nVITE_SUPABASE_URL=...\nVITE_SUPABASE_ANON_KEY=...\n\n設定完成後請重新啟動 dev server。'
@@ -115,6 +131,7 @@ export function useAuth() {
   return {
     authUser,
     authLoading,
+    authError,
     handleGoogleLogin,
     handleLogout,
     saveToCloud,

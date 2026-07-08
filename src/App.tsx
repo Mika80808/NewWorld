@@ -198,6 +198,7 @@ ${newPool.map((s, i) => `${i + 1}. ${s}`).join('\n')}`;
   const {
     authUser,
     authLoading,
+    authError,
     handleGoogleLogin,
     handleLogout,
     saveToCloud,
@@ -1404,6 +1405,11 @@ ${recentContext}
           </svg>
           使用 Google 登入
         </button>
+        {authError && (
+          <p className="text-sm text-center max-w-md" style={{ color: 'var(--text-danger)' }}>
+            登入失敗：{authError}
+          </p>
+        )}
       </div>
     );
   }
