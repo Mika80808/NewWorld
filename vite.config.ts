@@ -30,6 +30,8 @@ export default defineConfig(() => {
       // HMR is disabled in AI Studio via DISABLE_HMR env var.
       // Do not modifyâfile watching is disabled to prevent flickering during agent edits.
       hmr: process.env.DISABLE_HMR !== 'true',
+      // 允許遠端預覽代理的主機名（雲端環境透過代理網域存取 dev server）
+      allowedHosts: true,
     },
   };
 });
