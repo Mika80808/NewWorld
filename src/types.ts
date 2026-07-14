@@ -212,9 +212,14 @@ export interface Message {
   timestamp?: string;
 }
 
+// ─── AI 供應商 ────────────────────────────────────────────────────────────────
+// 'local' = OpenAI 相容端點（Ollama / LM Studio 等），透過 baseUrl 指定位址
+export type AIProvider = 'gemini' | 'claude' | 'openai' | 'local';
+
 export interface GMConfig {
-  provider: 'gemini';
+  provider: AIProvider;
   apiKey: string;
+  baseUrl?: string;   // local 專用：OpenAI 相容端點位址
   model: string;
   maxTokens: number;
   lastSaved: string;

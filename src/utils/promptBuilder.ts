@@ -173,10 +173,86 @@ export function buildPrompt(
 
   const recentMessages = currentMessages.slice(-SLIDING_WINDOW)
 
+  // Prompt 排版原則（隱式快取）：穩定內容在前、每回合變動的內容在後。
+  // 供應商的前綴快取（Gemini implicit caching / OpenAI automatic / Claude cache_control）
+  // 都以「開頭完全相同的位元組」為快取單位——System Context 與 COMMAND FORMAT
+  // 全遊戲不變，放在最前面可讓每回合請求的這一大段吃到快取折扣。
   return `[System Context]
 World Premise: ${systemPrompt.worldPremise}
 Roleplay Rules: ${systemPrompt.roleplayRules}
 Writing Style: ${systemPrompt.writingStyle}
+
+---
+[COMMAND FORMAT — COMMANDS ${COMMANDS_VERSION}]
+數值或狀態有變化時，在回應最前面輸出指令區塊：
+<<COMMANDS>>
+COMMANDS ${COMMANDS_VERSION}
+STAT|field=hp|delta=-15
+STAT|field=mp|delta=+10
+STAT|field=gold|delta=+200
+AFFINITY|npc=角色名|delta=+10
+LOCATION|name=新地點名稱
+TIME|delta=+1h
+ITEM_ADD|name=道具名|qty=1|desc=說明（外觀與效果）
+ITEM_REMOVE|name=道具名|qty=1
+ITEM_USE|name=道具名
+QUEST_ADD|title=任務名|giver=委託人|desc=目標描述|gold=100|items=物品A,物品B|deadline=7
+QUEST_GOAL_MET|title=任務名
+QUEST_COMPLETE|title=任務名
+NPC_NEW|name=姓名|race=種族|gender=性別|age=年齡|job=職業|appearance=外貌|personality=個性|backstory=背景(選填)
+NPC_HOME|name=姓名|loc=地點
+NPC_LOCATION|npc=姓名|loc=地點
+NPC_THOUGHT|npc=角色名|text=第一人稱內心想法
+NPC_RELATIONSHIP|npc=角色名|rel=關係描述
+LOCATION_DISCOVER|name=地點名稱|x=0|y=0
+MEMORY_ADD:region:normal:迷霧森林昨日大火:locations=迷霧森林:factions=黑牙氏族:keywords=大火,火災:sticky=3
+MEMORY_ADD:scene:normal:酒館因打架暫時關閉:locations=酒館
+MEMORY_ADD:npc:normal:芬里爾透露停火協議內容:npcs=芬里爾:keywords=停火,協議
+MEMORY_ADD:world:critical:魔王宣布向月湖鎮宣戰:keywords=魔王,宣戰
+STATUS_ADD|emoji=☠️|name=中毒|duration=3
+STATUS_ADD|emoji=🔥|name=燃燒|duration=-1
+STATUS_REMOVE|name=中毒
+STATUS_CLEAR
+FACTION_NEW:勢力名:類型(race/guild/nation/religion/criminal/other):描述
+FACTION_JOIN:勢力名:NPC名
+FACTION_RELATION:勢力A:(ally/enemy/neutral/vassal/rival):勢力B[:備註]
+NPC_RELATION:NPC名:(family/ally/rival/enemy/acquaintance/romantic):目標名或PLAYER[:備註]
+<</COMMANDS>>
+
+敘事開頭輸出出場標記（非 COMMANDS 區塊，每回應必須）：
+[出場:姓名1,姓名2]（從候選名單選誰實際在場；無人可輸出 [出場:]；可加候選外新角色）
+
+【各指令觸發時機】
+- TIME：每次回應必須輸出。依行動性質推進。
+- ITEM_ADD：玩家獲得道具時。說明需詳細描述外觀與效果（玩家使用時 AI 依此生成劇情）。若道具已列於【已知物品】清單，name 必須沿用完全相同的名稱（勿創同義新名），desc 可省略（系統自動沿用圖鑑既有定義）。
+- ITEM_USE：玩家主動使用道具時（前端扣數量）。ITEM_REMOVE：道具消耗/丟失。
+- QUEST_ADD：NPC 正式委託或玩家接布告欄任務時。後四欄可留空。
+- QUEST_GOAL_MET：玩家已完成目標但未回報時靜默輸出（前端標記「待回報」）。
+- QUEST_COMPLETE：玩家向委託人回報結案時。名稱需與 QUEST_ADD 完全一致。
+- NPC_NEW：新角色首次出場時建檔（一次性）。NPC_HOME 同步輸出其主場地點。
+- NPC_LOCATION：NPC 出現於非主場地點時記錄足跡。
+- NPC_THOUGHT：NPC 有明顯情緒變化、做出重要決定、或對玩家產生新看法時，第一人稱。
+- NPC_RELATIONSHIP：玩家與 NPC 初次確立明確關係，或關係發生重大轉變時輸出。
+- LOCATION_DISCOVER：玩家路過/聽說未知地點時（heard 狀態加入地圖）。x/y 為整數，月湖鎮=0,0。
+- STATUS_ADD：玩家獲得狀態異常（中毒、詛咒、祝福等）時。duration=-1 為永久。
+- STATUS_REMOVE：玩家解除特定狀態異常時。
+- STATUS_CLEAR：所有狀態異常一次清除時（例如神聖淨化）。
+- 同名 STATUS_ADD 會覆蓋舊的（重置 duration）。
+- FACTION_NEW：故事中首次明確提及某組織/種族群體時。
+- FACTION_JOIN：NPC 被確認為某勢力成員時。
+- FACTION_RELATION：兩勢力的關係首次確立或發生重大轉變時。
+- NPC_RELATION：NPC 之間或與玩家的私人關係明確確立時。PLAYER 代表玩家。
+
+【MEMORY_ADD 觸發情境（以下情況必須輸出）】
+1. world/critical：影響整個世界的重大事件（魔王宣戰、天象異變）
+2. region/normal：特定區域動態（森林大火、城鎮慶典）。回應中出現 [ ] 格式布告欄必定觸發。
+3. scene/normal：當前地點物理或狀態改變（酒館被砸毀、橋樑斷裂）
+4. npc/normal：NPC 透露的關鍵秘密、身世或重要決定
+5. world/region/npc：玩家重大成就、關鍵選擇、NPC 關係重大突破
+
+【字體標記（可選）】
+[FONT:serif]...[/FONT] 信件/公告/正式文書（明朝體）
+[FONT:spell]...[/FONT] 咒語/古文/神諭（書法體）
 
 ---
 [Player]
@@ -350,78 +426,7 @@ ${recentMessages.map(m => `${m.role === 'user' ? 'Player' : 'DM'}: ${m.text}`).j
 Player: ${userInput}
 
 ---
-[COMMAND FORMAT — COMMANDS ${COMMANDS_VERSION}]
-數值或狀態有變化時，在回應最前面輸出指令區塊：
-<<COMMANDS>>
-COMMANDS ${COMMANDS_VERSION}
-STAT|field=hp|delta=-15
-STAT|field=mp|delta=+10
-STAT|field=gold|delta=+200
-AFFINITY|npc=角色名|delta=+10
-LOCATION|name=新地點名稱
-TIME|delta=+1h
-ITEM_ADD|name=道具名|qty=1|desc=說明（外觀與效果）
-ITEM_REMOVE|name=道具名|qty=1
-ITEM_USE|name=道具名
-QUEST_ADD|title=任務名|giver=委託人|desc=目標描述|gold=100|items=物品A,物品B|deadline=7
-QUEST_GOAL_MET|title=任務名
-QUEST_COMPLETE|title=任務名
-NPC_NEW|name=姓名|race=種族|gender=性別|age=年齡|job=職業|appearance=外貌|personality=個性|backstory=背景(選填)
-NPC_HOME|name=姓名|loc=地點
-NPC_LOCATION|npc=姓名|loc=地點
-NPC_THOUGHT|npc=角色名|text=第一人稱內心想法
-NPC_RELATIONSHIP|npc=角色名|rel=關係描述
-LOCATION_DISCOVER|name=地點名稱|x=0|y=0
-MEMORY_ADD:region:normal:迷霧森林昨日大火:locations=迷霧森林:factions=黑牙氏族:keywords=大火,火災:sticky=3
-MEMORY_ADD:scene:normal:酒館因打架暫時關閉:locations=酒館
-MEMORY_ADD:npc:normal:芬里爾透露停火協議內容:npcs=芬里爾:keywords=停火,協議
-MEMORY_ADD:world:critical:魔王宣布向月湖鎮宣戰:keywords=魔王,宣戰
-STATUS_ADD|emoji=☠️|name=中毒|duration=3
-STATUS_ADD|emoji=🔥|name=燃燒|duration=-1
-STATUS_REMOVE|name=中毒
-STATUS_CLEAR
-FACTION_NEW:勢力名:類型(race/guild/nation/religion/criminal/other):描述
-FACTION_JOIN:勢力名:NPC名
-FACTION_RELATION:勢力A:(ally/enemy/neutral/vassal/rival):勢力B[:備註]
-NPC_RELATION:NPC名:(family/ally/rival/enemy/acquaintance/romantic):目標名或PLAYER[:備註]
-<</COMMANDS>>
-
-敘事開頭輸出出場標記（非 COMMANDS 區塊，每回應必須）：
-[出場:姓名1,姓名2]（從候選名單選誰實際在場；無人可輸出 [出場:]；可加候選外新角色）
-
-【各指令觸發時機】
-- TIME：每次回應必須輸出。依行動性質推進。
-- ITEM_ADD：玩家獲得道具時。說明需詳細描述外觀與效果（玩家使用時 AI 依此生成劇情）。若道具已列於【已知物品】清單，name 必須沿用完全相同的名稱（勿創同義新名），desc 可省略（系統自動沿用圖鑑既有定義）。
-- ITEM_USE：玩家主動使用道具時（前端扣數量）。ITEM_REMOVE：道具消耗/丟失。
-- QUEST_ADD：NPC 正式委託或玩家接布告欄任務時。後四欄可留空。
-- QUEST_GOAL_MET：玩家已完成目標但未回報時靜默輸出（前端標記「待回報」）。
-- QUEST_COMPLETE：玩家向委託人回報結案時。名稱需與 QUEST_ADD 完全一致。
-- NPC_NEW：新角色首次出場時建檔（一次性）。NPC_HOME 同步輸出其主場地點。
-- NPC_LOCATION：NPC 出現於非主場地點時記錄足跡。
-- NPC_THOUGHT：NPC 有明顯情緒變化、做出重要決定、或對玩家產生新看法時，第一人稱。
-- NPC_RELATIONSHIP：玩家與 NPC 初次確立明確關係，或關係發生重大轉變時輸出。
-- LOCATION_DISCOVER：玩家路過/聽說未知地點時（heard 狀態加入地圖）。x/y 為整數，月湖鎮=0,0。
-- STATUS_ADD：玩家獲得狀態異常（中毒、詛咒、祝福等）時。duration=-1 為永久。
-- STATUS_REMOVE：玩家解除特定狀態異常時。
-- STATUS_CLEAR：所有狀態異常一次清除時（例如神聖淨化）。
-- 同名 STATUS_ADD 會覆蓋舊的（重置 duration）。
-- FACTION_NEW：故事中首次明確提及某組織/種族群體時。
-- FACTION_JOIN：NPC 被確認為某勢力成員時。
-- FACTION_RELATION：兩勢力的關係首次確立或發生重大轉變時。
-- NPC_RELATION：NPC 之間或與玩家的私人關係明確確立時。PLAYER 代表玩家。
-
-【MEMORY_ADD 觸發情境（以下情況必須輸出）】
-1. world/critical：影響整個世界的重大事件（魔王宣戰、天象異變）
-2. region/normal：特定區域動態（森林大火、城鎮慶典）。回應中出現 [ ] 格式布告欄必定觸發。
-3. scene/normal：當前地點物理或狀態改變（酒館被砸毀、橋樑斷裂）
-4. npc/normal：NPC 透露的關鍵秘密、身世或重要決定
-5. world/region/npc：玩家重大成就、關鍵選擇、NPC 關係重大突破
-
-【字體標記（可選）】
-[FONT:serif]...[/FONT] 信件/公告/正式文書（明朝體）
-[FONT:spell]...[/FONT] 咒語/古文/神諭（書法體）
-
-指令區塊在敘事之前。無數值變化則省略指令區塊。
+指令區塊在敘事之前（格式見上方 COMMAND FORMAT）。無數值變化則省略指令區塊。
 
 Please respond as the DM.`
 }

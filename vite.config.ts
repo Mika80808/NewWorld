@@ -16,7 +16,12 @@ export default defineConfig(() => {
           // ⚠️ 不要把 react 與依賴它的套件（lucide/motion 等）拆到不同 chunk：
           // 會造成模組初始化順序錯亂（React.forwardRef undefined → 整頁空白）
           manualChunks(id: string) {
-            return id.includes('node_modules') ? 'vendor' : undefined;
+            if (!id.includes('node_modules')) return undefined;
+            // AI SDK 不依賴 react，拆成獨立 chunk 配合動態 import 按需載入
+            // （只有玩家選用該供應商才下載）
+            if (id.includes('@anthropic-ai/sdk')) return 'sdk-anthropic';
+            if (id.includes('node_modules/openai/')) return 'sdk-openai';
+            return 'vendor';
           },
         },
       },

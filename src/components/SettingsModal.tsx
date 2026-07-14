@@ -1,19 +1,10 @@
 import React, { useState, useRef } from 'react';
 import { Settings, Download, Upload, RotateCcw, Eye, EyeOff } from 'lucide-react';
 import { User } from '@supabase/supabase-js';
-import { GMConfig, SubGMConfig } from '../types';
+import { AIProvider, GMConfig, SubGMConfig } from '../types';
+import { PROVIDER_META, DEFAULT_LOCAL_BASE_URL } from '../lib/aiProviders';
 
-const GEMINI_MODELS = [
-  { value: 'gemini-3.1-pro-preview',    label: 'Gemini 3.1 Pro Preview（最強推理）' },
-  { value: 'gemini-3-flash-preview',    label: 'Gemini 3 Flash Preview（快速／均衡）' },
-  { value: 'gemini-3.1-flash-lite-preview', label: 'Gemini 3.1 Flash Lite Preview（最省費）' },
-  { value: 'gemini-2.5-pro',            label: 'Gemini 2.5 Pro（穩定最強）' },
-  { value: 'gemini-2.5-flash',          label: 'Gemini 2.5 Flash（穩定快速）' },
-  { value: 'gemini-2.5-flash-lite',     label: 'Gemini 2.5 Flash Lite（穩定輕量）' },
-  { value: 'gemini-2.0-flash',          label: 'Gemini 2.0 Flash（舊版快速）' },
-  { value: 'gemini-2.0-flash-lite',     label: 'Gemini 2.0 Flash Lite（舊版輕量）' },
-  { value: 'gemma-4-31b-it',            label: 'Gemma 4 31B（開源模型）' },
-];
+const PROVIDERS: AIProvider[] = ['gemini', 'claude', 'openai', 'local'];
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -67,6 +58,80 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
   const inputStyle: React.CSSProperties = { background: 'color-mix(in srgb, var(--bg-elevated) 60%, transparent)', color: 'var(--text-body)', borderColor: 'var(--border-default)' };
   const sectionStyle: React.CSSProperties = { background: 'color-mix(in srgb, var(--bg-elevated) 40%, transparent)', border: `1px solid color-mix(in srgb, var(--border-default) 40%, transparent)` };
+
+  // 供應商切換：重置模型為該供應商預設，local 補上預設端點
+  const applyProviderChange = (provider: AIProvider): Partial<GMConfig> => ({
+    provider,
+    model: PROVIDER_META[provider].defaultModel,
+    ...(PROVIDER_META[provider].needsBaseUrl ? { baseUrl: DEFAULT_LOCAL_BASE_URL } : {}),
+  });
+
+  // 供應商 + 模型 + 端點欄位（主/助理 GM 共用）
+  const renderProviderFields = (
+    draft: GMConfig,
+    update: (updates: Partial<GMConfig>) => void,
+  ) => {
+    const meta = PROVIDER_META[draft.provider || 'gemini'];
+    return (
+      <>
+        <div>
+          <label className="text-xs mb-1 block" style={{ color: 'var(--text-body)' }}>AI 供應商</label>
+          <select
+            value={draft.provider || 'gemini'}
+            onChange={e => update(applyProviderChange(e.target.value as AIProvider))}
+            className="w-full border rounded-[8px] px-3 py-2 text-sm outline-none transition"
+            style={inputStyle}
+          >
+            {PROVIDERS.map(p => (
+              <option key={p} value={p}>{PROVIDER_META[p].label}</option>
+            ))}
+          </select>
+        </div>
+
+        {meta.needsBaseUrl && (
+          <div>
+            <label className="text-xs mb-1 block" style={{ color: 'var(--text-body)' }}>端點位址（OpenAI 相容）</label>
+            <input
+              type="text"
+              value={draft.baseUrl ?? DEFAULT_LOCAL_BASE_URL}
+              onChange={e => update({ baseUrl: e.target.value })}
+              placeholder={DEFAULT_LOCAL_BASE_URL}
+              className="w-full border rounded-[8px] px-3 py-2 text-sm outline-none transition"
+              style={inputStyle}
+            />
+            <p className="text-[11px] mt-1" style={{ color: 'var(--text-muted)' }}>
+              Ollama 需設定 OLLAMA_ORIGINS 允許本網頁跨域存取
+            </p>
+          </div>
+        )}
+
+        <div>
+          <label className="text-xs mb-1 block" style={{ color: 'var(--text-body)' }}>模型</label>
+          {meta.models.length > 0 ? (
+            <select
+              value={draft.model}
+              onChange={e => update({ model: e.target.value })}
+              className="w-full border rounded-[8px] px-3 py-2 text-sm outline-none transition"
+              style={inputStyle}
+            >
+              {meta.models.map(m => (
+                <option key={m.value} value={m.value}>{m.label}</option>
+              ))}
+            </select>
+          ) : (
+            <input
+              type="text"
+              value={draft.model}
+              onChange={e => update({ model: e.target.value })}
+              placeholder="例如 llama3.3、qwen3:32b..."
+              className="w-full border rounded-[8px] px-3 py-2 text-sm outline-none transition"
+              style={inputStyle}
+            />
+          )}
+        </div>
+      </>
+    );
+  };
 
   return (
     <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[60] flex items-center justify-center p-4">
@@ -144,6 +209,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           <div className="rounded-[8px] p-4 space-y-3" style={sectionStyle}>
             <p className="text-xs font-bold uppercase tracking-wider" style={{ color: 'var(--text-title)' }}>主 GM</p>
 
+            {renderProviderFields(draftMain, updates => setDraftMain(p => ({ ...p, ...updates })))}
+
             <div>
               <label className="text-xs mb-1 block" style={{ color: 'var(--text-body)' }}>API Key</label>
               <div className="relative">
@@ -151,7 +218,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   type={showMainKey ? 'text' : 'password'}
                   value={draftMain.apiKey}
                   onChange={e => setDraftMain(p => ({ ...p, apiKey: e.target.value }))}
-                  placeholder="貼上 Gemini API Key..."
+                  placeholder={PROVIDER_META[draftMain.provider || 'gemini'].keyPlaceholder}
                   className="w-full border rounded-[8px] px-3 py-2 text-sm outline-none transition pr-10 "
                   style={inputStyle}
                 />
@@ -168,20 +235,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               {draftMain.apiKey && (
                 <p className="text-[11px] mt-1" style={{ color: 'var(--color-success)' }}>✓ 已填寫</p>
               )}
-            </div>
-
-            <div>
-              <label className="text-xs mb-1 block" style={{ color: 'var(--text-body)' }}>模型</label>
-              <select
-                value={draftMain.model}
-                onChange={e => setDraftMain(p => ({ ...p, model: e.target.value }))}
-                className="w-full border rounded-[8px] px-3 py-2 text-sm outline-none transition"
-                style={inputStyle}
-              >
-                {GEMINI_MODELS.map(m => (
-                  <option key={m.value} value={m.value}>{m.label}</option>
-                ))}
-              </select>
             </div>
 
             <div>
@@ -203,6 +256,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           <div className="rounded-[8px] p-4 space-y-3" style={sectionStyle}>
             <p className="text-xs font-bold uppercase tracking-wider" style={{ color: 'var(--text-title)' }}>助理 GM</p>
 
+            {renderProviderFields(draftSub, updates => setDraftSub(p => ({ ...p, ...updates })))}
+
             <label className="flex items-center gap-2 text-sm cursor-pointer select-none" style={{ color: 'var(--text-body)' }}>
               <input
                 type="checkbox"
@@ -212,8 +267,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               />
               使用與主 GM 相同的 API Key
             </label>
+            {draftSub.useSameKey && draftSub.provider !== draftMain.provider && (
+              <p className="text-[11px]" style={{ color: 'var(--color-amber)' }}>
+                ⚠️ 與主 GM 供應商不同，無法共用 Key，將使用下方獨立 Key
+              </p>
+            )}
 
-            {!draftSub.useSameKey && (
+            {(!draftSub.useSameKey || draftSub.provider !== draftMain.provider) && (
               <div>
                 <label className="text-xs mb-1 block" style={{ color: 'var(--text-body)' }}>助理 GM API Key</label>
                 <div className="relative">
@@ -221,7 +281,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     type={showSubKey ? 'text' : 'password'}
                     value={draftSub.apiKey}
                     onChange={e => setDraftSub(p => ({ ...p, apiKey: e.target.value }))}
-                    placeholder="貼上助理 GM API Key..."
+                    placeholder={PROVIDER_META[draftSub.provider || 'gemini'].keyPlaceholder}
                     className="w-full border rounded-[8px] px-3 py-2 text-sm outline-none transition pr-10"
                     style={inputStyle}
                   />
@@ -237,20 +297,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 </div>
               </div>
             )}
-
-            <div>
-              <label className="text-xs mb-1 block" style={{ color: 'var(--text-body)' }}>模型</label>
-              <select
-                value={draftSub.model}
-                onChange={e => setDraftSub(p => ({ ...p, model: e.target.value }))}
-                className="w-full border rounded-[8px] px-3 py-2 text-sm outline-none transition"
-                style={inputStyle}
-              >
-                {GEMINI_MODELS.map(m => (
-                  <option key={m.value} value={m.value}>{m.label}</option>
-                ))}
-              </select>
-            </div>
 
             <div>
               <label className="text-xs mb-1 block" style={{ color: 'var(--text-body)' }}>Token 上限（背景摘要）</label>
@@ -283,8 +329,15 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               儲存設定
             </button>
             <p className="text-[11px]" style={{ color: 'var(--text-muted)' }}>
-              API Key 只存在本機瀏覽器，不會上傳。取得：{' '}
-              <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer" className="hover:underline" style={{ color: 'var(--color-blue)' }}>aistudio.google.com</a>
+              API Key 只存在本機瀏覽器，不會上傳。
+              {PROVIDER_META[draftMain.provider || 'gemini'].keyUrl && (
+                <>
+                  取得：{' '}
+                  <a href={PROVIDER_META[draftMain.provider || 'gemini'].keyUrl} target="_blank" rel="noopener noreferrer" className="hover:underline" style={{ color: 'var(--color-blue)' }}>
+                    {PROVIDER_META[draftMain.provider || 'gemini'].keyUrl!.replace(/^https:\/\//, '').replace(/\/$/, '')}
+                  </a>
+                </>
+              )}
             </p>
           </div>
 

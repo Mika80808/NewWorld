@@ -18,7 +18,7 @@ LLM 擔任 GM 的開放式世界文字冒險 RPG，玩家以自由文字輸入�
 - **框架**：React 19 + TypeScript + Vite（`noImplicitAny` 啟用）
 - **測試 / Lint**：`npm test`（vitest，純函數層測試）、`npm run lint`（tsc + eslint，含 react-hooks 規則）——改完功能請跑這兩個
 - **樣式**：Tailwind CSS v4（`@tailwindcss/vite` plugin）
-- **AI**：Google Gemini（`@google/genai`），透過 `callAI` 封裝層呼叫（實作在 `src/hooks/useAIRequest.ts`），不直接散落在各處
+- **AI**：多供應商（Gemini / Claude / OpenAI / 本地 OpenAI 相容端點），透過 `callAI` 封裝層呼叫（通用邏輯在 `src/hooks/useAIRequest.ts`，各家 SDK 差異封在 `src/lib/aiProviders.ts` 轉接器），不直接散落在各處；Claude / OpenAI SDK 為動態 import 按需載入
 - **儲存**：Supabase 雲端存檔（Google 登入，強制登入才能遊玩）；API 設定另存 localStorage
 - **主要邏輯檔案**：`src/App.tsx`（state 組裝、handlers、主介面 JSX）
 - **自訂 Hooks**：`src/hooks/useGameStore.ts`（state + 存檔快照/遷移）、`src/hooks/useCommandParser.ts`（指令整合層）、`src/hooks/useAIRequest.ts`（callAI：timeout/abort/retry）、`src/hooks/useAuth.ts`（Supabase 登入與雲端存檔 CRUD）
@@ -197,19 +197,14 @@ callAI(prompt: string, options?: {
 // timeout 觸發時會讓背景串流停止，不再消耗配額
 ```
 
-**Gemini 靜態模型清單：**
+**多供應商架構（`src/lib/aiProviders.ts`）：**
 ```typescript
-const GEMINI_MODELS = [
-  { value: 'gemini-3.1-pro-preview',    label: 'Gemini 3.1 Pro Preview（最強推理）' },
-  { value: 'gemini-3-flash-preview',    label: 'Gemini 3 Flash Preview（快速／均衡）' },
-  { value: 'gemini-3.1-flash-lite-preview', label: 'Gemini 3.1 Flash Lite Preview（最省費）' },
-  { value: 'gemini-2.5-pro',            label: 'Gemini 2.5 Pro（穩定最強）' },
-  { value: 'gemini-2.5-flash',          label: 'Gemini 2.5 Flash（穩定快速）' },
-  { value: 'gemini-2.5-flash-lite',     label: 'Gemini 2.5 Flash Lite（穩定輕量）' },
-  { value: 'gemini-2.0-flash',          label: 'Gemini 2.0 Flash（舊版快速）' },
-  { value: 'gemini-2.0-flash-lite',     label: 'Gemini 2.0 Flash Lite（舊版輕量）' },
-  { value: 'gemma-4-31b-it',            label: 'Gemma 4 31B（開源模型）' },
-]
+type AIProvider = 'gemini' | 'claude' | 'openai' | 'local'
+// GMConfig 增加 provider 與 baseUrl?（local 專用，預設 http://localhost:11434/v1）
+// 'local' = 任何 OpenAI 相容端點（Ollama / LM Studio 等），模型名自由輸入
+// 靜態模型清單（GEMINI_MODELS / CLAUDE_MODELS / OPENAI_MODELS）與供應商
+// 中繼資料（PROVIDER_META）都在 aiProviders.ts；SettingsModal 只做渲染
+// 助理 GM 的 useSameKey 只在與主 GM 同供應商時生效
 ```
 
 ---
@@ -387,6 +382,8 @@ MEMORY_ADD:region:normal:迷霧森林昨日大火:locations=迷霧森林:keyword
 | itemCatalog 道具圖鑑（Master Data） | 道具定義只存一份、先寫先贏去重，描述全遊戲一致且存檔不膨脹 |
 | lorebook 與 itemCatalog 職責分離 | 世界觀＝玩家手寫的基礎設定（NPC/地點/怪物，關鍵字觸發）；道具量產且自動累積，只進圖鑑，不建 lorebook 條目 |
 | saveToCloud 髒標記 | 快照未變更時跳過整包 JSON 上傳 |
+| Prompt 穩定前綴排版 | 靜態內容（System Context、COMMAND FORMAT）在前、動態在後，吃供應商前綴快取折扣 |
+| AI 供應商轉接器 | SDK 差異封在 aiProviders.ts，callAI 的 timeout/retry/abort 與供應商無關 |
 | 好感度顏色固定 | 語意色不隨主題變動 |
 | `cartFare` 僅 AI 寫入 | 玩家 UI 不顯示馬車費用欄位 |
 
@@ -425,6 +422,10 @@ MEMORY_ADD:region:normal:迷霧森林昨日大火:locations=迷霧森林:keyword
 12. **`@theme` 區塊只保留字體定義**，不得覆寫任何顏色
 
 13. **道具去重走 `itemCatalog` 先寫先贏**：`ITEM_ADD` 遇同名道具沿用圖鑑既有描述，不要改成「後寫覆蓋」；道具名稱一律先過 `normalizeItemName()` 再當 key
+
+14. **`buildPrompt` 的排版順序是快取契約**：靜態區（System Context → COMMAND FORMAT）在前、動態區（Current State 之後）在後。新增 prompt 內容時，每回合會變的絕不可插入靜態區，否則前綴快取全滅（有 `promptBuilder.test.ts` 守護）
+
+15. **新增 AI 供應商只改 `aiProviders.ts`**：實作 adapter 函數 + `PROVIDER_META` 條目即可，不要動 `callAI` 的通用邏輯；SDK 一律動態 import 並在 `vite.config.ts` 的 manualChunks 拆獨立 chunk
 
 ---
 

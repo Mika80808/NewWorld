@@ -5,6 +5,24 @@
 
 ---
 
+### 架構｜多 AI 供應商 + Prompt 穩定前綴排版 2026-07-14 [Claude Code]
+
+**目標**：API 不再綁定 Google——Gemini / Claude / OpenAI / 本地模型皆可用；同時重排 prompt 讓每回合請求吃到供應商的前綴快取折扣。
+
+#### 多供應商轉接器（`src/lib/aiProviders.ts`）
+- `GMConfig` 新增 `provider: 'gemini' | 'claude' | 'openai' | 'local'` 與 `baseUrl?`（local 專用）
+- `callAI` 的通用邏輯（timeout / retry / abort / 主助理分流）不變，SDK 差異全部封在轉接器：Gemini 走 `@google/genai`、Claude 走 `@anthropic-ai/sdk`（BYOK 瀏覽器模式）、OpenAI 與本地共用 `openai` SDK（local 以 `baseUrl` 指向 Ollama / LM Studio 等 OpenAI 相容端點，模型名自由輸入）
+- Claude / OpenAI SDK 採動態 import + vite manualChunks 拆獨立 chunk：只有玩家選用該供應商才下載（vendor 由 1118KB 降回 822KB）
+- 設定頁新增供應商下拉、動態模型清單、本地端點欄位；助理 GM 的 useSameKey 僅在與主 GM 同供應商時生效
+- retry 判斷擴充：支援 SDK 錯誤物件的 `status` 欄位（429/500/503/529）
+
+#### Prompt 穩定前綴排版（隱式快取）
+- `buildPrompt` 重排：巨大的靜態 COMMAND FORMAT 區塊（約千餘 token、每回合不變）從 prompt 尾端移到 System Context 之後，動態內容（Current State 起）全部在後
+- 效果：Gemini implicit caching / OpenAI automatic caching 自動對穩定前綴打約一折；Claude 未來可在同位置標 cache_control
+- 新增 `promptBuilder.test.ts` 守護排版順序（靜態在前、玩家輸入在後）
+
+---
+
 ### 效能｜道具圖鑑（Master Data）+ 存檔髒標記 2026-07-14 [Claude Code]
 
 **目標**：借用單機遊戲的資料庫設計優化讀取——道具定義只存一份、prompt 只注入切片、存檔未變更不上傳。
