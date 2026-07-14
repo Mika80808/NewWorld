@@ -171,6 +171,10 @@ ${newPool.map((s, i) => `${i + 1}. ${s}`).join('\n')}`;
   };
   const [selectedInventoryItem, setSelectedInventoryItem] = useState<number | null>(null);
   const [selectedConsumableItem, setSelectedConsumableItem] = useState<number | null>(null);
+  // 道具右鍵資訊彈窗（資料來源：itemCatalog 圖鑑定義）
+  const [itemInfoPopup, setItemInfoPopup] = useState<{
+    name: string; quantity?: number; description: string; createdAt?: string; x: number; y: number;
+  } | null>(null);
   const [selectedNpc, setSelectedNpc] = useState<Npc | null>(null);
   const [toastQueue, setToastQueue] = useState<string[]>([]);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
@@ -553,6 +557,18 @@ ${newPool.map((s, i) => `${i + 1}. ${s}`).join('\n')}`;
     }
     return () => document.removeEventListener('click', handleClickOutside);
   }, [activeMenuId]);
+
+  // 道具資訊彈窗：點擊任意處或再次右鍵時關閉
+  useEffect(() => {
+    if (!itemInfoPopup) return;
+    const close = () => setItemInfoPopup(null);
+    document.addEventListener('click', close);
+    document.addEventListener('contextmenu', close);
+    return () => {
+      document.removeEventListener('click', close);
+      document.removeEventListener('contextmenu', close);
+    };
+  }, [itemInfoPopup]);
 
   useEffect(() => {
     if (!isInventoryOpen && !isConsumablesOpen) return;
@@ -1742,6 +1758,17 @@ ${recentContext}
                       className="p-2.5 rounded-[8px] border cursor-pointer transition-all"
                       style={{ borderColor: `color-mix(in srgb, var(--bg-elevated) 50%, transparent)` }}
                       onClick={() => setSelectedInventoryItem(selectedInventoryItem === item.id ? null : item.id)}
+                      onContextMenu={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        const def = itemCatalog[item.name];
+                        setItemInfoPopup({
+                          name: item.name,
+                          description: def?.description || item.description,
+                          createdAt: def?.createdAt,
+                          x: e.clientX, y: e.clientY,
+                        });
+                      }}
                     >
                       <div className="flex justify-between items-center mb-1">
                         <span className="text-sm font-medium" style={{ color: 'var(--text-title)' }}>{item.name}</span>
@@ -1825,6 +1852,18 @@ ${recentContext}
                       className="p-2.5 rounded-[8px] border cursor-pointer transition-all"
                       style={{ borderColor: `color-mix(in srgb, var(--bg-elevated) 50%, transparent)` }}
                       onClick={() => setSelectedConsumableItem(selectedConsumableItem === item.id ? null : item.id)}
+                      onContextMenu={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        const def = itemCatalog[item.name];
+                        setItemInfoPopup({
+                          name: item.name,
+                          quantity: item.quantity,
+                          description: def?.description || item.description,
+                          createdAt: def?.createdAt,
+                          x: e.clientX, y: e.clientY,
+                        });
+                      }}
                     >
                       <div className="flex justify-between items-center mb-1">
                         <span className="text-sm font-medium" style={{ color: 'var(--text-title)' }}>{item.name}</span>
@@ -1879,6 +1918,33 @@ ${recentContext}
               </motion.div>
             )}
           </AnimatePresence>
+
+          {/* 道具右鍵資訊彈窗（圖鑑定義） */}
+          {itemInfoPopup && (
+            <div
+              className="fixed w-64 rounded-[8px] p-3 z-[130] shadow-xl"
+              style={{
+                top: Math.min(itemInfoPopup.y, window.innerHeight - 180),
+                left: Math.min(itemInfoPopup.x, window.innerWidth - 272),
+                background: 'var(--bg-elevated)',
+                border: '1px solid var(--border-default)',
+              }}
+              onClick={e => e.stopPropagation()}
+            >
+              <div className="flex justify-between items-center mb-1.5">
+                <span className="text-sm font-bold" style={{ color: 'var(--text-primary)' }}>{itemInfoPopup.name}</span>
+                {itemInfoPopup.quantity != null && (
+                  <span className="text-xs font-mono" style={{ color: 'var(--text-stat-value)' }}>x{itemInfoPopup.quantity}</span>
+                )}
+              </div>
+              <div className="text-sm leading-relaxed" style={{ color: 'var(--text-body)' }}>
+                {itemInfoPopup.description || '（尚無介紹）'}
+              </div>
+              {itemInfoPopup.createdAt && (
+                <div className="text-xs mt-2" style={{ color: 'var(--text-muted)' }}>首次入手：{itemInfoPopup.createdAt}</div>
+              )}
+            </div>
+          )}
 
           {/* ── Widget: Pinned NPCs ── */}
           {npcs.filter(n => n.isPinned).length > 0 && (

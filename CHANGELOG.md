@@ -19,6 +19,10 @@
 #### 存檔髒標記（dirty flag）
 - `useAuth.saveToCloud` 記錄每個存檔槽最後上傳內容的雜湊（djb2），快照未變更時跳過整包 JSON 上傳；`deleteCloudSave` 成功後清除對應雜湊
 
+#### 道具右鍵資訊彈窗（取代圖鑑頁面）
+- **設計決策**：放棄獨立的玩家圖鑑頁面（避免複雜化），世界觀（lorebook）維持「玩家手寫設定＋關鍵字觸發」的定位，不與 itemCatalog 混用
+- 裝備清單/消耗品清單的道具卡片右鍵 → 彈出圖鑑資訊（正典描述、持有數量、首次入手日期），點擊任意處關閉
+
 #### 測試
 - 新增 `itemCatalog.test.ts`（正規化/先寫先贏/淘汰/切片/遷移）
 - `commandReducer.test.ts` 補圖鑑相關 5 案例；`saveDataMapper.test.ts` 補 v3→v4 遷移案例
