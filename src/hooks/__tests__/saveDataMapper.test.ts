@@ -44,6 +44,27 @@ describe('saveDataMapper — schema migration', () => {
     expect(d.schemaVersion).toBe(CURRENT_SCHEMA);
   });
 
+  it('v3 → v4：從既有背包 items 建立道具圖鑑', () => {
+    const d = saveDataMapper({
+      schemaVersion: 3,
+      currentLocation: '月湖鎮',
+      timeState: { year: 1024, month: 4, day: 15, hour: 12, minute: 0, weather: '晴朗' },
+      items: [{ id: 1, name: '草藥', quantity: 3, description: '回復 20 HP' }],
+    });
+    expect(d.itemCatalog['草藥']).toMatchObject({ name: '草藥', description: '回復 20 HP' });
+  });
+
+  it('v4 存檔已有 itemCatalog 時不重建', () => {
+    const d = saveDataMapper({
+      schemaVersion: 4,
+      currentLocation: '月湖鎮',
+      timeState: { year: 1024, month: 4, day: 15, hour: 12, minute: 0, weather: '晴朗' },
+      items: [{ id: 1, name: '草藥', quantity: 3, description: '後來的描述' }],
+      itemCatalog: { 草藥: { name: '草藥', description: '原始描述', createdAt: '4/1', lastUsedAt: 1 } },
+    });
+    expect(d.itemCatalog['草藥'].description).toBe('原始描述');
+  });
+
   it('NPC 舊字串記憶轉為 NpcMemory 物件', () => {
     const d = saveDataMapper({
       schemaVersion: 3,

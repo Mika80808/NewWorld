@@ -1,9 +1,10 @@
 import {
   Profile, SystemPrompt, Npc, LorebookEntry, MemoryEntry,
-  Message, EquipmentItem, ItemEntry, Quest, TimeState, DiaryEntry,
+  Message, EquipmentItem, ItemEntry, ItemCatalog, Quest, TimeState, DiaryEntry,
   StatusEffect, Faction,
 } from '../types'
 import { getTotalDaysFromTimeState, getQuestRemainingDays } from './timeUtils'
+import { selectKnownItemNames } from './itemCatalog'
 import { COMMANDS_VERSION } from './commandParser'
 
 export interface BuildPromptDeps {
@@ -15,6 +16,7 @@ export interface BuildPromptDeps {
   memories: MemoryEntry[]
   equipment: EquipmentItem[]
   items: ItemEntry[]
+  itemCatalog: ItemCatalog
   quests: Quest[]
   timeState: TimeState
   currentLocation: string
@@ -35,7 +37,7 @@ export function buildPrompt(
 ): string {
   const {
     profile, systemPrompt, npcs, appearingNpcs, lorebookEntries,
-    memories, equipment, items, quests, timeState, diaryEntries,
+    memories, equipment, items, itemCatalog, quests, timeState, diaryEntries,
     statusEffects, factions,
     scanKeywords, isMemoryTriggered,
   } = deps
@@ -201,6 +203,13 @@ ${(() => {
     const showFull = (i.quantity > 1 || hasEffect(i.description)) && (!overLimit || recentIds.includes(i.id))
     return showFull ? `- ${i.name} x${i.quantity}: ${i.description}` : `- ${i.name} x${i.quantity}`
   }).join('\n')
+})()}
+${(() => {
+  // 道具圖鑑切片：只注入名稱（定義存於圖鑑），引導 AI 沿用既有名稱避免同義新名
+  const known = selectKnownItemNames(itemCatalog)
+  return known.length > 0
+    ? `\n[已知物品（僅列名稱，介紹已登錄於圖鑑）]\n${known.join('、')}`
+    : ''
 })()}
 
 [進行中任務]
@@ -382,7 +391,7 @@ NPC_RELATION:NPC名:(family/ally/rival/enemy/acquaintance/romantic):目標名或
 
 【各指令觸發時機】
 - TIME：每次回應必須輸出。依行動性質推進。
-- ITEM_ADD：玩家獲得道具時。說明需詳細描述外觀與效果（玩家使用時 AI 依此生成劇情）。
+- ITEM_ADD：玩家獲得道具時。說明需詳細描述外觀與效果（玩家使用時 AI 依此生成劇情）。若道具已列於【已知物品】清單，name 必須沿用完全相同的名稱（勿創同義新名），desc 可省略（系統自動沿用圖鑑既有定義）。
 - ITEM_USE：玩家主動使用道具時（前端扣數量）。ITEM_REMOVE：道具消耗/丟失。
 - QUEST_ADD：NPC 正式委託或玩家接布告欄任務時。後四欄可留空。
 - QUEST_GOAL_MET：玩家已完成目標但未回報時靜默輸出（前端標記「待回報」）。

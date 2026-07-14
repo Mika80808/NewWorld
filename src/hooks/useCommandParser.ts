@@ -6,11 +6,12 @@
 import React from 'react';
 import {
   Profile, Npc, Quest, LorebookEntry, MemoryEntry,
-  EquipmentItem, ItemEntry, TimeState, Message, StatusEffect, Faction,
+  EquipmentItem, ItemEntry, ItemCatalog, TimeState, Message, StatusEffect, Faction,
 } from '../types';
 import { parseCommandsToAST } from '../utils/commandParser';
 import { reduceCommands } from '../utils/commandReducer';
 import { applyStateChanges } from '../utils/commandEffects';
+import { touchItemDef } from '../utils/itemCatalog';
 import { calculateTotalDays, getTotalDaysFromTimeState } from '../utils/timeUtils';
 
 // ─── 型別定義 ──────────────────────────────────────────────────────────────────
@@ -23,6 +24,7 @@ export interface CommandParserDeps {
   quests: Quest[];
   memories: MemoryEntry[];
   items: ItemEntry[];
+  itemCatalog: ItemCatalog;
   npcs: Npc[];
   lorebookEntries: LorebookEntry[];
   statusEffects: StatusEffect[];
@@ -39,6 +41,7 @@ export interface CommandParserDeps {
   setMemories: React.Dispatch<React.SetStateAction<MemoryEntry[]>>;
   setEquipment: React.Dispatch<React.SetStateAction<EquipmentItem[]>>;
   setItems: React.Dispatch<React.SetStateAction<ItemEntry[]>>;
+  setItemCatalog: React.Dispatch<React.SetStateAction<ItemCatalog>>;
   setNpcs: React.Dispatch<React.SetStateAction<Npc[]>>;
   setLorebookEntries: React.Dispatch<React.SetStateAction<LorebookEntry[]>>;
   setQuickOptions: React.Dispatch<React.SetStateAction<string[]>>;
@@ -71,11 +74,11 @@ export interface UseCommandParserReturn {
 
 export function useCommandParser(deps: CommandParserDeps): UseCommandParserReturn {
   const {
-    timeState, profile, currentLocation, quests, memories, items, npcs, lorebookEntries, statusEffects,
+    timeState, profile, currentLocation, quests, memories, items, itemCatalog, npcs, lorebookEntries, statusEffects,
     factions,
     stickyCounters, cooldownCounters, messages,
     setTimeState, setProfile, setCurrentLocation, setQuests, setMemories,
-    setItems, setNpcs, setLorebookEntries,
+    setItems, setItemCatalog, setNpcs, setLorebookEntries,
     setStickyCounters, setCooldownCounters, setStatusEffects, setFactions,
     showToast, notifyCommandResult, callAI,
   } = deps;
@@ -96,6 +99,7 @@ export function useCommandParser(deps: CommandParserDeps): UseCommandParserRetur
         memories,
         npcs,
         items,
+        itemCatalog,
         currentLocation,
         lorebookEntries,
         messages,
@@ -118,6 +122,7 @@ export function useCommandParser(deps: CommandParserDeps): UseCommandParserRetur
         setMemories,
         setNpcs,
         setItems,
+        setItemCatalog,
         setLorebookEntries,
         setCurrentLocation,
         setStickyCounters,
@@ -246,6 +251,8 @@ export function useCommandParser(deps: CommandParserDeps): UseCommandParserRetur
         .map(i => (i.name === itemName ? { ...i, quantity: i.quantity - qty } : i))
         .filter(i => i.quantity > 0)
     );
+    // 圖鑑記錄最近使用時間，供 LOD 淘汰排序
+    setItemCatalog(prev => touchItemDef(prev, itemName));
 
     showToast(`🎒 使用了 ${itemName} ×${qty}`);
     return true;

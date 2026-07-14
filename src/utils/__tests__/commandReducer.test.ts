@@ -12,7 +12,7 @@ const npc = (over: Partial<Npc> = {}): Npc => ({
 const state = (over: Partial<CurrentState> = {}): CurrentState => ({
   timeState: { year: 1024, month: 4, day: 15, hour: 12, minute: 0, weather: '晴朗' },
   profile: { name: '玩家', job: '異鄉人', appearance: '', personality: '', other: '', hp: 50, mp: 20, gold: 100 },
-  quests: [], memories: [], npcs: [npc()], items: [],
+  quests: [], memories: [], npcs: [npc()], items: [], itemCatalog: {},
   currentLocation: '月湖鎮', lorebookEntries: [], messages: [],
   stickyCounters: {}, cooldownCounters: {}, statusEffects: [], factions: [],
   ...over,
@@ -75,6 +75,57 @@ describe('reduceCommands — 道具', () => {
     const existing: ItemEntry = { id: 1, name: '草藥', quantity: 2, description: '' };
     const { stateChanges } = run('ITEM_REMOVE|name=草藥|qty=2', state({ items: [existing] }));
     expect(stateChanges.items?.find(i => i.name === '草藥')).toBeUndefined();
+  });
+});
+
+describe('reduceCommands — 道具圖鑑（Master Data）', () => {
+  it('ITEM_ADD 首次出現時登錄圖鑑定義', () => {
+    const { stateChanges } = run('ITEM_ADD|name=草藥|qty=1|desc=回復 20 HP');
+    expect(stateChanges.itemCatalog?.['草藥']).toMatchObject({
+      name: '草藥', description: '回復 20 HP',
+    });
+  });
+
+  it('先寫先贏：同名道具再次出現時沿用圖鑑既有描述，忽略 AI 新描述', () => {
+    const s = state({
+      itemCatalog: { 草藥: { name: '草藥', description: '回復 20 HP', createdAt: '4/1', lastUsedAt: 1 } },
+    });
+    const { stateChanges } = run('ITEM_ADD|name=草藥|qty=1|desc=完全不同的新描述', s);
+    expect(stateChanges.itemCatalog?.['草藥'].description).toBe('回復 20 HP');
+    expect(stateChanges.items?.[0].description).toBe('回復 20 HP');
+  });
+
+  it('ITEM_ADD 名稱正規化：空白差異視為同一道具', () => {
+    const s = state({
+      itemCatalog: { 草藥: { name: '草藥', description: '回復 20 HP', createdAt: '4/1', lastUsedAt: 1 } },
+    });
+    const { stateChanges } = run('ITEM_ADD|name=　草藥 |qty=1|desc=x', s);
+    expect(Object.keys(stateChanges.itemCatalog ?? {})).toEqual(['草藥']);
+  });
+
+  it('ITEM_REMOVE 歸零移除實例，但圖鑑定義保留', () => {
+    const existing: ItemEntry = { id: 1, name: '草藥', quantity: 1, description: '回復 20 HP' };
+    const s = state({
+      items: [existing],
+      itemCatalog: { 草藥: { name: '草藥', description: '回復 20 HP', createdAt: '4/1', lastUsedAt: 1 } },
+    });
+    const { stateChanges } = run('ITEM_REMOVE|name=草藥|qty=1', s);
+    expect(stateChanges.items).toHaveLength(0);
+    expect(stateChanges.itemCatalog?.['草藥']).toBeDefined();
+  });
+
+  it('QUEST_COMPLETE 獎勵物品也走圖鑑（既有定義優先於預設描述）', () => {
+    const quest = {
+      id: 'q1', title: '採藥', giver: '藥師', description: '',
+      reward: { items: ['草藥'] }, status: 'active' as const, isGoalMet: true,
+      createdAt: '4/15', createdAtTotalDays: 0,
+    };
+    const s = state({
+      quests: [quest],
+      itemCatalog: { 草藥: { name: '草藥', description: '回復 20 HP', createdAt: '4/1', lastUsedAt: 1 } },
+    });
+    const { stateChanges } = run('QUEST_COMPLETE|title=採藥', s);
+    expect(stateChanges.items?.[0]).toMatchObject({ name: '草藥', description: '回復 20 HP' });
   });
 });
 

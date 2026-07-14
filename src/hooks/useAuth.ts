@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { User } from '@supabase/supabase-js'
 import { supabase, SaveSlot, isSupabaseConfigured } from '../lib/supabase'
 import { CURRENT_SCHEMA } from './useGameStore'
@@ -64,12 +64,28 @@ export function useAuth() {
     setAuthUser(null)
   }
 
+  // 髒標記（dirty flag）：記錄每個存檔槽最後成功上傳內容的雜湊，
+  // 快照未變更時跳過整包 JSON 上傳（例如節流自動存檔在無變更回合觸發）
+  const lastSavedHashRef = useRef<Record<string, string>>({})
+
+  const hashSnapshot = (json: string): string => {
+    let h = 5381
+    for (let i = 0; i < json.length; i++) {
+      h = ((h << 5) + h + json.charCodeAt(i)) | 0
+    }
+    return `${json.length}:${h}`
+  }
+
   const saveToCloud = async (
     userId: string,
     slotName: string,
     data: object
   ): Promise<boolean> => {
     if (!supabase) return false
+
+    const key = `${userId}/${slotName}`
+    const hash = hashSnapshot(JSON.stringify(data))
+    if (lastSavedHashRef.current[key] === hash) return true // 未變更，跳過上傳
 
     const { error } = await supabase.from('saves').upsert({
       user_id: userId,
@@ -80,6 +96,7 @@ export function useAuth() {
     }, { onConflict: 'user_id,slot_name' })
 
     if (error) console.error('[saveToCloud] ERROR:', JSON.stringify(error))
+    else lastSavedHashRef.current[key] = hash
     return !error
   }
 
@@ -125,6 +142,7 @@ export function useAuth() {
       .eq('slot_name', slotName)
 
     if (error) console.error('[deleteCloudSave] ERROR:', JSON.stringify(error))
+    else delete lastSavedHashRef.current[`${userId}/${slotName}`]
     return !error
   }
 

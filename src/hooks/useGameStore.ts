@@ -11,15 +11,16 @@
 import { useState } from 'react';
 import {
   TimeState, Profile, Quest, Npc, NpcMemory, LorebookEntry, SystemPrompt,
-  DiaryEntry, Message, MemoryEntry, EquipmentItem, ItemEntry, StatusEffect, Faction,
+  DiaryEntry, Message, MemoryEntry, EquipmentItem, ItemEntry, ItemCatalog, StatusEffect, Faction,
 } from '../types';
+import { buildCatalogFromItems } from '../utils/itemCatalog';
 import {
   INITIAL_SYSTEM_PROMPT, INITIAL_LOREBOOK_ENTRIES,
   INITIAL_MESSAGES,
 } from '../constants';
 
 // ─── Schema 版本 ──────────────────────────────────────────────────────────────
-export const CURRENT_SCHEMA = 3;
+export const CURRENT_SCHEMA = 4;
 
 // ─── 型別：儲存快照 ───────────────────────────────────────────────────────────
 export interface GameSaveData {
@@ -32,6 +33,7 @@ export interface GameSaveData {
   appearingNpcs: string[];
   equipment: EquipmentItem[];
   items: ItemEntry[];
+  itemCatalog: ItemCatalog;
   currentLocation: string;
   messages: Message[];
   memories: MemoryEntry[];
@@ -121,10 +123,22 @@ function migrateV1toV2(data: Record<string, unknown>): Record<string, unknown> {
   return out;
 }
 
+// v3 → v4：從既有背包 items[] 建立道具圖鑑（Master Data，先寫先贏）
+function migrateV3toV4(data: Record<string, unknown>): Record<string, unknown> {
+  const out = { ...data };
+  if (!out.itemCatalog || typeof out.itemCatalog !== 'object' || Array.isArray(out.itemCatalog)) {
+    out.itemCatalog = buildCatalogFromItems(
+      Array.isArray(out.items) ? (out.items as ItemEntry[]) : []
+    );
+  }
+  return out;
+}
+
 const MIGRATIONS: Record<number, (d: Record<string, unknown>) => Record<string, unknown>> = {
   0: migrateV0toV1,
   1: migrateV1toV2,
   2: migrateV2toV3,
+  3: migrateV3toV4,
 };
 
 function runMigrations(raw: Record<string, unknown>): Record<string, unknown> {
@@ -190,6 +204,7 @@ export function saveDataMapper(raw: Record<string, unknown>): GameSaveData {
     appearingNpcs:   (d.appearingNpcs   as string[])        || [],
     equipment:       Array.isArray(d.equipment) ? migrateEquipment(d.equipment as unknown[]) : [],
     items:           Array.isArray(d.items)     ? migrateItems(d.items as unknown[])         : [],
+    itemCatalog:     (d.itemCatalog as ItemCatalog) || {},
     currentLocation: (d.currentLocation as string)          || randomStart?.currentLocation || '迷霧森林',
     messages:        (d.messages        as Message[])        || INITIAL_MESSAGES,
     memories:        (d.memories        as MemoryEntry[])    || [],
@@ -238,6 +253,7 @@ export function useGameStore() {
   const [lorebookEntries, setLorebookEntries] = useState<LorebookEntry[]>(DEFAULTS.lorebookEntries);
   const [equipment,       setEquipment]       = useState<EquipmentItem[]>(DEFAULTS.equipment);
   const [items,           setItems]           = useState<ItemEntry[]>(DEFAULTS.items);
+  const [itemCatalog,     setItemCatalog]     = useState<ItemCatalog>(DEFAULTS.itemCatalog);
   const [messages,        setMessages]        = useState<Message[]>(DEFAULTS.messages);
   const [quickOptions,    setQuickOptions]    = useState<string[]>(DEFAULTS.quickOptions);
   const [adventureLog,    setAdventureLog]    = useState<string[]>(DEFAULTS.adventureLog);
@@ -262,6 +278,7 @@ export function useGameStore() {
     setAppearingNpcs(d.appearingNpcs);
     setEquipment(d.equipment);
     setItems(d.items);
+    setItemCatalog(d.itemCatalog);
     setCurrentLocation(d.currentLocation);
     setMessages(d.messages);
     setMemories(d.memories);
@@ -288,6 +305,7 @@ export function useGameStore() {
       appearingNpcs:   snapshot?.appearingNpcs   ?? appearingNpcs,
       equipment:       snapshot?.equipment       ?? equipment,
       items:           snapshot?.items           ?? items,
+      itemCatalog:     snapshot?.itemCatalog     ?? itemCatalog,
       currentLocation: snapshot?.currentLocation ?? currentLocation,
       messages:        snapshot?.messages        ?? messages,
       memories:        snapshot?.memories        ?? memories,
@@ -319,6 +337,7 @@ export function useGameStore() {
     lorebookEntries, setLorebookEntries,
     equipment, setEquipment,
     items, setItems,
+    itemCatalog, setItemCatalog,
     messages, setMessages,
     quickOptions, setQuickOptions,
     adventureLog, setAdventureLog,

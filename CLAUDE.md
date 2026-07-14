@@ -216,6 +216,23 @@ const GEMINI_MODELS = [
 
 ## 核心資料結構
 
+### itemCatalog（道具圖鑑，Master Data）
+```typescript
+// 道具「定義」全遊戲只存一份，背包 items[] 是實例（名稱引用＋數量）
+type ItemCatalog = Record<string, ItemDef>   // key = 正規化後的道具名稱
+
+interface ItemDef {
+  name: string          // 主鍵
+  description: string   // 先寫先贏：首次登錄的描述為準
+  createdAt: string     // 遊戲內日期（月/日）
+  lastUsedAt: number    // epoch ms，供 LOD 淘汰排序
+}
+```
+- **去重先寫先贏**：`ITEM_ADD` 同名道具已有定義時沿用圖鑑描述，忽略 AI 重新生成的描述（`commandReducer` 內 O(1) key 查詢，AI 不參與查重）
+- **LOD 淘汰**：圖鑑超過 300 條時，`pruneItemCatalog` 淘汰最久未使用且不在背包中的條目
+- **Prompt 切片**：`promptBuilder` 只注入最近使用的 30 個名稱（`selectKnownItemNames`），引導 AI 沿用既有名稱，不注入整個圖鑑
+- 純函數層在 `src/utils/itemCatalog.ts`
+
 ### memories[]（統一記憶陣列）
 ```typescript
 interface MemoryEntry {
@@ -367,6 +384,8 @@ MEMORY_ADD:region:normal:迷霧森林昨日大火:locations=迷霧森林:keyword
 | CSS Variables 統一顏色 | 主題切換只需改 Variables，不動 className |
 | 顏色禁止硬編碼 | 維護性，未來多主題支援 |
 | NPC 兩階段注入 | 避免全體 NPC 塞滿 prompt |
+| itemCatalog 道具圖鑑（Master Data） | 道具定義只存一份、先寫先贏去重，描述全遊戲一致且存檔不膨脹 |
+| saveToCloud 髒標記 | 快照未變更時跳過整包 JSON 上傳 |
 | 好感度顏色固定 | 語意色不隨主題變動 |
 | `cartFare` 僅 AI 寫入 | 玩家 UI 不顯示馬車費用欄位 |
 
@@ -404,6 +423,8 @@ MEMORY_ADD:region:normal:迷霧森林昨日大火:locations=迷霧森林:keyword
 
 12. **`@theme` 區塊只保留字體定義**，不得覆寫任何顏色
 
+13. **道具去重走 `itemCatalog` 先寫先贏**：`ITEM_ADD` 遇同名道具沿用圖鑑既有描述，不要改成「後寫覆蓋」；道具名稱一律先過 `normalizeItemName()` 再當 key
+
 ---
 
 ## 關鍵函數索引
@@ -427,4 +448,5 @@ MEMORY_ADD:region:normal:迷霧森林昨日大火:locations=迷霧森林:keyword
 | `useGameStore` `loadFromData(data)` | 匯入存檔並自動 migrate 舊格式（`saveDataMapper` + `runMigrations`）|
 | `useAuth` `saveToCloud / loadFromCloud / listCloudSaves / deleteCloudSave` | Supabase `saves` 表 CRUD |
 | `utils/affectionColor.ts` `affectionColor(affection)` | 回傳好感度對應 CSS 變數字串（唯一入口） |
+| `utils/itemCatalog.ts` `registerItemDef / touchItemDef / pruneItemCatalog / selectKnownItemNames` | 道具圖鑑：先寫先贏登錄、更新使用時間、LOD 淘汰、prompt 名稱切片 |
 | `useCommandParser` `consumeItem(name, qty?)` | 使用道具（原名 useItem，因 hook 命名慣例改名） |
