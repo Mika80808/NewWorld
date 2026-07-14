@@ -385,6 +385,7 @@ MEMORY_ADD:region:normal:迷霧森林昨日大火:locations=迷霧森林:keyword
 | 顏色禁止硬編碼 | 維護性，未來多主題支援 |
 | NPC 兩階段注入 | 避免全體 NPC 塞滿 prompt |
 | itemCatalog 道具圖鑑（Master Data） | 道具定義只存一份、先寫先贏去重，描述全遊戲一致且存檔不膨脹 |
+| lorebook 與 itemCatalog 職責分離 | 世界觀＝玩家手寫的基礎設定（NPC/地點/怪物，關鍵字觸發）；道具量產且自動累積，只進圖鑑，不建 lorebook 條目 |
 | saveToCloud 髒標記 | 快照未變更時跳過整包 JSON 上傳 |
 | 好感度顏色固定 | 語意色不隨主題變動 |
 | `cartFare` 僅 AI 寫入 | 玩家 UI 不顯示馬車費用欄位 |
