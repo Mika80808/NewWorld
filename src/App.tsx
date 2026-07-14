@@ -269,6 +269,7 @@ ${newPool.map((s, i) => `${i + 1}. ${s}`).join('\n')}`;
     lorebookEntries, setLorebookEntries,
     equipment, setEquipment,
     items, setItems,
+    itemCatalog, setItemCatalog,
     messages, setMessages,
     quickOptions, setQuickOptions,
     adventureLog, setAdventureLog,
@@ -500,11 +501,11 @@ ${newPool.map((s, i) => `${i + 1}. ${s}`).join('\n')}`;
   // ─── 指令解析器（useCommandParser）─────────────────────────────────────────
   const { parseAndExecuteCommands, consumeItem, scanKeywords, isMemoryTriggered, tickMemoryCounters } =
     useCommandParser({
-      timeState, profile, currentLocation, quests, memories, items, npcs,
+      timeState, profile, currentLocation, quests, memories, items, itemCatalog, npcs,
       stickyCounters, cooldownCounters, messages, lorebookEntries, statusEffects,
       factions,
       setTimeState, setProfile, setCurrentLocation, setQuests,
-      setMemories, setEquipment, setItems, setNpcs,
+      setMemories, setEquipment, setItems, setItemCatalog, setNpcs,
       setLorebookEntries, setQuickOptions,
       setStickyCounters, setCooldownCounters,
       setStatusEffects, setFactions,
@@ -1069,7 +1070,7 @@ ${poolText}
   const buildPromptWrapper = (userInput: string, currentMessages: Message[], locationOverride?: string, isPriority?: boolean): string => {
     const deps: BuildPromptDeps = {
       profile, systemPrompt, npcs, appearingNpcs, lorebookEntries,
-      memories, equipment, items, quests, timeState, currentLocation,
+      memories, equipment, items, itemCatalog, quests, timeState, currentLocation,
       diaryEntries, statusEffects, factions, scanKeywords, isMemoryTriggered,
     };
     return buildPrompt(deps, userInput, currentMessages, locationOverride, isPriority);

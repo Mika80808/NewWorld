@@ -5,7 +5,7 @@
 
 import React from 'react';
 import { StateChanges, Feedback, AsyncTask } from './commandReducer';
-import { TimeState, Profile, Quest, MemoryEntry, Npc, ItemEntry, LorebookEntry, StatusEffect, Faction, NpcMemory } from '../types';
+import { TimeState, Profile, Quest, MemoryEntry, Npc, ItemEntry, ItemCatalog, LorebookEntry, StatusEffect, Faction, NpcMemory } from '../types';
 
 // ─── 副作用依賴型別 ────────────────────────────────────────────────────────────
 
@@ -16,6 +16,7 @@ export interface Setters {
   setMemories: React.Dispatch<React.SetStateAction<MemoryEntry[]>>;
   setNpcs: React.Dispatch<React.SetStateAction<Npc[]>>;
   setItems: React.Dispatch<React.SetStateAction<ItemEntry[]>>;
+  setItemCatalog: React.Dispatch<React.SetStateAction<ItemCatalog>>;
   setLorebookEntries: React.Dispatch<React.SetStateAction<LorebookEntry[]>>;
   setCurrentLocation: React.Dispatch<React.SetStateAction<string>>;
   setStickyCounters: React.Dispatch<React.SetStateAction<Record<string, number>>>;
@@ -72,6 +73,10 @@ export async function applyStateChanges(
 
   if (stateChanges.items !== undefined) {
     setters.setItems(stateChanges.items);
+  }
+
+  if (stateChanges.itemCatalog !== undefined) {
+    setters.setItemCatalog(stateChanges.itemCatalog);
   }
 
   if (stateChanges.lorebookEntries !== undefined) {

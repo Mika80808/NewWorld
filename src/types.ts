@@ -192,6 +192,16 @@ export interface ItemEntry {
   description: string;
 }
 
+// ─── 道具圖鑑（Master Data：定義全遊戲只存一份，背包 items[] 為實例） ──────────
+export interface ItemDef {
+  name: string;         // 主鍵（正規化後名稱），與 ItemCatalog 的 key 一致
+  description: string;  // 先寫先贏：首次登錄的描述為準，後續同名 ITEM_ADD 沿用
+  createdAt: string;    // 遊戲內日期（月/日）
+  lastUsedAt: number;   // epoch ms，供 LOD 淘汰排序（最久未使用先淘汰）
+}
+
+export type ItemCatalog = Record<string, ItemDef>;
+
 export type InventoryItem = EquipmentItem;
 export type ConsumableItem = ItemEntry;
 

@@ -5,6 +5,26 @@
 
 ---
 
+### 效能｜道具圖鑑（Master Data）+ 存檔髒標記 2026-07-14 [Claude Code]
+
+**目標**：借用單機遊戲的資料庫設計優化讀取——道具定義只存一份、prompt 只注入切片、存檔未變更不上傳。
+
+#### 道具圖鑑 itemCatalog（schema v3 → v4）
+- 新增 `ItemDef` / `ItemCatalog` 型別與 `src/utils/itemCatalog.ts` 純函數層
+- **先寫先贏去重**：`ITEM_ADD` 同名道具（`normalizeItemName` 正規化後 O(1) key 查詢）沿用圖鑑既有描述，忽略 AI 重新生成的描述 → 描述全遊戲一致、存檔不重複膨脹；`QUEST_COMPLETE` 獎勵物品同樣走圖鑑
+- **LOD 淘汰**：圖鑑超過 300 條時淘汰最久未使用（`lastUsedAt`）且不在背包中的條目；`ITEM_REMOVE` / `ITEM_USE` / 前端 `consumeItem` 都會更新 `lastUsedAt`
+- **Prompt 切片注入**：`promptBuilder` 新增【已知物品】區塊，只注入最近使用的 30 個名稱（不含描述），並在 ITEM_ADD 指令說明要求 AI 沿用既有名稱、desc 可省略
+- 存檔遷移 `migrateV3toV4`：舊存檔自動從背包 `items[]` 建立圖鑑
+
+#### 存檔髒標記（dirty flag）
+- `useAuth.saveToCloud` 記錄每個存檔槽最後上傳內容的雜湊（djb2），快照未變更時跳過整包 JSON 上傳；`deleteCloudSave` 成功後清除對應雜湊
+
+#### 測試
+- 新增 `itemCatalog.test.ts`（正規化/先寫先贏/淘汰/切片/遷移）
+- `commandReducer.test.ts` 補圖鑑相關 5 案例；`saveDataMapper.test.ts` 補 v3→v4 遷移案例
+
+---
+
 ### 工具鏈｜ESLint + vitest 測試 + noImplicitAny 2026-07-04 [Claude Code]
 
 **目標**：建立測試與 lint 安全網，漸進收緊型別。

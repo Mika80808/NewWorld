@@ -5,8 +5,9 @@
 
 import { CommandAST } from './commandParser';
 import { advanceTimeAndResolveQuestDeadlines } from './timeUtils';
+import { normalizeItemName, registerItemDef, touchItemDef, pruneItemCatalog } from './itemCatalog';
 import {
-  TimeState, Profile, Quest, MemoryEntry, Npc, ItemEntry,
+  TimeState, Profile, Quest, MemoryEntry, Npc, ItemEntry, ItemCatalog,
   LorebookEntry, Message, StatusEffect, Faction, NpcRelation, NpcMemory,
 } from '../types';
 
@@ -19,6 +20,7 @@ export interface StateChanges {
   memories?: MemoryEntry[];
   npcs?: Npc[];
   items?: ItemEntry[];
+  itemCatalog?: ItemCatalog;
   lorebookEntries?: LorebookEntry[];
   currentLocation?: string;
   quickOptions?: string[];
@@ -57,6 +59,7 @@ export interface CurrentState {
   memories: MemoryEntry[];
   npcs: Npc[];
   items: ItemEntry[];
+  itemCatalog: ItemCatalog;
   currentLocation: string;
   lorebookEntries: LorebookEntry[];
   messages: Message[];
@@ -89,9 +92,12 @@ export function reduceCommands(
   const affinityUpdates: Array<{ npcName: string; value: number }> = [];
   let timeDeltaMinutes = 0;
 
+  const gameDate = `${currentState.timeState.month}/${currentState.timeState.day}`;
+
   let workingQuests = [...currentState.quests];
   let workingNpcs = [...currentState.npcs];
   let workingItems = [...currentState.items];
+  let workingCatalog = currentState.itemCatalog;
   let workingMemories = [...currentState.memories];
   let workingLorebookEntries = [...currentState.lorebookEntries];
   let workingFactions = [...currentState.factions];
@@ -145,28 +151,37 @@ export function reduceCommands(
       }
 
       case 'ITEM_ADD': {
-        const name = cmd.parsed.name as string;
+        const name = normalizeItemName(cmd.parsed.name as string);
         const quantity = (cmd.parsed.quantity as number) || 1;
-        const description = cmd.parsed.description as string;
+        // 圖鑑先寫先贏：同名道具已有定義時沿用，忽略 AI 本次重新生成的描述
+        const reg = registerItemDef(workingCatalog, name, cmd.parsed.description as string, gameDate);
+        workingCatalog = reg.catalog;
         const existingItem = workingItems.find(i => i.name === name);
         if (existingItem) {
           existingItem.quantity += quantity;
         } else {
-          workingItems.push({ id: nextId(), name, quantity, description });
+          workingItems.push({ id: nextId(), name, quantity, description: reg.def.description });
         }
         feedback.cmdResults.push(`📦 獲得 ${name} ×${quantity}`);
         break;
       }
 
       case 'ITEM_REMOVE': {
-        const name = cmd.parsed.name as string;
+        const name = normalizeItemName(cmd.parsed.name as string);
         const quantity = (cmd.parsed.quantity as number) || 1;
         const item = workingItems.find(i => i.name === name);
         if (item) {
           item.quantity -= quantity;
           if (item.quantity <= 0) workingItems = workingItems.filter(i => i.name !== name);
+          workingCatalog = touchItemDef(workingCatalog, name);
           feedback.cmdResults.push(`📦 移除 ${name} ×${quantity}`);
         }
+        break;
+      }
+
+      case 'ITEM_USE': {
+        // 數量扣減由前端 consumeItem 處理；此處只更新圖鑑的 lastUsedAt
+        workingCatalog = touchItemDef(workingCatalog, normalizeItemName(cmd.parsed.name as string));
         break;
       }
 
@@ -216,9 +231,12 @@ export function reduceCommands(
           }
           if (quest.reward?.items?.length) {
             quest.reward.items.forEach(itemName => {
-              const existing = workingItems.find(i => i.name === itemName);
+              const name = normalizeItemName(itemName);
+              const reg = registerItemDef(workingCatalog, name, '完成任務獲得的獎勵', gameDate);
+              workingCatalog = reg.catalog;
+              const existing = workingItems.find(i => i.name === name);
               if (existing) existing.quantity += 1;
-              else workingItems.push({ id: nextId(), name: itemName, quantity: 1, description: '完成任務獲得的獎勵' });
+              else workingItems.push({ id: nextId(), name, quantity: 1, description: reg.def.description });
             });
             feedback.cmdResults.push(`📦 獎勵物品：${quest.reward.items.join('、')}`);
           }
@@ -587,9 +605,13 @@ export function reduceCommands(
     });
   }
 
+  // LOD 淘汰：背包內道具受保護，其餘依 lastUsedAt 由舊到新淘汰
+  workingCatalog = pruneItemCatalog(workingCatalog, new Set(workingItems.map(i => i.name)));
+
   stateChanges.quests = workingQuests;
   stateChanges.npcs = workingNpcs;
   stateChanges.items = workingItems;
+  stateChanges.itemCatalog = workingCatalog;
   stateChanges.memories = workingMemories;
   stateChanges.lorebookEntries = workingLorebookEntries;
   stateChanges.statusEffects = workingStatus;
