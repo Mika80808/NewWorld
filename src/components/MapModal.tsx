@@ -303,7 +303,7 @@ export const MapModal: React.FC<MapModalProps> = ({
           background: 'var(--bg-elevated)', border: '0.5px solid var(--border-default)',
           borderTop: '1.5px solid #fde68a', borderRadius: isMobile ? '0' : '10px',
           boxShadow: '0 0 80px rgba(0,0,0,0.8)',
-          width: isMobile ? '100%' : undefined, maxWidth: isMobile ? '100%' : '64rem',
+          width: '100%', maxWidth: isMobile ? '100%' : '64rem',
           height: isMobile ? '100%' : '87vh',
         }}>
           {/* Header */}
