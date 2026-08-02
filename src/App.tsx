@@ -2468,6 +2468,7 @@ ${recentContext}
         onLogout={handleLogout}
         onOpenSaveSlots={() => {
           listCloudSaves(authUser.id).then(setCloudSaves);
+          setIsSettingsModalOpen(false);
           setIsSaveSlotsModalOpen(true);
         }}
         isCloudSaving={isCloudSaving}
