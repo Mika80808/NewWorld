@@ -391,25 +391,18 @@ ${newPool.map((s, i) => `${i + 1}. ${s}`).join('\n')}`;
   const timeOfDay = getTimeOfDay(timeState.hour);
   const currentMonthData = MONTHS_DATA.find(m => m.id === timeState.month) || MONTHS_DATA[0];
   const sceneMeta = useMemo(() => {
-    const activeSceneNpcCount = npcs.filter(
-      npc => appearingNpcs.includes(npc.name) || npc.location === currentLocation || npc.isPinned
-    ).length;
     const hour = timeState.hour;
     const isNightScene = hour >= 19 || hour < 5;
     const sceneAccent = isNightScene ? 'var(--fx-orb-violet)' : 'var(--fx-orb-amber)';
     const sceneAccentSecondary = hour >= 9 && hour < 17 ? 'var(--fx-orb-sky)' : 'var(--fx-orb-violet)';
     const timeText = `${String(timeState.hour).padStart(2, '0')}:${String(timeState.minute).padStart(2, '0')}`;
-    const dateText = `${currentMonthData.elegant} ${timeState.day}`;
 
     return {
-      activeSceneNpcCount,
-      isNightScene,
       sceneAccent,
       sceneAccentSecondary,
       timeText,
-      dateText,
     };
-  }, [appearingNpcs, currentLocation, currentMonthData.elegant, npcs, timeState.day, timeState.hour, timeState.minute]);
+  }, [timeState.hour, timeState.minute]);
 
   const getWeatherIcon = () => {
     switch (timeState.weather) {
@@ -1970,38 +1963,7 @@ ${recentContext}
         {/* Center Panel */}
         <div className="flex-1 flex flex-col relative">
           {/* Scene Bar */}
-          <div className="p-3 flex items-start justify-between gap-3 absolute top-0 w-full z-30" style={{ display: isMobile ? 'none' : undefined }}>
-            <div
-              className="rpg-scene-panel rounded-[8px] px-4 py-3 max-w-[min(56vw,720px)]"
-              style={{
-                background: 'color-mix(in srgb, var(--bg-elevated) 62%, transparent)',
-                backdropFilter: 'blur(18px) saturate(140%)',
-                WebkitBackdropFilter: 'blur(18px) saturate(140%)',
-              }}
-            >
-              <div className="flex items-center gap-2 text-xs uppercase tracking-[0.2em]" style={{ color: 'var(--text-muted)' }}>
-                {getCelestialIcon()}
-                <span>{sceneMeta.dateText}</span>
-                <span style={{ color: 'var(--fx-scene-line)' }}>|</span>
-                <span>{sceneMeta.timeText}</span>
-                <span style={{ color: 'var(--fx-scene-line)' }}>|</span>
-                <span className="flex items-center">{getWeatherIcon()} {timeState.weather}</span>
-              </div>
-              <div className="mt-2 flex items-end justify-between gap-3">
-                <div>
-                  <div className="text-xl font-semibold tracking-[0.08em]" style={{ color: 'var(--text-primary)' }}>{currentLocation}</div>
-                  <div className="mt-1 text-sm" style={{ color: 'color-mix(in srgb, var(--text-body) 82%, transparent)' }}>
-                    {sceneMeta.isNightScene ? '夜色籠罩' : '旅途仍在推進'}，場景中可互動角色 {sceneMeta.activeSceneNpcCount} 人
-                  </div>
-                </div>
-                <div
-                  className="rounded-full px-3 py-1 text-xs whitespace-nowrap"
-                  style={{ background: 'var(--fx-scene-chip)', color: 'var(--text-body)', border: '1px solid var(--fx-panel-stroke)' }}
-                >
-                  {timeOfDay}
-                </div>
-              </div>
-            </div>
+          <div className="p-3 flex items-start justify-end gap-3 absolute top-0 w-full z-30" style={{ display: isMobile ? 'none' : undefined }}>
             <div className="flex space-x-2">
               <button
                 onClick={() => setIsMapOpen(true)}
@@ -2026,7 +1988,7 @@ ${recentContext}
           {/* Dialogue Area */}
           <div
             ref={chatScrollRef}
-            className="flex-1 overflow-y-auto p-6 pt-36 pb-40 space-y-6"
+            className={`flex-1 overflow-y-auto p-6 pb-40 space-y-6 ${isMobile ? 'pt-36' : 'pt-20'}`}
             onScroll={(e) => {
               const startTime = performance.now();
               const el = e.currentTarget;
