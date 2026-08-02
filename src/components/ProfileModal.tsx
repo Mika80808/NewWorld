@@ -23,8 +23,8 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
   const inputClass = "w-full backdrop-blur-sm border border-white/10 rounded-[8px] p-3 text-sm outline-none transition";
 
   return (
-    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[60] flex items-center justify-center p-4">
-      <div className="backdrop-blur-xl w-full max-w-md rounded-[8px] shadow-[0_0_40px_rgba(0,0,0,0.5)] flex flex-col overflow-hidden border border-white/10 relative z-[61]" style={{ background: 'color-mix(in srgb, var(--bg-elevated) 70%, transparent)', color: 'var(--text-muted)' }}>
+    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[60] flex items-center justify-center p-4" onClick={onClose}>
+      <div className="backdrop-blur-xl w-full max-w-md rounded-[8px] shadow-[0_0_40px_rgba(0,0,0,0.5)] flex flex-col overflow-hidden border border-white/10 relative z-[61]" style={{ background: 'color-mix(in srgb, var(--bg-elevated) 70%, transparent)', color: 'var(--text-muted)' }} onClick={e => e.stopPropagation()}>
         <div className="p-4 border-b border-white/5 flex justify-between items-center" style={{ background: 'color-mix(in srgb, var(--bg-elevated) 50%, transparent)' }}>
           <h2 className="text-lg font-bold flex items-center" style={{ color: 'var(--text-primary)' }}>
             <User className="w-5 h-5 mr-2" style={{ color: 'var(--text-primary)' }} /> 個人資訊

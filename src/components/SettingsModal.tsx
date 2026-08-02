@@ -55,7 +55,16 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     localStorage.setItem('subGM_config', JSON.stringify(savedSub));
     setMainGMConfig(savedMain);
     setSubGMConfig(savedSub);
+    // draft 與已儲存設定同步，否則 lastSaved 的差異會讓下方一直判定為未儲存
+    setDraftMain(savedMain);
+    setDraftSub(savedSub);
   };
+
+  // 草稿未按「儲存」前只存在 draftMain / draftSub，點遮罩直接關會靜默丟掉
+  // 已輸入的 API Key。有未儲存變更時忽略遮罩點擊，改由 X 或儲存明確關閉。
+  const hasUnsavedChanges =
+    JSON.stringify(draftMain) !== JSON.stringify(mainGMConfig) ||
+    JSON.stringify(draftSub) !== JSON.stringify(subGMConfig);
 
   const formatLastSaved = (iso: string) => {
     if (!iso) return '尚未儲存';
@@ -69,8 +78,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const sectionStyle: React.CSSProperties = { background: 'color-mix(in srgb, var(--bg-elevated) 40%, transparent)', border: `1px solid color-mix(in srgb, var(--border-default) 40%, transparent)` };
 
   return (
-    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[60] flex items-center justify-center p-4">
-      <div className="backdrop-blur-xl w-full max-w-sm rounded-[8px] shadow-[0_0_40px_rgba(0,0,0,0.5)] flex flex-col overflow-hidden border rounded-[8px] relative z-[61]" style={{ background: 'color-mix(in srgb, var(--bg-elevated) 90%, transparent)', color: 'var(--text-title)', borderColor: 'color-mix(in srgb, var(--border-default) 60%, transparent)' }}>
+    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[60] flex items-center justify-center p-4" onClick={() => { if (!hasUnsavedChanges) onClose(); }}>
+      <div className="backdrop-blur-xl w-full max-w-sm rounded-[8px] shadow-[0_0_40px_rgba(0,0,0,0.5)] flex flex-col overflow-hidden border rounded-[8px] relative z-[61]" style={{ background: 'color-mix(in srgb, var(--bg-elevated) 90%, transparent)', color: 'var(--text-title)', borderColor: 'color-mix(in srgb, var(--border-default) 60%, transparent)' }} onClick={e => e.stopPropagation()}>
 
         {/* 標題列 */}
         <div className="p-4 flex justify-between items-center" style={{ borderBottom: `1px solid color-mix(in srgb, var(--border-default) 40%, transparent)` }}>

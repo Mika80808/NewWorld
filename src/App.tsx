@@ -1,15 +1,24 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo, lazy, Suspense } from 'react';
-import { Settings, Send, RefreshCw, MoreVertical, Book, BookOpen, User, Package, Beaker, Users, Heart, MapPin, Zap, Coins, Calendar, Shield, CheckSquare, ChevronDown, ChevronRight, Map as MapIcon, Cloud, Sun, CloudRain, Snowflake, Moon, Wind, Sparkles, Brain, ScrollText, History, X, Edit2, Trash2, Pin } from 'lucide-react';
+import { Settings, Send, RefreshCw, MoreVertical, Book, BookOpen, Package, Beaker, Heart, MapPin, Zap, Coins, Calendar, Shield, CheckSquare, ChevronDown, ChevronRight, Map as MapIcon, Cloud, Sun, CloudRain, Snowflake, Moon, Wind, Brain, X, Pin } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useAIRequest } from './hooks/useAIRequest';
-import { Npc, LorebookEntry, MemoryEntry, Message, NpcMemory, EquipmentItem, ItemEntry, GMConfig, SubGMConfig } from './types';
-import { affectionColor } from './utils/affectionColor';
+import { Npc, LorebookEntry, Message, NpcMemory, EquipmentItem, ItemEntry, GMConfig, SubGMConfig } from './types';
 import { QuestModal } from './components/QuestModal';
 import { ProfileModal } from './components/ProfileModal';
 import { SystemPromptModal } from './components/SystemPromptModal';
 import { MessageCard } from './components/MessageCard';
+import { StreamingBubble, StreamingBubbleHandle } from './components/StreamingBubble';
 import { ChatInput } from './components/ChatInput';
 import { ConfirmDialog, DialogRequest } from './components/ConfirmDialog';
+// 桌面欄位與手機抽屜共用的面板組件（原本兩邊各有一份幾乎相同的 JSX）
+import { GoalsPanel } from './components/panels/GoalsPanel';
+import { WorldMemoryWidget } from './components/panels/WorldMemoryWidget';
+import { SceneNpcsWidget } from './components/panels/SceneNpcsWidget';
+import { SceneMemoryWidget } from './components/panels/SceneMemoryWidget';
+import { PinnedNpcsWidget } from './components/panels/PinnedNpcsWidget';
+import { QuickLinksGrid } from './components/panels/QuickLinksGrid';
+import { EquipmentList } from './components/panels/EquipmentList';
+import { ConsumableList } from './components/panels/ConsumableList';
 
 // 大型 Modal 延遲載入：不進首屏 bundle，開啟時才下載對應 chunk
 const DiaryModal    = lazy(() => import('./components/DiaryModal').then(m => ({ default: m.DiaryModal })));
@@ -25,7 +34,7 @@ import { SaveSlot } from './lib/supabase';
 import { performanceMonitor } from './utils/performanceMonitor';
 import { debounce } from './utils/debounce';
 import { renderMarkdown, stripBareCommands } from './utils/markdownParser';
-import { buildPrompt, BuildPromptDeps } from './utils/promptBuilder';
+import { buildPrompt, BuildPromptDeps, BuildPromptResult } from './utils/promptBuilder';
 import { SaveSlotsModal } from './components/SaveSlotsModal';
 
 export default function App() {
@@ -172,7 +181,6 @@ ${newPool.map((s, i) => `${i + 1}. ${s}`).join('\n')}`;
   const [selectedInventoryItem, setSelectedInventoryItem] = useState<number | null>(null);
   const [selectedConsumableItem, setSelectedConsumableItem] = useState<number | null>(null);
   const [selectedNpc, setSelectedNpc] = useState<Npc | null>(null);
-  const [toastQueue, setToastQueue] = useState<string[]>([]);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [lastSavedAt, setLastSavedAt] = useState<Date | null>(() => {
@@ -305,6 +313,8 @@ ${newPool.map((s, i) => `${i + 1}. ${s}`).join('\n')}`;
   const [visibleMessageCount, setVisibleMessageCount] = useState<number>(0);
   const chatScrollRef = useRef<HTMLDivElement>(null);
   const isAutoLoadingRef = useRef(false);
+  // 串流泡泡的命令式介面：onChunk 直接推文字進去，不經過 messages state
+  const streamingBubbleRef = useRef<StreamingBubbleHandle>(null);
   const visibleMessages = visibleMessageCount > 0 ? messages.slice(-visibleMessageCount) : [];
   const hiddenMessageCount = Math.max(messages.length - visibleMessages.length, 0);
 
@@ -319,9 +329,12 @@ ${newPool.map((s, i) => `${i + 1}. ${s}`).join('\n')}`;
     [hiddenMessageCount, messages.length]
   );
 
+  // 只在「訊息數量」變動時捲動。串流期間 messages 不再逐 chunk 更新，
+  // 串流中的跟隨捲動由 StreamingBubble 自行以 rAF + behavior:'auto' 處理，
+  // 避免每個 chunk 都重啟一次 smooth 捲動動畫造成抖動
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
+  }, [messages.length]);
 
   // ─── 登入後從雲端載入存檔（讀最新槽；若無存檔則自動建立）─────────────────
   useEffect(() => {
@@ -390,6 +403,8 @@ ${newPool.map((s, i) => `${i + 1}. ${s}`).join('\n')}`;
   };
   const timeOfDay = getTimeOfDay(timeState.hour);
   const currentMonthData = MONTHS_DATA.find(m => m.id === timeState.month) || MONTHS_DATA[0];
+  // 消耗品徽章數量：原本判斷與顯示各算一次 reduce
+  const totalItemCount = items.reduce((acc, item) => acc + item.quantity, 0);
   const sceneMeta = useMemo(() => {
     const hour = timeState.hour;
     const isNightScene = hour >= 19 || hour < 5;
@@ -485,7 +500,6 @@ ${newPool.map((s, i) => `${i + 1}. ${s}`).join('\n')}`;
     if (messages.length === 0) return;
     if (messages.length === 1) { showToast(messages[0]); return; }
     if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
-    setToastQueue(messages);
     drainToastQueue(messages);
   }, [showToast, drainToastQueue]);
 
@@ -1060,7 +1074,9 @@ ${poolText}
   };
 
   // ─── Prompt 組裝 ─────────────────────────────────────────────────────────────
-  const buildPromptWrapper = (userInput: string, currentMessages: Message[], locationOverride?: string, isPriority?: boolean): string => {
+  // 回傳 { prompt, triggeredMemoryIds }：記憶觸發判定含機率擲骰，只能做一次，
+  // 因此由 buildPrompt 一併回報實際觸發的記憶，供 tickMemoryCounters 使用
+  const buildPromptWrapper = (userInput: string, currentMessages: Message[], locationOverride?: string, isPriority?: boolean): BuildPromptResult => {
     const deps: BuildPromptDeps = {
       profile, systemPrompt, npcs, appearingNpcs, lorebookEntries,
       memories, equipment, items, itemCatalog, quests, timeState, currentLocation,
@@ -1119,23 +1135,24 @@ ${recentContext}
         setAiRequestStatus('idle');
         return;
       }
-      const prompt = buildPromptWrapper(text, historyToUse || messages, locationOverride, currentIsPriority);
+      const { prompt, triggeredMemoryIds } = buildPromptWrapper(text, historyToUse || messages, locationOverride, currentIsPriority);
 
       aiMessageId = Date.now() + 1;
       setMessages(prev => [...prev, { id: aiMessageId!, role: 'assistant', text: '' }]);
 
       // 使用 streaming 即時顯示敘事；偵測到 << 起停止追加，避免 <<COMMANDS>> 閃現。
-      // [出場:] 標記在串流中同步遮蔽（含跨 chunk 的未閉合片段），最終文字仍以串流結束後的完整解析為準
+      // [出場:] 標記在串流中同步遮蔽（含跨 chunk 的未閉合片段），最終文字仍以串流結束後的完整解析為準。
+      // 串流文字推進 StreamingBubble（見該組件註解），messages 中的佔位訊息維持 text: ''，
+      // 只有串流結束後才寫入最終敘事——串流期間 App 不重渲染。
       let streamedText = '';
       let commandsStarted = false;
-      const streamMsgId = aiMessageId;
       const fullText = await callAI(prompt, {
         role: 'main',
         onStreamStart: () => {
           // 重試時重置累積文字，避免前一次 attempt 的半截輸出重複疊加
           streamedText = '';
           commandsStarted = false;
-          setMessages(prev => prev.map(m => m.id === streamMsgId ? { ...m, text: '' } : m));
+          streamingBubbleRef.current?.setText('');
         },
         onChunk: (chunk) => {
           if (commandsStarted) return;
@@ -1148,7 +1165,7 @@ ${recentContext}
           if (lastOpen !== -1 && !visible.includes(']', lastOpen)) {
             visible = visible.slice(0, lastOpen);
           }
-          setMessages(prev => prev.map(m => m.id === streamMsgId ? { ...m, text: visible } : m));
+          streamingBubbleRef.current?.setText(visible);
         },
       });
       if (!fullText) {
@@ -1199,10 +1216,9 @@ ${recentContext}
         return npc;
       }));
 
-      const triggeredIds = memories
-        .filter(m => isMemoryTriggered(m, text, currentLocation))
-        .map(m => m.id);
-      tickMemoryCounters(triggeredIds);
+      // 使用 buildPrompt 當時的判定結果，不重跑 isMemoryTriggered——
+      // 它含機率擲骰，重跑會讓「被計數的記憶」與「實際注入的記憶」是兩組不同的
+      tickMemoryCounters(triggeredMemoryIds);
 
       // 觸發背景整理（Sub GM）
       // 關鍵事件：任務新增、地點移動、世界記憶寫入 → 強制跳過節流
@@ -1233,6 +1249,22 @@ ${recentContext}
     } finally {
       if (!didError) setAiRequestStatus('idle');
     }
+  };
+
+  // ─── 背包／消耗品操作（EquipmentList / ConsumableList 共用）─────────────────
+  const handleEquipItem   = (item: EquipmentItem) => showToast(`裝備了 ${item.name}`);
+  const handleUnequipItem = (item: EquipmentItem) => showToast(`卸下了 ${item.name}`);
+  const handleDropEquipment = (item: EquipmentItem) => {
+    setEquipment(prev => prev.filter(i => i.id !== item.id));
+    showToast(`丟棄了 ${item.name}`);
+  };
+  const handleUseConsumable = (item: ItemEntry) => {
+    consumeItem(item.name);
+    handleSendMessage(`（我使用了 ${item.name}（${item.description}））`);
+  };
+  const handleDropConsumable = (item: ItemEntry) => {
+    setItems(prev => prev.filter(i => i.id !== item.id));
+    showToast(`丟棄了 ${item.name}`);
   };
 
   // ─── D7：切背景偵測（手機回來後自動中斷未完成請求）───────────────────────
@@ -1520,74 +1552,19 @@ ${recentContext}
       {/* Main Content */}
       <div className="flex flex-1 overflow-hidden relative z-10">
 
-        {/* Left Panel */}
+        {/* Left Panel（手機改用左抽屜，這裡直接不掛載，避免同時渲染兩套版面）*/}
+        {!isMobile && (
         <div
           className="w-[260px] shrink-0 flex flex-col px-3 py-4 gap-3 overflow-y-auto"
-          style={{ zIndex: 20, display: isMobile ? 'none' : undefined }}>
+          style={{ zIndex: 20 }}>
 
-          {/* ── Widget: Note Paper ── */}
-          <div
-            className="rounded-[8px] overflow-hidden relative"
-            style={{
-              background: 'rgba(248,242,226,0.90)',
-              border: '1px solid rgba(185,165,130,0.55)',
-              backdropFilter: 'blur(24px) saturate(180%)',
-              WebkitBackdropFilter: 'blur(24px) saturate(180%)',
-              boxShadow: `2px 2px 0 0 rgba(235,225,205,0.92), 4px 4px 0 0 rgba(220,210,190,0.82), 0 10px 28px rgba(0,0,0,0.32), inset 0 1px 0 rgba(255,255,255,0.55)`,
-            }}
-          >
-            {/* Ruled horizontal lines */}
-            <div className="absolute inset-0 pointer-events-none" style={{
-              backgroundImage: 'repeating-linear-gradient(transparent 0, transparent 27px, rgba(140,110,70,0.09) 27px, rgba(140,110,70,0.09) 28px)',
-              backgroundPosition: '0 52px',
-              zIndex: 0,
-            }} />
-            {/* Left margin line */}
-            <div className="absolute top-0 bottom-0 pointer-events-none" style={{
-              left: '38px', width: '1px',
-              background: 'linear-gradient(to bottom, transparent 8%, rgba(188,55,55,0.16) 16%, rgba(188,55,55,0.16) 84%, transparent 92%)',
-              zIndex: 0,
-            }} />
-            {/* Content layer */}
-            <div className="relative" style={{ zIndex: 1 }}>
-              <div className="px-4 pt-3 pb-1 flex items-center">
-                <h3 className="flex items-center font-bold text-lg" style={{ color: 'var(--text-note)' }}>
-                  <ScrollText className="w-4 h-4 mr-2" style={{ color: 'var(--text-note)' }} /> 當前目標
-                  {isUpdatingLog && <RefreshCw className="w-3 h-3 ml-2 animate-spin opacity-50" style={{ color: 'var(--text-note)' }} />}
-                </h3>
-              </div>
-              <ul className="px-4 pb-2 space-y-1.5">
-                {currentGoals.length > 0 ? currentGoals.map((goal, i) => (
-                  <li key={i} className="text-sm leading-relaxed flex items-start gap-2">
-                    <span className="flex-shrink-0 mt-0.5 text-xs" style={{ color: 'rgba(120,90,50,0.40)' }}>○</span>
-                    <span style={{ color: 'var(--text-note)' }}>{goal}</span>
-                  </li>
-                )) : (
-                  <li className="text-sm" style={{ color: 'var(--text-note-muted)' }}>暫無明確目標...</li>
-                )}
-              </ul>
-              <button className="w-full px-4 py-2 flex items-center transition-all" onClick={() => setSummaryCollapsed(prev => !prev)} style={{ background: 'transparent' }}>
-                {summaryCollapsed ? <ChevronRight className="w-3.5 h-3.5 mr-1.5 flex-shrink-0" style={{ color: 'var(--text-note)' }} /> : <ChevronDown className="w-3.5 h-3.5 mr-1.5 flex-shrink-0" style={{ color: 'var(--text-note)' }} />}
-                <span className="text-sm font-bold" style={{ color: 'var(--text-note)' }}>冒險摘要</span>
-              </button>
-              <AnimatePresence>
-                {!summaryCollapsed && (
-                  <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.2 }} className="overflow-hidden">
-                    <div className="px-4 pb-3">
-                      {adventureLog.length > 0 ? (
-                        <div className="text-sm leading-relaxed flex items-start gap-2">
-                          <span className="flex-shrink-0 mt-0.5 text-xs" style={{ color: 'rgba(120,90,50,0.35)' }}>∵</span>
-                          <span style={{ color: 'var(--text-note)', opacity: 0.85 }}>{adventureLog[0]}</span>
-                        </div>
-                      ) : (
-                        <div className="text-sm" style={{ color: 'var(--text-note-muted)' }}>等待冒險展開...</div>
-                      )}
-                    </div>
-                  </motion.div>
-                )}
-              </AnimatePresence>
-            </div>
-          </div>
+          <GoalsPanel
+            currentGoals={currentGoals}
+            adventureLog={adventureLog}
+            isUpdatingLog={isUpdatingLog}
+            summaryCollapsed={summaryCollapsed}
+            onToggleSummary={() => setSummaryCollapsed(prev => !prev)}
+          />
 
           {/* ── Widget: Quest Log ── */}
           <div
@@ -1679,9 +1656,9 @@ ${recentContext}
           >
             <div className="relative shrink-0">
               <Beaker className="w-4 h-4" style={{ color: 'var(--text-primary)' }} />
-              {items.reduce((acc, item) => acc + item.quantity, 0) > 0 && (
+              {totalItemCount > 0 && (
                 <span className="absolute -top-1.5 -right-2 text-[0.625rem] font-bold px-1 min-w-[16px] text-center rounded-full" style={{ background: 'var(--tab-active)', color: '#fff', lineHeight: '16px' }}>
-                  {items.reduce((acc, item) => acc + item.quantity, 0)}
+                  {totalItemCount}
                 </span>
               )}
             </div>
@@ -1729,65 +1706,14 @@ ${recentContext}
                   </button>
                 </div>
                 <div className="p-3 space-y-2 overflow-y-auto custom-scrollbar flex-1">
-                  {equipment.length > 0 ? equipment.map(item => (
-                    <div
-                      key={item.id}
-                      className="p-2.5 rounded-[8px] border cursor-pointer transition-all"
-                      style={{ borderColor: `color-mix(in srgb, var(--bg-elevated) 50%, transparent)` }}
-                      onClick={() => setSelectedInventoryItem(selectedInventoryItem === item.id ? null : item.id)}
-                    >
-                      <div className="flex justify-between items-center mb-1">
-                        <span className="text-sm font-medium" style={{ color: 'var(--text-title)' }}>{item.name}</span>
-                      </div>
-                      <div className="text-sm leading-relaxed" style={{ color: 'color-mix(in srgb, var(--text-body) 80%, transparent)' }}>{item.description}</div>
-                      <AnimatePresence>
-                        {selectedInventoryItem === item.id && (
-                          <motion.div
-                            initial={{ height: 0, opacity: 0 }}
-                            animate={{ height: 'auto', opacity: 1 }}
-                            exit={{ height: 0, opacity: 0 }}
-                            className="flex space-x-2 mt-2.5 pt-2.5 overflow-hidden"
-                            style={{ borderTop: `1px solid color-mix(in srgb, var(--bg-elevated) 50%, transparent)` }}
-                          >
-                            <button
-                              className="flex-1 text-sm py-1.5 rounded-[8px] transition font-medium"
-                              style={{ background: 'color-mix(in srgb, var(--bg-elevated) 30%, transparent)', color: 'var(--text-title)' }}
-                              onMouseEnter={e => e.currentTarget.style.background = 'color-mix(in srgb, var(--bg-elevated) 60%, transparent)'}
-                              onMouseLeave={e => e.currentTarget.style.background = 'color-mix(in srgb, var(--bg-elevated) 30%, transparent)'}
-                              onClick={(e) => { e.stopPropagation(); showToast(`裝備了 ${item.name}`); setSelectedInventoryItem(null); }}
-                            >
-                              裝備
-                            </button>
-                            <button
-                              className="flex-1 text-sm py-1.5 rounded-[8px] transition font-medium"
-                              style={{ background: 'color-mix(in srgb, var(--bg-elevated) 30%, transparent)', color: 'var(--text-title)' }}
-                              onMouseEnter={e => e.currentTarget.style.background = 'color-mix(in srgb, var(--bg-elevated) 60%, transparent)'}
-                              onMouseLeave={e => e.currentTarget.style.background = 'color-mix(in srgb, var(--bg-elevated) 30%, transparent)'}
-                              onClick={(e) => { e.stopPropagation(); showToast(`卸下了 ${item.name}`); setSelectedInventoryItem(null); }}
-                            >
-                              卸下
-                            </button>
-                            <button
-                              className="flex-1 border text-sm py-1.5 rounded-[8px] transition font-medium"
-                              style={{ background: 'color-mix(in srgb, var(--color-rose) 10%, transparent)', color: 'var(--text-danger)', borderColor: 'color-mix(in srgb, var(--color-rose) 20%, transparent)' }}
-                              onMouseEnter={e => e.currentTarget.style.background = 'color-mix(in srgb, var(--color-rose) 20%, transparent)'}
-                              onMouseLeave={e => e.currentTarget.style.background = 'color-mix(in srgb, var(--color-rose) 10%, transparent)'}
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setEquipment(prev => prev.filter(i => i.id !== item.id));
-                                showToast(`丟棄了 ${item.name}`);
-                                setSelectedInventoryItem(null);
-                              }}
-                            >
-                              丟棄
-                            </button>
-                          </motion.div>
-                        )}
-                      </AnimatePresence>
-                    </div>
-                  )) : (
-                    <div className="text-center text-[var(--text-muted)] text-sm py-8">背包空空如也...</div>
-                  )}
+                  <EquipmentList
+                    equipment={equipment}
+                    selectedId={selectedInventoryItem}
+                    onSelect={setSelectedInventoryItem}
+                    onEquip={handleEquipItem}
+                    onUnequip={handleUnequipItem}
+                    onDrop={handleDropEquipment}
+                  />
                 </div>
               </motion.div>
             )}
@@ -1812,141 +1738,28 @@ ${recentContext}
                   </button>
                 </div>
                 <div className="p-3 space-y-2 overflow-y-auto custom-scrollbar flex-1">
-                  {items.length > 0 ? items.map(item => (
-                    <div
-                      key={item.id}
-                      className="p-2.5 rounded-[8px] border cursor-pointer transition-all"
-                      style={{ borderColor: `color-mix(in srgb, var(--bg-elevated) 50%, transparent)` }}
-                      onClick={() => setSelectedConsumableItem(selectedConsumableItem === item.id ? null : item.id)}
-                    >
-                      <div className="flex justify-between items-center mb-1">
-                        <span className="text-sm font-medium" style={{ color: 'var(--text-title)' }}>{item.name}</span>
-                        <span className="text-sm font-mono px-1.5 py-0.5 rounded-[8px]" style={{ background: 'var(--bg-elevated)', color: 'var(--text-body)' }}>x{item.quantity}</span>
-                      </div>
-                      <div className="text-sm leading-relaxed" style={{ color: 'color-mix(in srgb, var(--text-body) 80%, transparent)' }}>{item.description}</div>
-                      <AnimatePresence>
-                        {selectedConsumableItem === item.id && (
-                          <motion.div
-                            initial={{ height: 0, opacity: 0 }}
-                            animate={{ height: 'auto', opacity: 1 }}
-                            exit={{ height: 0, opacity: 0 }}
-                            className="flex space-x-2 mt-2.5 pt-2.5 overflow-hidden"
-                            style={{ borderTop: `1px solid color-mix(in srgb, var(--bg-elevated) 50%, transparent)` }}
-                          >
-                            <button
-                              className="flex-1 border text-sm py-1.5 rounded-[8px] transition font-medium"
-                              style={{ background: 'color-mix(in srgb, var(--color-emerald) 10%, transparent)', color: 'var(--color-emerald)', borderColor: 'color-mix(in srgb, var(--color-emerald) 20%, transparent)' }}
-                              onMouseEnter={e => e.currentTarget.style.background = 'color-mix(in srgb, var(--color-emerald) 20%, transparent)'}
-                              onMouseLeave={e => e.currentTarget.style.background = 'color-mix(in srgb, var(--color-emerald) 10%, transparent)'}
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                consumeItem(item.name);
-                                setSelectedConsumableItem(null);
-                                handleSendMessage(`（我使用了 ${item.name}（${item.description}））`);
-                              }}
-                            >
-                              使用
-                            </button>
-                            <button
-                              className="flex-1 border text-sm py-1.5 rounded-[8px] transition font-medium"
-                              style={{ background: 'color-mix(in srgb, var(--color-rose) 10%, transparent)', color: 'var(--text-danger)', borderColor: 'color-mix(in srgb, var(--color-rose) 20%, transparent)' }}
-                              onMouseEnter={e => e.currentTarget.style.background = 'color-mix(in srgb, var(--color-rose) 20%, transparent)'}
-                              onMouseLeave={e => e.currentTarget.style.background = 'color-mix(in srgb, var(--color-rose) 10%, transparent)'}
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setItems(prev => prev.filter(i => i.id !== item.id));
-                                showToast(`丟棄了 ${item.name}`);
-                                setSelectedConsumableItem(null);
-                              }}
-                            >
-                              丟棄
-                            </button>
-                          </motion.div>
-                        )}
-                      </AnimatePresence>
-                    </div>
-                  )) : (
-                    <div className="text-center text-[var(--text-muted)] text-sm py-8">沒有任何消耗品...</div>
-                  )}
+                  <ConsumableList
+                    items={items}
+                    selectedId={selectedConsumableItem}
+                    onSelect={setSelectedConsumableItem}
+                    onUse={handleUseConsumable}
+                    onDrop={handleDropConsumable}
+                  />
                 </div>
               </motion.div>
             )}
           </AnimatePresence>
 
-          {/* ── Widget: Pinned NPCs ── */}
-          {npcs.filter(n => n.isPinned).length > 0 && (
-            <div className="rounded-[8px] px-4 py-3 shadow-xl overflow-hidden"
-              style={{
-                background: 'color-mix(in srgb, var(--bg-elevated) 80%, transparent)',
-                border: '1px solid color-mix(in srgb, var(--border-default) 60%, transparent)',
-                backdropFilter: 'blur(24px) saturate(160%)',
-                WebkitBackdropFilter: 'blur(24px) saturate(160%)',
-              }}>
-              <h3 className="font-bold mb-3 text-sm" style={{ color: 'var(--text-primary)' }}>✦ 關注</h3>
-              <div className="space-y-2">
-                {npcs.filter(n => n.isPinned).map(npc => (
-                  <div
-                    key={npc.id}
-                    className="backdrop-blur-md p-3 rounded-[10px] flex justify-between items-center cursor-pointer transition-all duration-300 shadow-md border border-white/5 relative overflow-hidden group/pinned"
-                    onClick={() => setSelectedNpc(npc)}
-                  >
-                    <div className="absolute top-0 left-0 w-1 h-full opacity-40" style={{ background: 'var(--border-accent)' }}></div>
-                    <div>
-                      <div className="text-sm font-bold" style={{ color: 'var(--text-title)' }}>{npc.name}</div>
-                      <div className="text-sm uppercase tracking-tighter" style={{ color: 'var(--text-body)' }}>{npc.job}</div>
-                    </div>
-                    <div className="flex flex-col items-end">
-                      <div className="text-sm flex items-center bg-black/20 px-2 py-0.5 rounded-full border border-white/10" style={{ color: affectionColor(npc.affection) }}>
-                        <Heart className="w-3 h-3 mr-1 fill-current" /> {npc.affection}
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
+          <PinnedNpcsWidget npcs={npcs} onSelectNpc={setSelectedNpc} />
 
           <div className="flex-1"></div>
 
-          <div
-            className="rounded-[8px] p-2 mt-auto"
-            style={{
-              background: 'rgba(0,0,0,0.58)',
-              backdropFilter: 'blur(20px) saturate(150%)',
-              WebkitBackdropFilter: 'blur(20px) saturate(150%)',
-              border: '1px solid rgba(255,255,255,0.07)',
-              boxShadow: '0 4px 20px rgba(0,0,0,0.55)',
-            }}
-          >
-            <div className="grid grid-cols-2 gap-1.5">
-              {[
-                { label: '個人資訊', action: () => setIsProfileModalOpen(true) },
-                { label: '故事集', action: () => setIsLorebookModalOpen(true) },
-                { label: '系統', action: () => setIsSettingsModalOpen(true) },
-                { label: 'Prompt', action: () => setIsSystemPromptModalOpen(true) },
-              ].map(item => (
-                <div
-                  key={item.label}
-                  className="p-1.5 rounded-[5px] cursor-pointer transition-all flex items-center justify-center"
-                  style={{
-                    background: 'rgba(255,255,255,0.04)',
-                    border: '1px solid rgba(255,255,255,0.06)',
-                  }}
-                  onMouseEnter={e => {
-                    e.currentTarget.style.background = 'rgba(255,255,255,0.10)';
-                    e.currentTarget.style.border = '1px solid rgba(255,255,255,0.12)';
-                  }}
-                  onMouseLeave={e => {
-                    e.currentTarget.style.background = 'rgba(255,255,255,0.04)';
-                    e.currentTarget.style.border = '1px solid rgba(255,255,255,0.06)';
-                  }}
-                  onClick={item.action}
-                >
-                  <span className="flex items-center text-xs" style={{ color: 'var(--text-main)' }}>{item.label}</span>
-                </div>
-              ))}
-            </div>
-          </div>
+          <QuickLinksGrid
+            onOpenProfile={() => setIsProfileModalOpen(true)}
+            onOpenLorebook={() => setIsLorebookModalOpen(true)}
+            onOpenSettings={() => setIsSettingsModalOpen(true)}
+            onOpenSystemPrompt={() => setIsSystemPromptModalOpen(true)}
+          />
 
           {lastSavedAt && (() => {
             const isToday = lastSavedAt.toDateString() === new Date().toDateString();
@@ -1959,11 +1772,13 @@ ${recentContext}
             );
           })()}
         </div>
+        )}
 
         {/* Center Panel */}
         <div className="flex-1 flex flex-col relative">
-          {/* Scene Bar */}
-          <div className="p-3 flex items-start justify-end gap-3 absolute top-0 w-full z-30" style={{ display: isMobile ? 'none' : undefined }}>
+          {/* Scene Bar（手機的地圖入口在 Mobile Nav Bar，這裡不掛載）*/}
+          {!isMobile && (
+          <div className="p-3 flex items-start justify-end gap-3 absolute top-0 w-full z-30">
             <div className="flex space-x-2">
               <button
                 onClick={() => setIsMapOpen(true)}
@@ -1984,19 +1799,21 @@ ${recentContext}
               </button>
             </div>
           </div>
+          )}
 
           {/* Dialogue Area */}
           <div
             ref={chatScrollRef}
             className={`flex-1 overflow-y-auto p-6 pb-40 space-y-6 ${isMobile ? 'pt-36' : 'pt-20'}`}
             onScroll={(e) => {
-              const startTime = performance.now();
-              const el = e.currentTarget;
-              if (el.scrollTop <= 4) {
-                handleLoadMore();
+              // 量測只在 DEV 進行：正式版不計時、不累積記錄、不觸發 console.warn
+              if (import.meta.env.DEV) {
+                const startTime = performance.now();
+                if (e.currentTarget.scrollTop <= 4) handleLoadMore();
+                performanceMonitor.recordScrollEvent(performance.now() - startTime, messages.length);
+                return;
               }
-              const duration = performance.now() - startTime;
-              performanceMonitor.recordScrollEvent(duration, messages.length);
+              if (e.currentTarget.scrollTop <= 4) handleLoadMore();
             }}
           >
             <div
@@ -2018,6 +1835,18 @@ ${recentContext}
               </div>
             </div>
             {visibleMessages.map(msg => (
+              // 串流中的佔位訊息（最後一則、assistant、text 仍為空）交給 StreamingBubble，
+              // 由它自行持有串流文字，避免每個 chunk 重渲染整棵 App
+              isLoading && msg.role === 'assistant' && msg.text === '' && msg.id === messages[messages.length - 1]?.id
+              ? (
+              <StreamingBubble
+                key={msg.id}
+                ref={streamingBubbleRef}
+                renderMarkdown={renderMarkdown}
+                stripBareCommands={stripBareCommands}
+                scrollAnchorRef={messagesEndRef}
+              />
+              ) : (
               <MessageCard
                 key={msg.id}
                 msg={msg}
@@ -2026,7 +1855,6 @@ ${recentContext}
                 editingMessageId={editingMessageId}
                 editMessageText={editMessageText}
                 isLoading={isLoading}
-                isThinking={isLoading && msg.text === '' && msg.id === messages[messages.length - 1]?.id}
                 onRegenerate={handleRegenerate}
                 onMenuToggle={handleMenuToggle}
                 onCopy={handleCopyMessage}
@@ -2038,6 +1866,7 @@ ${recentContext}
                 renderMarkdown={renderMarkdown}
                 stripBareCommands={stripBareCommands}
               />
+              )
             ))}
             <div ref={messagesEndRef} />
           </div>
@@ -2170,202 +1999,28 @@ ${recentContext}
           </div>
         </div>
 
-        {/* Right Panel — 3 Independent Widgets */}
-        <div
-          className="w-[260px] shrink-0 flex flex-col p-3 gap-3 overflow-y-auto z-10"
-          style={{ display: isMobile ? 'none' : undefined }}
-        >
+        {/* Right Panel — 3 Independent Widgets（手機改用右抽屜，不掛載）*/}
+        {!isMobile && (
+        <div className="w-[260px] shrink-0 flex flex-col p-3 gap-3 overflow-y-auto z-10">
 
-          {/* ── Widget 1: 世界記憶 ────────────────────────────── */}
-          <div
-            className="rounded-[8px] border border-white/10 backdrop-blur-md p-4 shadow-xl transition-all duration-300 group/wm"
-            style={{ background: 'rgba(10,10,20,0.55)' }}
-            onMouseEnter={e => (e.currentTarget.style.boxShadow = '0 0 0 1px rgba(253,210,137,0.18), 0 8px 32px rgba(0,0,0,0.5)')}
-            onMouseLeave={e => (e.currentTarget.style.boxShadow = '0 10px 32px rgba(0,0,0,0.4)')}
-          >
-            {/* Widget header */}
-            <div className="flex items-center gap-2 mb-4">
-              <Sparkles className="w-4 h-4 shrink-0" style={{ color: 'var(--color-amber)' }} />
-              <span className="text-lg font-bold" style={{ color: 'var(--text-primary)' }}>世界記憶</span>
-            </div>
+          <WorldMemoryWidget
+            memories={memories}
+            monthElegant={currentMonthData.elegant}
+            monthDesc={currentMonthData.desc}
+          />
 
-            {/* Monthly event card */}
-            <div className="rounded-[4px] border border-white/10 shadow-[0_8px_32px_rgba(0,0,0,0.3)] backdrop-blur-md relative overflow-hidden mb-3" style={{ background: `linear-gradient(135deg, #1e1477, var(--bg-elevated))` }}>
-              <div className="absolute -right-6 -bottom-6 opacity-10 group-hover/wm:opacity-20 transition-all duration-700 rotate-12 group-hover/wm:scale-110">
-                <Sparkles className="w-[72px] h-[72px]" style={{ color: 'white' }} />
-              </div>
-              <div className="absolute top-0 left-0 w-full h-[1px]" style={{ background: `linear-gradient(to right, transparent, rgba(255,255,255,0.15), transparent)` }}></div>
-              <div className="px-4 py-2.5 relative z-10">
-                <div className="flex items-center gap-2 mb-1.5">
-                  <div className="p-1.5 rounded-[8px] bg-white/5 border border-white/10">
-                    <Calendar className="w-3 h-3" style={{ color: 'var(--text-muted)' }} />
-                  </div>
-                  <span className="text-xs font-bold tracking-[0.15em] uppercase" style={{ color: 'var(--text-body)' }}>{currentMonthData.elegant}</span>
-                </div>
-                <p className="text-xs leading-relaxed font-light pl-1" style={{ color: 'color-mix(in srgb, var(--text-body) 85%, transparent)', borderLeft: `1px solid rgba(255,255,255,0.15)` }}>
-                  {currentMonthData.desc}
-                </p>
-              </div>
-            </div>
+          <SceneNpcsWidget
+            npcs={npcs}
+            appearingNpcs={appearingNpcs}
+            currentLocation={currentLocation}
+            lorebookEntries={lorebookEntries}
+            onSelectNpc={setSelectedNpc}
+          />
 
-            {/* World memory entries */}
-            <div className="space-y-1.5">
-              {memories.filter(m => m.type === 'world' && m.isActive).map(mem => (
-                <div key={mem.id} className="flex items-start gap-2 text-xs leading-relaxed py-1 pl-2" style={{ borderLeft: `2px solid var(--border-default)` }}>
-                  {mem.importance === 'critical' && <Sparkles className="w-3 h-3 mt-0.5 shrink-0" style={{ color: 'var(--color-amber)' }} />}
-                  <span style={{ color: 'var(--text-muted)' }}>{mem.content}</span>
-                </div>
-              ))}
-              {memories.filter(m => m.type === 'world' && m.isActive).length === 0 && (
-                <p className="text-xs pl-1" style={{ color: 'var(--text-muted)' }}>尚無世界記憶</p>
-              )}
-            </div>
-          </div>
-
-          {/* ── Widget 2: 當前場景人物 ────────────────────────── */}
-          <div
-            className="rounded-[8px] border border-white/10 backdrop-blur-md p-4 shadow-xl transition-all duration-300"
-            style={{ background: 'rgba(10,15,10,0.55)' }}
-            onMouseEnter={e => (e.currentTarget.style.boxShadow = '0 0 0 1px rgba(180,255,180,0.12), 0 8px 32px rgba(0,0,0,0.5)')}
-            onMouseLeave={e => (e.currentTarget.style.boxShadow = '0 10px 32px rgba(0,0,0,0.4)')}
-          >
-            <div className="flex items-center gap-2 mb-4">
-              <Users className="w-4 h-4 shrink-0" style={{ color: 'var(--text-title)' }} />
-              <span className="text-lg font-bold" style={{ color: 'var(--text-primary)' }}>當前場景人物</span>
-            </div>
-
-            <div className="space-y-2">
-              {(() => {
-                const sceneNpcs = npcs.filter(n =>
-                  appearingNpcs.includes(n.name) ||
-                  n.location === currentLocation ||
-                  n.isPinned
-                );
-                const hiddenCount = Math.max(0, sceneNpcs.length - 8);
-                const displayedNpcs = sceneNpcs.slice(0, 8);
-
-                return sceneNpcs.length > 0 ? (
-                  <>
-                    {displayedNpcs.map(npc => {
-                      const lore = lorebookEntries.find(e => e.category === 'NPC' && e.title === npc.name);
-                      const displayJob    = lore?.job    ?? npc.job    ?? '';
-                      const displayGender = lore?.gender ?? '';
-                      return (
-                        <div
-                          key={npc.id}
-                          className="backdrop-blur-md border border-white/5 p-2.5 rounded-[4px] flex justify-between items-center cursor-pointer transition-all duration-300 shadow-lg group/npc overflow-hidden relative hover:border-white/15"
-                          onClick={() => setSelectedNpc(npc)}
-                        >
-                          <div className="absolute top-0 left-0 w-1 h-full opacity-0 group-hover/npc:opacity-40 transition-opacity" style={{ background: `linear-gradient(to bottom, transparent, var(--bg-elevated), transparent)` }}></div>
-                          <div className="flex flex-col">
-                            <span className="text-sm font-medium" style={{ color: 'var(--text-title)' }}>{npc.name}</span>
-                            <span className="text-xs uppercase tracking-tighter" style={{ color: 'var(--text-body)' }}>{displayGender ? `${displayGender}・${displayJob}` : displayJob}</span>
-                          </div>
-                          <div className="text-xs flex items-center px-2 py-1 rounded-full bg-black/20 border border-white/5" style={{ color: affectionColor(npc.affection) }}>
-                            <Heart className="w-3 h-3 mr-1 fill-current" />
-                            <span className="font-mono">{npc.affection}</span>
-                          </div>
-                        </div>
-                      );
-                    })}
-                    {hiddenCount > 0 && (
-                      <div className="text-xs pl-1" style={{ color: 'var(--text-muted)' }}>
-                        ✦ 還有 {hiddenCount} 人未顯示...
-                      </div>
-                    )}
-                  </>
-                ) : (
-                  <p className="text-xs pl-1" style={{ color: 'var(--text-muted)' }}>此處目前沒有人...</p>
-                );
-              })()}
-            </div>
-          </div>
-
-          {/* ── Widget 3: 場景 & 區域記憶 ────────────────────── */}
-          <div
-            className="rounded-[8px] border border-white/10 backdrop-blur-md p-4 shadow-xl transition-all duration-300"
-            style={{ background: 'rgba(15,10,5,0.55)' }}
-            onMouseEnter={e => (e.currentTarget.style.boxShadow = '0 0 0 1px rgba(253,200,100,0.14), 0 8px 32px rgba(0,0,0,0.5)')}
-            onMouseLeave={e => (e.currentTarget.style.boxShadow = '0 10px 32px rgba(0,0,0,0.4)')}
-          >
-            <div className="flex items-center gap-2 mb-4">
-              <MapPin className="w-4 h-4 shrink-0" style={{ color: 'var(--color-amber)' }} />
-              <span className="text-lg font-bold" style={{ color: 'var(--text-primary)' }}>場景記憶</span>
-            </div>
-
-            {/* Region memories */}
-            {(() => {
-              const regionMems = memories.filter(m => {
-                if (m.type !== 'region' || !m.isActive) return false;
-                const locs = m.tags?.locations || [];
-                if (locs.length === 0) return true;
-                return locs.some((l: string) => l === currentLocation);
-              });
-              return regionMems.length > 0 ? (
-                <div className="mb-3">
-                  <p className="text-[0.625rem] uppercase tracking-widest mb-1.5 font-semibold" style={{ color: 'var(--text-muted)' }}>區域</p>
-                  <ul className="space-y-1.5">
-                    {regionMems.map(mem => (
-                      <li key={mem.id} className="flex items-start gap-2 text-xs leading-relaxed" style={{ color: 'var(--text-muted)' }}>
-                        <span className="mt-1.5 w-1 h-1 rounded-full shrink-0" style={{ background: 'var(--color-amber)', opacity: 0.7 }}></span>
-                        <span>{mem.content}{mem.expiresAt && <em className="ml-1 opacity-60">（至 {mem.expiresAt}）</em>}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              ) : null;
-            })()}
-
-            {/* Scene memories */}
-            {(() => {
-              const sceneMems = memories.filter(m =>
-                m.type === 'scene' && m.isActive &&
-                (m.tags?.locations || []).some((l: string) => l === currentLocation)
-              );
-              return (
-                <div className="mb-3">
-                  <p className="text-[0.625rem] uppercase tracking-widest mb-1.5 font-semibold" style={{ color: 'var(--text-muted)' }}>場景</p>
-                  {sceneMems.length > 0 ? (
-                    <ul className="space-y-1.5">
-                      {sceneMems.map(mem => (
-                        <li key={mem.id} className="flex items-start gap-2 text-xs leading-relaxed" style={{ color: 'var(--text-muted)' }}>
-                          <span className="mt-1.5 w-1 h-1 rounded-full shrink-0" style={{ background: 'var(--color-sky)', opacity: 0.7 }}></span>
-                          <span>{mem.content}{mem.source === 'ai_generated' && <em className="ml-1 text-[0.625rem] opacity-50">AI</em>}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  ) : (
-                    <p className="text-xs pl-1" style={{ color: 'var(--text-muted)' }}>此場景尚無記憶...</p>
-                  )}
-                </div>
-              );
-            })()}
-
-            {/* NPC memories */}
-            {(() => {
-              const npcMems = memories.filter(m => m.type === 'npc' && m.isActive);
-              return npcMems.length > 0 ? (
-                <div>
-                  <p className="text-[0.625rem] uppercase tracking-widest mb-1.5 font-semibold" style={{ color: 'var(--text-muted)' }}>NPC</p>
-                  <ul className="space-y-1.5">
-                    {npcMems.map(mem => (
-                      <li key={mem.id} className="flex items-start gap-2 text-xs leading-relaxed" style={{ color: 'var(--text-muted)' }}>
-                        <span className="mt-1.5 w-1 h-1 rounded-full shrink-0" style={{ background: 'var(--color-emerald)', opacity: 0.7 }}></span>
-                        <span>
-                          {mem.tags?.npcs?.length > 0 && (
-                            <strong className="mr-1" style={{ color: 'var(--text-title)' }}>[{mem.tags.npcs.join(',')}]</strong>
-                          )}
-                          {mem.content}
-                        </span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              ) : null;
-            })()}
-          </div>
+          <SceneMemoryWidget memories={memories} currentLocation={currentLocation} />
 
         </div>
+        )}
       </div>
 
       {/* Quest Modal Overlay */}
@@ -2468,7 +2123,6 @@ ${recentContext}
         onLogout={handleLogout}
         onOpenSaveSlots={() => {
           listCloudSaves(authUser.id).then(setCloudSaves);
-          setIsSettingsModalOpen(false);
           setIsSaveSlotsModalOpen(true);
         }}
         isCloudSaving={isCloudSaving}
@@ -2641,58 +2295,13 @@ ${recentContext}
               {/* Drawer Body */}
               <div className="flex-1 overflow-y-auto px-3 py-3 flex flex-col gap-3">
 
-                {/* ── Widget: Note Paper ── */}
-                <div
-                  className="rounded-[8px] overflow-hidden relative"
-                  style={{
-                    background: 'rgba(248,242,226,0.90)',
-                    border: '1px solid rgba(185,165,130,0.55)',
-                    backdropFilter: 'blur(24px) saturate(180%)',
-                    WebkitBackdropFilter: 'blur(24px) saturate(180%)',
-                    boxShadow: `2px 2px 0 0 rgba(235,225,205,0.92), 4px 4px 0 0 rgba(220,210,190,0.82), 0 10px 28px rgba(0,0,0,0.32), inset 0 1px 0 rgba(255,255,255,0.55)`,
-                  }}
-                >
-                  <div className="absolute inset-0 pointer-events-none" style={{ backgroundImage: 'repeating-linear-gradient(transparent 0, transparent 27px, rgba(140,110,70,0.09) 27px, rgba(140,110,70,0.09) 28px)', backgroundPosition: '0 52px', zIndex: 0 }} />
-                  <div className="absolute top-0 bottom-0 pointer-events-none" style={{ left: '38px', width: '1px', background: 'linear-gradient(to bottom, transparent 8%, rgba(188,55,55,0.16) 16%, rgba(188,55,55,0.16) 84%, transparent 92%)', zIndex: 0 }} />
-                  <div className="relative" style={{ zIndex: 1 }}>
-                    <div className="px-4 pt-3 pb-1 flex items-center">
-                      <h3 className="flex items-center font-bold text-lg" style={{ color: 'var(--text-note)' }}>
-                        <ScrollText className="w-4 h-4 mr-2" style={{ color: 'var(--text-note)' }} /> 當前目標
-                        {isUpdatingLog && <RefreshCw className="w-3 h-3 ml-2 animate-spin opacity-50" style={{ color: 'var(--text-note)' }} />}
-                      </h3>
-                    </div>
-                    <ul className="px-4 pb-2 space-y-1.5">
-                      {currentGoals.length > 0 ? currentGoals.map((goal, i) => (
-                        <li key={i} className="text-sm leading-relaxed flex items-start gap-2">
-                          <span className="flex-shrink-0 mt-0.5 text-xs" style={{ color: 'rgba(120,90,50,0.40)' }}>○</span>
-                          <span style={{ color: 'var(--text-note)' }}>{goal}</span>
-                        </li>
-                      )) : (
-                        <li className="text-sm" style={{ color: 'var(--text-note-muted)' }}>暫無明確目標...</li>
-                      )}
-                    </ul>
-                    <button className="w-full px-4 py-2 flex items-center transition-all" onClick={() => setSummaryCollapsed(prev => !prev)} style={{ background: 'transparent' }}>
-                      {summaryCollapsed ? <ChevronRight className="w-3.5 h-3.5 mr-1.5 flex-shrink-0" style={{ color: 'var(--text-note)' }} /> : <ChevronDown className="w-3.5 h-3.5 mr-1.5 flex-shrink-0" style={{ color: 'var(--text-note)' }} />}
-                      <span className="text-sm font-bold" style={{ color: 'var(--text-note)' }}>冒險摘要</span>
-                    </button>
-                    <AnimatePresence>
-                      {!summaryCollapsed && (
-                        <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.2 }} className="overflow-hidden">
-                          <div className="px-4 pb-3">
-                            {adventureLog.length > 0 ? (
-                              <div className="text-sm leading-relaxed flex items-start gap-2">
-                                <span className="flex-shrink-0 mt-0.5 text-xs" style={{ color: 'rgba(120,90,50,0.35)' }}>∵</span>
-                                <span style={{ color: 'var(--text-note)', opacity: 0.85 }}>{adventureLog[0]}</span>
-                              </div>
-                            ) : (
-                              <div className="text-sm" style={{ color: 'var(--text-note-muted)' }}>等待冒險展開...</div>
-                            )}
-                          </div>
-                        </motion.div>
-                      )}
-                    </AnimatePresence>
-                  </div>
-                </div>
+                <GoalsPanel
+                  currentGoals={currentGoals}
+                  adventureLog={adventureLog}
+                  isUpdatingLog={isUpdatingLog}
+                  summaryCollapsed={summaryCollapsed}
+                  onToggleSummary={() => setSummaryCollapsed(prev => !prev)}
+                />
 
                 {/* ── Widget: 裝備（inline expand）── */}
                 <div>
@@ -2727,21 +2336,14 @@ ${recentContext}
                         className="overflow-hidden"
                       >
                         <div className="mt-1 rounded-[8px] border p-2 space-y-2" style={{ borderColor: 'var(--border-default)', background: 'color-mix(in srgb, var(--bg-elevated) 80%, transparent)' }}>
-                          {equipment.length > 0 ? equipment.map(item => (
-                            <div key={item.id} className="p-2.5 rounded-[8px] border cursor-pointer transition-all" style={{ borderColor: 'color-mix(in srgb, var(--bg-elevated) 50%, transparent)' }} onClick={() => setSelectedInventoryItem(selectedInventoryItem === item.id ? null : item.id)}>
-                              <div className="text-sm font-medium" style={{ color: 'var(--text-title)' }}>{item.name}</div>
-                              <div className="text-sm leading-relaxed" style={{ color: 'color-mix(in srgb, var(--text-body) 80%, transparent)' }}>{item.description}</div>
-                              <AnimatePresence>
-                                {selectedInventoryItem === item.id && (
-                                  <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="flex space-x-2 mt-2.5 pt-2.5 overflow-hidden" style={{ borderTop: '1px solid color-mix(in srgb, var(--bg-elevated) 50%, transparent)' }}>
-                                    <button className="flex-1 text-sm py-1.5 rounded-[8px] transition font-medium" style={{ background: 'color-mix(in srgb, var(--bg-elevated) 30%, transparent)', color: 'var(--text-title)' }} onClick={(e) => { e.stopPropagation(); showToast(`裝備了 ${item.name}`); setSelectedInventoryItem(null); }}>裝備</button>
-                                    <button className="flex-1 text-sm py-1.5 rounded-[8px] transition font-medium" style={{ background: 'color-mix(in srgb, var(--bg-elevated) 30%, transparent)', color: 'var(--text-title)' }} onClick={(e) => { e.stopPropagation(); showToast(`卸下了 ${item.name}`); setSelectedInventoryItem(null); }}>卸下</button>
-                                    <button className="flex-1 border text-sm py-1.5 rounded-[8px] transition font-medium" style={{ background: 'color-mix(in srgb, var(--color-rose) 10%, transparent)', color: 'var(--text-danger)', borderColor: 'color-mix(in srgb, var(--color-rose) 20%, transparent)' }} onClick={(e) => { e.stopPropagation(); setEquipment(prev => prev.filter(i => i.id !== item.id)); showToast(`丟棄了 ${item.name}`); setSelectedInventoryItem(null); }}>丟棄</button>
-                                  </motion.div>
-                                )}
-                              </AnimatePresence>
-                            </div>
-                          )) : <div className="text-center text-sm py-4" style={{ color: 'var(--text-muted)' }}>背包空空如也...</div>}
+                          <EquipmentList
+                            equipment={equipment}
+                            selectedId={selectedInventoryItem}
+                            onSelect={setSelectedInventoryItem}
+                            onEquip={handleEquipItem}
+                            onUnequip={handleUnequipItem}
+                            onDrop={handleDropEquipment}
+                          />
                         </div>
                       </motion.div>
                     )}
@@ -2762,9 +2364,9 @@ ${recentContext}
                   >
                     <div className="relative shrink-0">
                       <Beaker className="w-4 h-4" style={{ color: 'var(--text-primary)' }} />
-                      {items.reduce((acc, item) => acc + item.quantity, 0) > 0 && (
+                      {totalItemCount > 0 && (
                         <span className="absolute -top-1.5 -right-2 text-[0.625rem] font-bold px-1 min-w-[16px] text-center rounded-full" style={{ background: 'var(--tab-active)', color: '#fff', lineHeight: '16px' }}>
-                          {items.reduce((acc, item) => acc + item.quantity, 0)}
+                          {totalItemCount}
                         </span>
                       )}
                     </div>
@@ -2781,71 +2383,27 @@ ${recentContext}
                         className="overflow-hidden"
                       >
                         <div className="mt-1 rounded-[8px] border p-2 space-y-2" style={{ borderColor: 'var(--border-default)', background: 'color-mix(in srgb, var(--bg-elevated) 80%, transparent)' }}>
-                          {items.length > 0 ? items.map(item => (
-                            <div key={item.id} className="p-2.5 rounded-[8px] border cursor-pointer transition-all" style={{ borderColor: 'color-mix(in srgb, var(--bg-elevated) 50%, transparent)' }} onClick={() => setSelectedConsumableItem(selectedConsumableItem === item.id ? null : item.id)}>
-                              <div className="flex justify-between items-center mb-1">
-                                <span className="text-sm font-medium" style={{ color: 'var(--text-title)' }}>{item.name}</span>
-                                <span className="text-sm font-mono px-1.5 py-0.5 rounded-[8px]" style={{ background: 'var(--bg-elevated)', color: 'var(--text-body)' }}>x{item.quantity}</span>
-                              </div>
-                              <div className="text-sm leading-relaxed" style={{ color: 'color-mix(in srgb, var(--text-body) 80%, transparent)' }}>{item.description}</div>
-                              <AnimatePresence>
-                                {selectedConsumableItem === item.id && (
-                                  <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="flex space-x-2 mt-2.5 pt-2.5 overflow-hidden" style={{ borderTop: '1px solid color-mix(in srgb, var(--bg-elevated) 50%, transparent)' }}>
-                                    <button className="flex-1 border text-sm py-1.5 rounded-[8px] transition font-medium" style={{ background: 'color-mix(in srgb, var(--color-emerald) 10%, transparent)', color: 'var(--color-emerald)', borderColor: 'color-mix(in srgb, var(--color-emerald) 20%, transparent)' }} onClick={(e) => { e.stopPropagation(); consumeItem(item.name); setSelectedConsumableItem(null); handleSendMessage(`（我使用了 ${item.name}（${item.description}））`); }}>使用</button>
-                                    <button className="flex-1 border text-sm py-1.5 rounded-[8px] transition font-medium" style={{ background: 'color-mix(in srgb, var(--color-rose) 10%, transparent)', color: 'var(--text-danger)', borderColor: 'color-mix(in srgb, var(--color-rose) 20%, transparent)' }} onClick={(e) => { e.stopPropagation(); setItems(prev => prev.filter(i => i.id !== item.id)); showToast(`丟棄了 ${item.name}`); setSelectedConsumableItem(null); }}>丟棄</button>
-                                  </motion.div>
-                                )}
-                              </AnimatePresence>
-                            </div>
-                          )) : <div className="text-center text-sm py-4" style={{ color: 'var(--text-muted)' }}>沒有任何消耗品...</div>}
+                          <ConsumableList
+                            items={items}
+                            selectedId={selectedConsumableItem}
+                            onSelect={setSelectedConsumableItem}
+                            onUse={handleUseConsumable}
+                            onDrop={handleDropConsumable}
+                          />
                         </div>
                       </motion.div>
                     )}
                   </AnimatePresence>
                 </div>
 
-                {/* ── Widget: Pinned NPCs ── */}
-                {npcs.filter(n => n.isPinned).length > 0 && (
-                  <div className="rounded-[8px] px-4 py-3 shadow-xl overflow-hidden" style={{ background: 'color-mix(in srgb, var(--bg-elevated) 80%, transparent)', border: '1px solid color-mix(in srgb, var(--border-default) 60%, transparent)', backdropFilter: 'blur(24px) saturate(160%)', WebkitBackdropFilter: 'blur(24px) saturate(160%)' }}>
-                    <h3 className="font-bold mb-3 text-sm" style={{ color: 'var(--text-primary)' }}>✦ 關注</h3>
-                    <div className="space-y-2">
-                      {npcs.filter(n => n.isPinned).map(npc => (
-                        <div key={npc.id} className="backdrop-blur-md p-3 rounded-[10px] flex justify-between items-center cursor-pointer transition-all duration-300 shadow-md border border-white/5 relative overflow-hidden group/pinned" onClick={() => setSelectedNpc(npc)}>
-                          <div className="absolute top-0 left-0 w-1 h-full opacity-40" style={{ background: 'var(--border-accent)' }}></div>
-                          <div>
-                            <div className="text-sm font-bold" style={{ color: 'var(--text-title)' }}>{npc.name}</div>
-                            <div className="text-sm uppercase tracking-tighter" style={{ color: 'var(--text-body)' }}>{npc.job}</div>
-                          </div>
-                          <div className="flex flex-col items-end">
-                            <div className="text-sm flex items-center bg-black/20 px-2 py-0.5 rounded-full border border-white/10" style={{ color: affectionColor(npc.affection) }}>
-                              <Heart className="w-3 h-3 mr-1 fill-current" /> {npc.affection}
-                            </div>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
+                <PinnedNpcsWidget npcs={npcs} onSelectNpc={setSelectedNpc} />
 
-                {/* 底部快捷按鈕 */}
-                <div className="rounded-[8px] p-2 mt-auto" style={{ background: 'rgba(0,0,0,0.58)', backdropFilter: 'blur(20px) saturate(150%)', WebkitBackdropFilter: 'blur(20px) saturate(150%)', border: '1px solid rgba(255,255,255,0.07)', boxShadow: '0 4px 20px rgba(0,0,0,0.55)' }}>
-                  <div className="grid grid-cols-2 gap-1.5">
-                    {[
-                      { label: '個人資訊', action: () => setIsProfileModalOpen(true) },
-                      { label: '故事集', action: () => setIsLorebookModalOpen(true) },
-                      { label: '系統', action: () => setIsSettingsModalOpen(true) },
-                      { label: 'Prompt', action: () => setIsSystemPromptModalOpen(true) },
-                    ].map(item => (
-                      <div key={item.label} className="p-1.5 rounded-[5px] cursor-pointer transition-all flex items-center justify-center" style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)' }}
-                        onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.10)'; e.currentTarget.style.border = '1px solid rgba(255,255,255,0.12)'; }}
-                        onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.04)'; e.currentTarget.style.border = '1px solid rgba(255,255,255,0.06)'; }}
-                        onClick={item.action}
-                      >
-                        <span className="flex items-center text-xs" style={{ color: 'var(--text-main)' }}>{item.label}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
+                <QuickLinksGrid
+                  onOpenProfile={() => setIsProfileModalOpen(true)}
+                  onOpenLorebook={() => setIsLorebookModalOpen(true)}
+                  onOpenSettings={() => setIsSettingsModalOpen(true)}
+                  onOpenSystemPrompt={() => setIsSystemPromptModalOpen(true)}
+                />
 
               </div>
             </motion.div>
@@ -2906,136 +2464,21 @@ ${recentContext}
               {/* Drawer Body — 桌面右欄內容 */}
               <div className="flex-1 overflow-y-auto p-3 flex flex-col gap-3">
 
-                {/* ── Widget 1: 世界記憶 ── */}
-                <div className="rounded-[8px] border border-white/10 backdrop-blur-md p-4 shadow-xl transition-all duration-300 group/wm" style={{ background: 'rgba(10,10,20,0.55)' }}>
-                  <div className="flex items-center gap-2 mb-4">
-                    <Sparkles className="w-4 h-4 shrink-0" style={{ color: 'var(--color-amber)' }} />
-                    <span className="text-lg font-bold" style={{ color: 'var(--text-primary)' }}>世界記憶</span>
-                  </div>
-                  <div className="rounded-[4px] border border-white/10 shadow-[0_8px_32px_rgba(0,0,0,0.3)] backdrop-blur-md relative overflow-hidden mb-3" style={{ background: `linear-gradient(135deg, #1e1477, var(--bg-elevated))` }}>
-                    <div className="absolute -right-6 -bottom-6 opacity-10 group-hover/wm:opacity-20 transition-all duration-700 rotate-12 group-hover/wm:scale-110">
-                      <Sparkles className="w-[72px] h-[72px]" style={{ color: 'white' }} />
-                    </div>
-                    <div className="absolute top-0 left-0 w-full h-[1px]" style={{ background: `linear-gradient(to right, transparent, rgba(255,255,255,0.15), transparent)` }}></div>
-                    <div className="px-4 py-2.5 relative z-10">
-                      <div className="flex items-center gap-2 mb-1.5">
-                        <div className="p-1.5 rounded-[8px] bg-white/5 border border-white/10"><Calendar className="w-3 h-3" style={{ color: 'var(--text-muted)' }} /></div>
-                        <span className="text-xs font-bold tracking-[0.15em] uppercase" style={{ color: 'var(--text-body)' }}>{currentMonthData.elegant}</span>
-                      </div>
-                      <p className="text-xs leading-relaxed font-light pl-1" style={{ color: 'color-mix(in srgb, var(--text-body) 85%, transparent)', borderLeft: `1px solid rgba(255,255,255,0.15)` }}>{currentMonthData.desc}</p>
-                    </div>
-                  </div>
-                  <div className="space-y-1.5">
-                    {memories.filter(m => m.type === 'world' && m.isActive).map(mem => (
-                      <div key={mem.id} className="flex items-start gap-2 text-xs leading-relaxed py-1 pl-2" style={{ borderLeft: `2px solid var(--border-default)` }}>
-                        {mem.importance === 'critical' && <Sparkles className="w-3 h-3 mt-0.5 shrink-0" style={{ color: 'var(--color-amber)' }} />}
-                        <span style={{ color: 'var(--text-muted)' }}>{mem.content}</span>
-                      </div>
-                    ))}
-                    {memories.filter(m => m.type === 'world' && m.isActive).length === 0 && (
-                      <p className="text-xs pl-1" style={{ color: 'var(--text-muted)' }}>尚無世界記憶</p>
-                    )}
-                  </div>
-                </div>
+                <WorldMemoryWidget
+                  memories={memories}
+                  monthElegant={currentMonthData.elegant}
+                  monthDesc={currentMonthData.desc}
+                />
 
-                {/* ── Widget 2: 當前場景人物 ── */}
-                <div className="rounded-[8px] border border-white/10 backdrop-blur-md p-4 shadow-xl transition-all duration-300" style={{ background: 'rgba(10,15,10,0.55)' }}>
-                  <div className="flex items-center gap-2 mb-4">
-                    <Users className="w-4 h-4 shrink-0" style={{ color: 'var(--text-title)' }} />
-                    <span className="text-lg font-bold" style={{ color: 'var(--text-primary)' }}>當前場景人物</span>
-                  </div>
-                  <div className="space-y-2">
-                    {(() => {
-                      const sceneNpcs = npcs.filter(n => appearingNpcs.includes(n.name) || n.location === currentLocation || n.isPinned);
-                      const hiddenCount = Math.max(0, sceneNpcs.length - 8);
-                      const displayedNpcs = sceneNpcs.slice(0, 8);
-                      return sceneNpcs.length > 0 ? (
-                        <>
-                          {displayedNpcs.map(npc => {
-                            const lore = lorebookEntries.find(e => e.category === 'NPC' && e.title === npc.name);
-                            const displayJob    = lore?.job    ?? npc.job    ?? '';
-                            const displayGender = lore?.gender ?? '';
-                            return (
-                              <div key={npc.id} className="backdrop-blur-md border border-white/5 p-2.5 rounded-[4px] flex justify-between items-center cursor-pointer transition-all duration-300 shadow-lg group/npc overflow-hidden relative hover:border-white/15" onClick={() => setSelectedNpc(npc)}>
-                                <div className="absolute top-0 left-0 w-1 h-full opacity-0 group-hover/npc:opacity-40 transition-opacity" style={{ background: `linear-gradient(to bottom, transparent, var(--bg-elevated), transparent)` }}></div>
-                                <div className="flex flex-col">
-                                  <span className="text-sm font-medium" style={{ color: 'var(--text-title)' }}>{npc.name}</span>
-                                  <span className="text-xs uppercase tracking-tighter" style={{ color: 'var(--text-body)' }}>{displayGender ? `${displayGender}・${displayJob}` : displayJob}</span>
-                                </div>
-                                <div className="text-xs flex items-center px-2 py-1 rounded-full bg-black/20 border border-white/5" style={{ color: affectionColor(npc.affection) }}>
-                                  <Heart className="w-3 h-3 mr-1 fill-current" />
-                                  <span className="font-mono">{npc.affection}</span>
-                                </div>
-                              </div>
-                            );
-                          })}
-                          {hiddenCount > 0 && <div className="text-xs pl-1" style={{ color: 'var(--text-muted)' }}>✦ 還有 {hiddenCount} 人未顯示...</div>}
-                        </>
-                      ) : <p className="text-xs pl-1" style={{ color: 'var(--text-muted)' }}>此處目前沒有人...</p>;
-                    })()}
-                  </div>
-                </div>
+                <SceneNpcsWidget
+                  npcs={npcs}
+                  appearingNpcs={appearingNpcs}
+                  currentLocation={currentLocation}
+                  lorebookEntries={lorebookEntries}
+                  onSelectNpc={setSelectedNpc}
+                />
 
-                {/* ── Widget 3: 場景 & 區域記憶 ── */}
-                <div className="rounded-[8px] border border-white/10 backdrop-blur-md p-4 shadow-xl transition-all duration-300" style={{ background: 'rgba(15,10,5,0.55)' }}>
-                  <div className="flex items-center gap-2 mb-4">
-                    <MapPin className="w-4 h-4 shrink-0" style={{ color: 'var(--color-amber)' }} />
-                    <span className="text-lg font-bold" style={{ color: 'var(--text-primary)' }}>場景記憶</span>
-                  </div>
-                  {(() => {
-                    const regionMems = memories.filter(m => { if (m.type !== 'region' || !m.isActive) return false; const locs = m.tags?.locations || []; if (locs.length === 0) return true; return locs.some((l: string) => l === currentLocation); });
-                    return regionMems.length > 0 ? (
-                      <div className="mb-3">
-                        <p className="text-[0.625rem] uppercase tracking-widest mb-1.5 font-semibold" style={{ color: 'var(--text-muted)' }}>區域</p>
-                        <ul className="space-y-1.5">
-                          {regionMems.map(mem => (
-                            <li key={mem.id} className="flex items-start gap-2 text-xs leading-relaxed" style={{ color: 'var(--text-muted)' }}>
-                              <span className="mt-1.5 w-1 h-1 rounded-full shrink-0" style={{ background: 'var(--color-amber)', opacity: 0.7 }}></span>
-                              <span>{mem.content}{mem.expiresAt && <em className="ml-1 opacity-60">（至 {mem.expiresAt}）</em>}</span>
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                    ) : null;
-                  })()}
-                  {(() => {
-                    const sceneMems = memories.filter(m => m.type === 'scene' && m.isActive && (m.tags?.locations || []).some((l: string) => l === currentLocation));
-                    return (
-                      <div className="mb-3">
-                        <p className="text-[0.625rem] uppercase tracking-widest mb-1.5 font-semibold" style={{ color: 'var(--text-muted)' }}>場景</p>
-                        {sceneMems.length > 0 ? (
-                          <ul className="space-y-1.5">
-                            {sceneMems.map(mem => (
-                              <li key={mem.id} className="flex items-start gap-2 text-xs leading-relaxed" style={{ color: 'var(--text-muted)' }}>
-                                <span className="mt-1.5 w-1 h-1 rounded-full shrink-0" style={{ background: 'var(--color-sky)', opacity: 0.7 }}></span>
-                                <span>{mem.content}{mem.source === 'ai_generated' && <em className="ml-1 text-[0.625rem] opacity-50">AI</em>}</span>
-                              </li>
-                            ))}
-                          </ul>
-                        ) : <p className="text-xs pl-1" style={{ color: 'var(--text-muted)' }}>此場景尚無記憶...</p>}
-                      </div>
-                    );
-                  })()}
-                  {(() => {
-                    const npcMems = memories.filter(m => m.type === 'npc' && m.isActive);
-                    return npcMems.length > 0 ? (
-                      <div>
-                        <p className="text-[0.625rem] uppercase tracking-widest mb-1.5 font-semibold" style={{ color: 'var(--text-muted)' }}>NPC</p>
-                        <ul className="space-y-1.5">
-                          {npcMems.map(mem => (
-                            <li key={mem.id} className="flex items-start gap-2 text-xs leading-relaxed" style={{ color: 'var(--text-muted)' }}>
-                              <span className="mt-1.5 w-1 h-1 rounded-full shrink-0" style={{ background: 'var(--color-emerald)', opacity: 0.7 }}></span>
-                              <span>
-                                {mem.tags?.npcs?.length > 0 && <strong className="mr-1" style={{ color: 'var(--text-title)' }}>[{mem.tags.npcs.join(',')}]</strong>}
-                                {mem.content}
-                              </span>
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                    ) : null;
-                  })()}
-                </div>
+                <SceneMemoryWidget memories={memories} currentLocation={currentLocation} />
 
               </div>
             </motion.div>

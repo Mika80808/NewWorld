@@ -2,6 +2,7 @@ import React from 'react';
 import { motion } from 'motion/react';
 import { RefreshCw, MoreVertical } from 'lucide-react';
 import { Message } from '../types';
+import { MessageBubble } from './MessageBubble';
 
 interface MessageCardProps {
   msg: Message;
@@ -10,8 +11,6 @@ interface MessageCardProps {
   editingMessageId: number | null;
   editMessageText: string;
   isLoading: boolean;
-  /** 這張卡片是否為「主 GM 思考中」的空泡泡（由父層計算，取代傳入整個 messages 陣列） */
-  isThinking: boolean;
   onRegenerate: (msgId: number) => void;
   onMenuToggle: (msgId: number) => void;
   onCopy: (text: string) => void;
@@ -32,7 +31,6 @@ export const MessageCard: React.FC<MessageCardProps> = React.memo(({
   editingMessageId,
   editMessageText,
   isLoading,
-  isThinking,
   onRegenerate,
   onMenuToggle,
   onCopy,
@@ -127,25 +125,7 @@ export const MessageCard: React.FC<MessageCardProps> = React.memo(({
         </div>
       </div>
 
-      <div
-        className={`rpg-message-card ${isAssistant ? 'rpg-message-card-assistant' : ''} p-4 text-left max-w-full relative overflow-hidden ${editingMessageId === msg.id ? 'w-full' : 'w-fit'}`}
-        style={{
-          color: 'var(--text-dialog-main)',
-          background: isUser ? 'var(--bg-bubble-self)' : 'var(--bg-bubble-npc)',
-          borderRadius: '8px',
-          border: isUser ? '0.5px solid color-mix(in srgb, var(--color-amber) 28%, transparent)' : '0.5px solid var(--border-default)',
-          backdropFilter: 'blur(12px)',
-          WebkitBackdropFilter: 'blur(12px)',
-        }}
-      >
-        <div
-          className="absolute top-0 left-0 right-0 h-[1px] pointer-events-none"
-          style={{
-            background: isUser
-              ? 'linear-gradient(to right, transparent, color-mix(in srgb, var(--color-amber) 55%, transparent), transparent)'
-              : 'linear-gradient(to right, transparent, color-mix(in srgb, var(--text-body) 35%, transparent), transparent)',
-          }}
-        />
+      <MessageBubble isUser={isUser} isAssistant={isAssistant} fullWidth={editingMessageId === msg.id}>
         {editingMessageId === msg.id ? (
           <div className="flex flex-col w-full">
             <textarea
@@ -177,23 +157,10 @@ export const MessageCard: React.FC<MessageCardProps> = React.memo(({
           </div>
         ) : isUser ? (
           <p className="leading-relaxed whitespace-pre-wrap">{msg.text}</p>
-        ) : isThinking ? (
-          <div className="flex items-center space-x-2 py-0.5 select-none">
-            <span className="text-sm" style={{ color: 'var(--text-stat-label)' }}>主 GM 思考中</span>
-            <span className="flex items-end space-x-0.5 pb-0.5">
-              {[0, 200, 400].map(delay => (
-                <span
-                  key={delay}
-                  className="inline-block w-1 h-1 rounded-full"
-                  style={{ background: 'var(--text-stat-label)', animation: `blink-dot 1.4s ease-in-out infinite`, animationDelay: `${delay}ms` }}
-                />
-              ))}
-            </span>
-          </div>
         ) : (
           <div className="leading-relaxed">{renderMarkdown(stripBareCommands(msg.text))}</div>
         )}
-      </div>
+      </MessageBubble>
     </motion.div>
   );
 });

@@ -33,8 +33,8 @@ export const QuestModal: React.FC<QuestModalProps> = ({ isOpen, onClose, quests,
   };
 
   return (
-    <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-[60] flex items-center justify-center p-4">
-      <div className="backdrop-blur-xl w-full max-w-2xl max-h-[85vh] rounded-[8px] shadow-[0_0_50px_rgba(0,0,0,0.6)] border border-white/10 flex flex-col overflow-hidden relative z-[61]" style={{ background: 'color-mix(in srgb, var(--bg-elevated) 95%, transparent)', color: 'var(--text-title)' }}>
+    <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-[60] flex items-center justify-center p-4" onClick={onClose}>
+      <div className="backdrop-blur-xl w-full max-w-2xl max-h-[85vh] rounded-[8px] shadow-[0_0_50px_rgba(0,0,0,0.6)] border border-white/10 flex flex-col overflow-hidden relative z-[61]" style={{ background: 'color-mix(in srgb, var(--bg-elevated) 95%, transparent)', color: 'var(--text-title)' }} onClick={e => e.stopPropagation()}>
 
         {/* Header */}
         <div className="px-6 py-4 border-b border-white/5 flex items-center justify-between flex-shrink-0">

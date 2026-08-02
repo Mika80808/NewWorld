@@ -122,9 +122,11 @@ export function useAuth() {
   const listCloudSaves = async (userId: string): Promise<SaveSlot[]> => {
     if (!supabase) return []
 
+    // 不取 save_data：列清單只用到名稱與時間，整包存檔（可能數 MB）
+    // 由 loadFromCloud 針對單一槽單獨取得
     const { data, error } = await supabase
       .from('saves')
-      .select('id, slot_name, save_data, schema_version, updated_at')
+      .select('id, slot_name, schema_version, updated_at')
       .eq('user_id', userId)
       .order('updated_at', { ascending: false })
 

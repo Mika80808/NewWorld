@@ -28,13 +28,25 @@ export interface BuildPromptDeps {
   isMemoryTriggered: (mem: MemoryEntry, userInput: string, location: string) => boolean
 }
 
+export interface BuildPromptResult {
+  prompt: string
+  /**
+   * 本回合實際觸發的記憶 id。
+   *
+   * `isMemoryTriggered` 內含機率擲骰（`trigger.probability`），呼叫兩次會得到兩組
+   * 不同結果。因此觸發判定只在這裡做一次，呼叫端拿這份清單去更新 sticky / cooldown
+   * 計數器，確保「注入 prompt 的記憶」與「被計數的記憶」永遠是同一組。
+   */
+  triggeredMemoryIds: string[]
+}
+
 export function buildPrompt(
   deps: BuildPromptDeps,
   userInput: string,
   currentMessages: Message[],
   locationOverride?: string,
   isPriority?: boolean,
-): string {
+): BuildPromptResult {
   const {
     profile, systemPrompt, npcs, appearingNpcs, lorebookEntries,
     memories, equipment, items, itemCatalog, quests, timeState, diaryEntries,
@@ -173,7 +185,7 @@ export function buildPrompt(
 
   const recentMessages = currentMessages.slice(-SLIDING_WINDOW)
 
-  return `[System Context]
+  const prompt = `[System Context]
 World Premise: ${systemPrompt.worldPremise}
 Roleplay Rules: ${systemPrompt.roleplayRules}
 Writing Style: ${systemPrompt.writingStyle}
@@ -424,4 +436,8 @@ NPC_RELATION:NPC名:(family/ally/rival/enemy/acquaintance/romantic):目標名或
 指令區塊在敘事之前。無數值變化則省略指令區塊。
 
 Please respond as the DM.`
+
+  // 回傳「通過觸發判定」的完整清單（截斷前）。呼叫端據此更新 sticky / cooldown，
+  // 與舊有行為一致；差別只在於擲骰現在全程只做一次。
+  return { prompt, triggeredMemoryIds: triggeredMemories.map(m => m.id) }
 }

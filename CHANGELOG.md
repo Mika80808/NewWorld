@@ -5,6 +5,73 @@
 
 ---
 
+### Bug 修正｜記憶觸發擲骰一回合只做一次 2026-08-02 [Claude Code]
+
+**問題**：`isMemoryTriggered`（`useCommandParser.ts`）結尾是 `Math.random() * 100 < probability`，但一回合被呼叫兩次且各自擲骰：
+
+1. `promptBuilder.buildPrompt` — 決定哪些記憶注入 prompt
+2. `App.tsx handleSendMessage` — 決定 `triggeredIds` 給 `tickMemoryCounters`
+
+導致 sticky / cooldown 計數器更新的對象，與實際注入 AI 的記憶不是同一組。目前 `commandReducer` 寫死 `probability: 100` 且無 UI 可調，所以尚未發作，屬於潛伏問題。
+
+**修正**：
+- `buildPrompt` 回傳型別由 `string` 改為 `BuildPromptResult { prompt, triggeredMemoryIds }`，觸發判定全程只做一次
+- `App.tsx` 移除第二次 `memories.filter(isMemoryTriggered)`，直接使用 `triggeredMemoryIds`
+- `triggeredMemoryIds` 為「通過觸發判定」的完整清單（依重要度截斷前），與修正前的計數語意一致
+
+**測試**：新增 `src/utils/__tests__/promptBuilder.test.ts`（4 案例）——每則記憶只評估一次、回傳 id 與判定結果一致、機率型記憶不脫鉤、無觸發時回傳空陣列。已用 mutation 驗證：把重複擲骰種回去後，其中 2 個測試會失敗。
+
+---
+
+### 重構｜桌機／手機版面組件化 + 停止雙重渲染 2026-08-02 [Claude Code]
+
+**目標**：桌面三欄與手機抽屜原本各維護一份幾乎相同的 JSX（約 600 行重複），且手機上兩套同時被渲染。
+
+#### 抽出共用面板組件（新增 `src/components/panels/`）
+- `GoalsPanel`：便條紙「當前目標 + 冒險摘要」
+- `WorldMemoryWidget`：世界記憶（月份事件卡 + world 記憶）
+- `SceneNpcsWidget`：當前場景人物
+- `SceneMemoryWidget`：場景 & 區域記憶（區域／場景／NPC 三段）
+- `PinnedNpcsWidget`：✦ 關注（無釘選時回傳 null）
+- `QuickLinksGrid`：底部 2×2 快捷入口
+- `EquipmentList` / `ConsumableList`：清單內容本體，桌面浮動面板與手機 inline 展開共用（兩邊只有外層容器不同）
+- App.tsx 新增 `handleEquipItem` / `handleUnequipItem` / `handleDropEquipment` / `handleUseConsumable` / `handleDropConsumable`，取代兩份 inline handler
+- **App.tsx 3098 → 2497 行**
+
+#### 停止手機上的雙重渲染
+- 桌面左欄、右欄、Scene Bar 原本用 `style={{ display: isMobile ? 'none' : undefined }}` 隱藏——React 仍會掛載並重渲染整棵子樹，等於手機上同時渲染桌面版與抽屜版兩份
+- 三處改為 `{!isMobile && (...)}` 條件掛載
+
+#### 順帶清理
+- `SceneNpcsWidget` 內建 NPC 設定集查表（Map），取代每個 NPC 各跑一次 `lorebookEntries.find` 的 O(n×m)
+- `WorldMemoryWidget` / `SceneMemoryWidget` 的記憶過濾各自只走訪一次（原本連續 3~4 次 `memories.filter`）
+- 消耗品徽章的 `items.reduce` 抽為 `totalItemCount`（原本判斷與顯示各算一次，桌面手機共四處）
+- 清掉抽離後不再使用的 import：`User` / `Users` / `Sparkles` / `ScrollText` / `History` / `Edit2` / `Trash2` / `MemoryEntry` / `affectionColor`
+
+---
+
+### 效能｜串流渲染隔離 + 雲端列表瘦身 2026-08-02 [Claude Code]
+
+**目標**：消除串流期間的整棵 App 重渲染，並停止傳輸／保留用不到的資料。
+
+#### 串流泡泡渲染隔離（本次最大宗）
+- 原本 `handleSendMessage` 的 `onChunk` 每收到一個 chunk 就 `setMessages(prev => prev.map(...))`，等於每個 chunk 重渲染整棵 App——包含左右側欄對 `memories` / `npcs` / `quests` / `lorebookEntries` 的十餘次 filter/find 運算
+- 新增 `src/components/StreamingBubble.tsx`：串流文字改由該組件自己持有，App 透過 `useImperativeHandle` 暴露的 `setText` 以命令式方式推入 chunk → **每個 chunk 只重渲染這顆泡泡**；`messages` 中的佔位訊息維持 `text: ''`，串流結束後才一次性寫入最終敘事
+- 新增 `src/components/MessageBubble.tsx`：抽出泡泡外框樣式，`MessageCard` 與 `StreamingBubble` 共用，確保串流中與結束後外觀一致
+- `MessageCard` 移除 `isThinking` prop（思考中動畫改由 `StreamingBubble` 持有）
+- 捲動 effect 依賴由 `[messages]` 改為 `[messages.length]`：原本每個 chunk 都重啟一次 `behavior:'smooth'` 動畫造成抖動；串流中的跟隨捲動改由 `StreamingBubble` 以 rAF + `behavior:'auto'` 處理
+
+#### 雲端存檔列表瘦身
+- `useAuth.listCloudSaves` 的 `select` 移除 `save_data`：該欄位是完整存檔（可能數 MB × 最多 5 槽），但 `SaveSlotsModal` 只用到 `slot_name` / `updated_at`，全專案無一處讀取
+- 連帶修正登入流程的重複下載：原本 `listCloudSaves`（下載全部存檔）後又 `loadFromCloud`（把最新那份再下載一次）
+- `SaveSlot` 型別同步移除 `save_data` 欄位
+
+#### 其他
+- 移除 `App.tsx` 的死 state `toastQueue`：有寫入無讀取，每次多則指令回饋都白白觸發一次完整 App 重渲染
+- `performanceMonitor.recordScrollEvent` 呼叫改為 `import.meta.env.DEV` 條件執行：原本正式版每個捲動事件都會計時、累積記錄並可能觸發 `console.warn`
+
+---
+
 ### 效能｜道具圖鑑（Master Data）+ 存檔髒標記 2026-07-14 [Claude Code]
 
 **目標**：借用單機遊戲的資料庫設計優化讀取——道具定義只存一份、prompt 只注入切片、存檔未變更不上傳。
