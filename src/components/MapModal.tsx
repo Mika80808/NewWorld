@@ -25,15 +25,6 @@ const FACTION_PALETTE = ['#7F77DD', '#E24B4A', '#1D9E75', '#EF9F27', '#5f93d3', 
 function toSvg(x: number, y: number, panX: number, panY: number) {
   return { cx: SVG_W / 2 + x * MAP_SCALE + panX, cy: SVG_H / 2 - y * MAP_SCALE + panY };
 }
-function starPoints(cx: number, cy: number, r1: number, r2: number, n = 8): string {
-  const pts: string[] = [];
-  for (let i = 0; i < n * 2; i++) {
-    const r = i % 2 === 0 ? r1 : r2;
-    const angle = (Math.PI / n) * i - Math.PI / 2;
-    pts.push(`${(cx + r * Math.cos(angle)).toFixed(2)},${(cy + r * Math.sin(angle)).toFixed(2)}`);
-  }
-  return pts.join(' ');
-}
 function getFactionColor(faction: Faction, index: number): string {
   return faction.color ?? FACTION_PALETTE[index % FACTION_PALETTE.length];
 }
@@ -78,6 +69,38 @@ export const MapModal: React.FC<MapModalProps> = ({
   const lastFactionPan = useRef({ x: 0, y: 0 });
   const factionPanRafRef = useRef<number | null>(null);
   const pendingFactionPan = useRef<{ dx: number; dy: number } | null>(null);
+
+  /**
+   * 讓指定地點落在畫布正中央所需的 pan（toSvg 的反解）。
+   *
+   * 先前地圖永遠以世界原點（月湖鎮 0,0）為中心且從不跟著玩家跑，於是任何
+   * mapY ≳ 118 的地點都會被算到 viewBox 上緣之外：cy = 260 - mapY × 2.2，
+   * 「失落拼圖山丘」(mapY 120) 得到 cy = -4，節點與圖釘整個在畫面外——
+   * 玩家站在那裡時，地圖上根本找不到自己。
+   */
+  const centerPanFor = (title: string) => {
+    const e = lorebookEntries.find(
+      n => n.category === '地點' && n.title === title && n.mapX != null && n.mapY != null
+    );
+    if (!e) return { x: 0, y: 0 };
+    // 與拖曳同一組上下限，否則設定完的視角一被拖動就會跳回來
+    const clamp = (v: number) => Math.max(-350, Math.min(350, v));
+    return { x: clamp(-e.mapX! * MAP_SCALE), y: clamp(e.mapY! * MAP_SCALE) };
+  };
+
+  // 開啟地圖、或玩家在地圖開著時移動了，就把視角對到玩家身上。
+  // 用 render 期間比對而非 useEffect：與 ConfirmDialog / NpcModal 同一套做法，
+  // effect 版會先 commit 一次舊視角的畫面再跳位，玩家會看到地圖閃一下。
+  const centerKey = isOpen ? currentLocation : null;
+  const [prevCenterKey, setPrevCenterKey] = useState<string | null>(null);
+  if (centerKey !== prevCenterKey) {
+    setPrevCenterKey(centerKey);
+    if (centerKey) {
+      const { x, y } = centerPanFor(centerKey);
+      setPanX(x);
+      setPanY(y);
+    }
+  }
 
   const handlePointerDown = useCallback((e: React.PointerEvent<SVGSVGElement>) => {
     if ((e.target as Element).closest('[data-node]')) return;
@@ -164,39 +187,6 @@ export const MapModal: React.FC<MapModalProps> = ({
   const filteredNodes = searchQuery.trim()
     ? mapNodes.filter(e => e.title.includes(searchQuery) || (e.content || '').includes(searchQuery))
     : mapNodes;
-  const routeSegments = (() => {
-    const routeMap = new Map<string, LorebookEntry>();
-    mapNodes.forEach(node => routeMap.set(node.title, node));
-    const seen = new Set<string>();
-    const segments: { from: LorebookEntry; to: LorebookEntry }[] = [];
-    mapNodes.forEach(node => {
-      (node.adjacentTo || []).forEach(adjTitle => {
-        const target = routeMap.get(adjTitle);
-        if (!target) return;
-        const key = [node.title, target.title].sort().join('||');
-        if (seen.has(key)) return;
-        seen.add(key);
-        segments.push({ from: node, to: target });
-      });
-    });
-    if (segments.length === 0) {
-      // Bug #5 fix: fallback 只連 known + currentLocation，排除 heard 節點避免意外連線
-      const knownNodes = mapNodes.filter(node => (node.mapStatus === 'known' || node.title === currentLocation) && node.mapStatus !== 'heard');
-      knownNodes.forEach(node => {
-        const nearest = knownNodes.filter(other => other.id !== node.id)
-          .map(other => ({ other, dist: (other.mapX! - node.mapX!) ** 2 + (other.mapY! - node.mapY!) ** 2 }))
-          .sort((a, b) => a.dist - b.dist).slice(0, 2);
-        nearest.forEach(({ other }) => {
-          const key = [node.title, other.title].sort().join('||');
-          if (seen.has(key)) return;
-          seen.add(key);
-          segments.push({ from: node, to: other });
-        });
-      });
-    }
-    return segments;
-  })();
-
   // ── Faction Data ──────────────────────────────────────────────────────────
   const activeFactions = factions.filter(f => f.isActive);
   const getLocationFactions = (locId: number): Faction[] =>
@@ -223,14 +213,10 @@ export const MapModal: React.FC<MapModalProps> = ({
     const ringR = Math.min(160, 60 + count * 20);
     return { x: SVG_W / 2 + ringR * Math.cos(angle), y: SVG_H / 2 - 60 + ringR * Math.sin(angle) };
   };
-  const getFactionMembers = (faction: Faction): Npc[] => {
-    const fromNpcIds = npcs.filter(n => (n.factionIds ?? []).includes(faction.id));
-    const fromFactionNpcIds = (faction.npcIds ?? []).length > 0
-      ? npcs.filter(n => (faction.npcIds ?? []).includes(n.id)) : [];
-    const all = [...fromNpcIds];
-    fromFactionNpcIds.forEach(n => { if (!all.find(a => a.id === n.id)) all.push(n); });
-    return all;
-  };
+  // Npc.factionIds 是唯一來源（v5 起 Faction.npcIds 已由遷移摺除）。
+  // 故事集與世界地圖必須讀同一份，否則兩邊的成員名單會對不上。
+  const getFactionMembers = (faction: Faction): Npc[] =>
+    npcs.filter(n => (n.factionIds ?? []).includes(faction.id));
   const selectedFaction = selectedFactionId != null
     ? activeFactions.find(f => f.id === selectedFactionId) ?? null : null;
   const relationStyle = (type: string): { color: string; width: number; dash?: string } => {
@@ -273,9 +259,14 @@ export const MapModal: React.FC<MapModalProps> = ({
     setSelectedTitle(null); setTravelMode(null);
   };
   const handleCompassClick = () => {
-    if (activeTab === 'map') { setPanX(0); setPanY(0); }
+    // 地圖分頁「重置」= 回到玩家身上，不是回到世界原點——玩家想找的是自己
+    if (activeTab === 'map') {
+      const { x, y } = centerPanFor(currentLocation);
+      setPanX(x);
+      setPanY(y);
+    }
     else { setFactionPanX(0); setFactionPanY(0); }
-    showToast('🧭 視角已重置');
+    showToast('🧭 視角已回到所在位置');
   };
 
   const bezierPath = (() => {

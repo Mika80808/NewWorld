@@ -9,7 +9,7 @@ export interface StreamingBubbleHandle {
 
 interface StreamingBubbleProps {
   renderMarkdown: (text: string) => React.ReactNode;
-  stripBareCommands: (text: string) => string;
+  cleanNarrative: (text: string) => string;
   /** 串流內容變長時捲動至此錨點 */
   scrollAnchorRef: React.RefObject<HTMLDivElement | null>;
 }
@@ -23,7 +23,7 @@ interface StreamingBubbleProps {
  * 串流結束後才由 App 把最終敘事一次性寫入 messages。
  */
 export const StreamingBubble = forwardRef<StreamingBubbleHandle, StreamingBubbleProps>(
-  ({ renderMarkdown, stripBareCommands, scrollAnchorRef }, ref) => {
+  ({ renderMarkdown, cleanNarrative, scrollAnchorRef }, ref) => {
     const [text, setText] = useState('');
     const rafRef = useRef<number | null>(null);
 
@@ -69,7 +69,7 @@ export const StreamingBubble = forwardRef<StreamingBubbleHandle, StreamingBubble
               </span>
             </div>
           ) : (
-            <div className="leading-relaxed">{renderMarkdown(stripBareCommands(text))}</div>
+            <div className="leading-relaxed">{renderMarkdown(cleanNarrative(text))}</div>
           )}
         </MessageBubble>
       </motion.div>

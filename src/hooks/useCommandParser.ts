@@ -12,6 +12,7 @@ import { parseCommandsToAST } from '../utils/commandParser';
 import { reduceCommands } from '../utils/commandReducer';
 import { applyStateChanges } from '../utils/commandEffects';
 import { touchItemDef } from '../utils/itemCatalog';
+import { touchMemories } from '../utils/memoryStore';
 import { calculateTotalDays, getTotalDaysFromTimeState } from '../utils/timeUtils';
 
 // ─── 型別定義 ──────────────────────────────────────────────────────────────────
@@ -60,6 +61,17 @@ export interface CommandParserDeps {
 export interface ParseResult {
   narrative: string;
   newItems: string[];
+  /**
+   * 本批指令套用「之後」的地點與日期（沒有 LOCATION / TIME 指令時即為原值）。
+   *
+   * 呼叫端在 await 之後拿不到這兩個值的最新版本：React state 要等重新渲染才更新，
+   * 而 handleSendMessage 的閉包停在玩家送出當下。少了它們，AI 在同一則回應裡
+   * 「移動玩家 + 讓 NPC 出場」時（例如「你走進酒館，看到芬里爾」），
+   * 出場 NPC 的足跡會被蓋上**移動前**的地點。
+   */
+  location: string;
+  /** 遊戲日期字串 `月/日`，與 Npc.lastSeenDate 同格式 */
+  date: string;
 }
 
 export interface UseCommandParserReturn {
@@ -145,7 +157,19 @@ export function useCommandParser(deps: CommandParserDeps): UseCommandParserRetur
           .map(item => item.name)
       : [];
 
-    return { narrative, newItems };
+    // 套用後的地點／日期：有對應指令就用算好的新值，否則沿用原值。
+    // stateChanges.timeState 是 advanceTimeAndResolveQuestDeadlines 的結果（TIME 在
+    // reduceCommands 最後才結算），所以這裡拿到的已經是推進過的時間。
+    const resolvedLocation = stateChanges.currentLocation ?? currentLocation;
+    const resolvedMonth = stateChanges.timeState?.month ?? timeState.month;
+    const resolvedDay = stateChanges.timeState?.day ?? timeState.day;
+
+    return {
+      narrative,
+      newItems,
+      location: resolvedLocation,
+      date: `${resolvedMonth}/${resolvedDay}`,
+    };
   };
 
   // ─── 工具函數：記憶觸發判斷 ────────────────────────────────────────────────────
@@ -198,6 +222,10 @@ export function useCommandParser(deps: CommandParserDeps): UseCommandParserRetur
   // ─── 工具函數：記憶計數器更新 ─────────────────────────────────────────────────
 
   const tickMemoryCounters = (triggeredIds: string[]) => {
+    // LRU 時間戳：讓 pruneMemories 能分辨「老但一直在用」與「老且沒人碰」。
+    // touchMemories 在無實際變更時回傳原 reference，不會每回合白白產生新陣列。
+    setMemories(prev => touchMemories(prev, triggeredIds));
+
     // 不在 updater 內呼叫另一個 setState（updater 必須是純函數）。
     // 改以區域變數捕捉遞減前的 sticky 值：useGameStore 中 stickyCounters 的
     // useState 宣告在 cooldownCounters 之前，因此 sticky 的 updater 會先執行，

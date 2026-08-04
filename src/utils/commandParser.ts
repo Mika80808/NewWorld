@@ -26,6 +26,50 @@ export interface ParseResult {
 
 // ─── Key=Value 解析工具 ───────────────────────────────────────────────────────
 
+/**
+ * 數量解析：缺失、非數字、0 或負數一律退回 1。
+ *
+ * 舊寫法 `parseInt(kv.qty || '1') || 1` 看似等價，但負數是 truthy——
+ * `qty=-3` 會原樣通過，ITEM_ADD 變成扣庫存、ITEM_REMOVE 變成加庫存。
+ */
+function parseQty(raw: string | undefined): number {
+  const n = parseInt(raw ?? '');
+  return Number.isFinite(n) && n > 0 ? n : 1;
+}
+
+/**
+ * 時間增量解析。支援 `+1h`、`30m`、`1h30m`、`2小時30分` 等寫法。
+ *
+ * 缺單位時（`delta=30`）**不丟棄**：TIME 是 prompt 明訂「每次回應必須輸出」的指令，
+ * 舊版在此 `return null`，整條指令消失、遊戲時鐘直接停擺且毫無跡象。
+ * 改為以分鐘解讀並警告——時鐘略偏遠好過完全不動。
+ */
+function parseTimeDelta(raw: string): number | null {
+  const s = raw.trim();
+  if (!s) return null;
+
+  let minutes = 0;
+  let hasUnit = false;
+
+  const h = s.match(/(\d+)\s*(?:h|hr|hours?|小時|時)/i);
+  if (h) { minutes += parseInt(h[1]) * 60; hasUnit = true; }
+
+  const m = s.match(/(\d+)\s*(?:m|min|minutes?|分鐘|分)/i);
+  if (m) { minutes += parseInt(m[1]); hasUnit = true; }
+
+  if (!hasUnit) {
+    const bare = s.match(/\d+/);
+    if (!bare) return null;
+    minutes = parseInt(bare[0]);
+    console.warn(`[TIME] delta 缺少單位（"${raw}"），以 ${minutes} 分鐘解讀`);
+  }
+
+  return minutes > 0 ? minutes : null;
+}
+
+/** STAT 支援的欄位。parser 原本照單全收 field，未知欄位會變成幽靈 type 死在 reducer */
+const STAT_FIELDS = new Set(['HP', 'MP', 'GOLD']);
+
 function parseKV(parts: string[]): Record<string, string> {
   const kv: Record<string, string> = {};
   for (const part of parts) {
@@ -92,6 +136,12 @@ function parseSingleCommand(line: string): CommandAST | null {
       const field = (kv.field || '').toUpperCase();
       const delta = parseInt(kv.delta || '0');
       if (!field || isNaN(delta)) return null;
+      // 未知欄位（AI 自行發明 field=exp 之類）舊版會變成 type 'EXP'，
+      // 在 reducer 落到 default 靜默消失。在此攔下並出聲。
+      if (!STAT_FIELDS.has(field)) {
+        console.warn(`[STAT] 未知欄位 field=${kv.field}，指令已忽略（僅支援 hp / mp / gold）`);
+        return null;
+      }
       return { type: field, raw: trimmed, parsed: { value: delta } };
     }
 
@@ -103,7 +153,7 @@ function parseSingleCommand(line: string): CommandAST | null {
         type: 'ITEM_ADD', raw: trimmed,
         parsed: {
           name,
-          quantity: parseInt(kv.qty || kv.quantity || '1') || 1,
+          quantity: parseQty(kv.qty || kv.quantity),
           description: kv.desc || kv.description || '',
         },
       };
@@ -115,7 +165,7 @@ function parseSingleCommand(line: string): CommandAST | null {
       if (!name) return null;
       return {
         type: 'ITEM_REMOVE', raw: trimmed,
-        parsed: { name, quantity: parseInt(kv.qty || kv.quantity || '1') || 1 },
+        parsed: { name, quantity: parseQty(kv.qty || kv.quantity) },
       };
     }
 
@@ -143,11 +193,8 @@ function parseSingleCommand(line: string): CommandAST | null {
 
     // TIME|delta=+1h  or  TIME|delta=+30m
     case 'TIME': {
-      const deltaStr = kv.delta || kv.value || '';
-      const hMatch = deltaStr.match(/(\d+)h/i);
-      const mMatch = deltaStr.match(/(\d+)m/i);
-      const minutes = (hMatch ? parseInt(hMatch[1]) * 60 : 0) + (mMatch ? parseInt(mMatch[1]) : 0);
-      if (minutes <= 0) return null;
+      const minutes = parseTimeDelta(kv.delta || kv.value || '');
+      if (minutes === null) return null;
       return { type: 'TIME', raw: trimmed, parsed: { minutes } };
     }
 
@@ -417,15 +464,32 @@ function parseSingleCommand(line: string): CommandAST | null {
 
 // ─── Legacy MEMORY_ADD（冒號格式）─────────────────────────────────────────────
 // MEMORY_ADD:type:importance:content[:locations=...:keywords=...:sticky=N]
+
+/** 冒號格式尾段可出現的 meta key，用來界定 content 在哪裡結束 */
+const LEGACY_MEMORY_META_KEYS = ['locations', 'npcs', 'factions', 'keywords', 'sticky', 'cooldown'];
+
+function isLegacyMemoryMetaPart(part: string): boolean {
+  const eqIdx = part.indexOf('=');
+  if (eqIdx <= 0) return false;
+  return LEGACY_MEMORY_META_KEYS.includes(part.slice(0, eqIdx).trim().toLowerCase());
+}
+
 function parseLegacyMemoryAdd(trimmed: string): CommandAST | null {
   const afterPrefix = trimmed.slice('MEMORY_ADD'.length + 1);
   const colonParts = afterPrefix.split(':');
   if (colonParts.length < 3) return null;
   const memType = colonParts[0].trim() as 'world' | 'region' | 'scene' | 'npc';
   const importance = colonParts[1].trim() as 'critical' | 'normal' | 'flavor';
-  const content = colonParts[2].trim();
+  // content 本身可能含半形冒號（「魔王宣布:向月湖鎮宣戰」），不能只取 colonParts[2]，
+  // 否則後半段會被當成 meta、又因為沒有 `=` 而被靜默丟棄。
+  // 改為往後掃到第一個「已知 meta key=value」片段為止，中間全部接回來當 content。
+  let metaStart = colonParts.length;
+  for (let i = 2; i < colonParts.length; i++) {
+    if (isLegacyMemoryMetaPart(colonParts[i])) { metaStart = i; break; }
+  }
+  const content = colonParts.slice(2, metaStart).join(':').trim();
   if (!content) return null;
-  const metaParts = colonParts.slice(3);
+  const metaParts = colonParts.slice(metaStart);
   const metaKv: Record<string, string> = {};
   for (const mp of metaParts) {
     const eqIdx = mp.indexOf('=');

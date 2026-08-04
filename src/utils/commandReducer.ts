@@ -6,6 +6,7 @@
 import { CommandAST } from './commandParser';
 import { advanceTimeAndResolveQuestDeadlines } from './timeUtils';
 import { normalizeItemName, registerItemDef, touchItemDef, pruneItemCatalog } from './itemCatalog';
+import { pruneMemories } from './memoryStore';
 import {
   TimeState, Profile, Quest, MemoryEntry, Npc, ItemEntry, ItemCatalog,
   LorebookEntry, Message, StatusEffect, Faction, NpcRelation, NpcMemory,
@@ -136,8 +137,19 @@ export function reduceCommands(
       }
 
       case 'LOCATION': {
-        stateChanges.currentLocation = cmd.parsed.location as string;
-        feedback.cmdResults.push(`📍 移動至 ${cmd.parsed.location}`);
+        const destination = cmd.parsed.location as string;
+        stateChanges.currentLocation = destination;
+        // 親自到過就是「已知」。先前只有 constants 裡的月湖鎮是 known，
+        // LOCATION_DISCOVER 一律只寫 heard，而移動指令完全不碰設定集——
+        // 於是玩家走遍全世界，地圖上仍舊全是 ???。
+        // 找不到對應條目時不建新的：座標交給 LOCATION_DISCOVER 決定，
+        // 這裡憑空補一個沒有 mapX/mapY 的條目只會讓它在地圖上不可見。
+        workingLorebookEntries = workingLorebookEntries.map(e =>
+          e.category === '地點' && e.title === destination && e.mapStatus !== 'known'
+            ? { ...e, mapStatus: 'known' as const }
+            : e
+        );
+        feedback.cmdResults.push(`📍 移動至 ${destination}`);
         break;
       }
 
@@ -156,11 +168,16 @@ export function reduceCommands(
         // 圖鑑先寫先贏：同名道具已有定義時沿用，忽略 AI 本次重新生成的描述
         const reg = registerItemDef(workingCatalog, name, cmd.parsed.description as string, gameDate);
         workingCatalog = reg.catalog;
-        const existingItem = workingItems.find(i => i.name === name);
-        if (existingItem) {
-          existingItem.quantity += quantity;
+        // workingItems 只是 currentState.items 的淺拷貝，直接改 item.quantity 會就地
+        // 竄改 React state 裡的同一個物件（前一版快照也跟著變）。一律換新物件。
+        const existingIdx = workingItems.findIndex(i => i.name === name);
+        if (existingIdx !== -1) {
+          const prev = workingItems[existingIdx];
+          workingItems = workingItems.map((i, idx) =>
+            idx === existingIdx ? { ...prev, quantity: prev.quantity + quantity } : i
+          );
         } else {
-          workingItems.push({ id: nextId(), name, quantity, description: reg.def.description });
+          workingItems = [...workingItems, { id: nextId(), name, quantity, description: reg.def.description }];
         }
         feedback.cmdResults.push(`📦 獲得 ${name} ×${quantity}`);
         break;
@@ -171,8 +188,10 @@ export function reduceCommands(
         const quantity = (cmd.parsed.quantity as number) || 1;
         const item = workingItems.find(i => i.name === name);
         if (item) {
-          item.quantity -= quantity;
-          if (item.quantity <= 0) workingItems = workingItems.filter(i => i.name !== name);
+          const remaining = item.quantity - quantity;
+          workingItems = remaining <= 0
+            ? workingItems.filter(i => i.name !== name)
+            : workingItems.map(i => i.name === name ? { ...i, quantity: remaining } : i);
           workingCatalog = touchItemDef(workingCatalog, name);
           feedback.cmdResults.push(`📦 移除 ${name} ×${quantity}`);
         }
@@ -234,9 +253,15 @@ export function reduceCommands(
               const name = normalizeItemName(itemName);
               const reg = registerItemDef(workingCatalog, name, '完成任務獲得的獎勵', gameDate);
               workingCatalog = reg.catalog;
-              const existing = workingItems.find(i => i.name === name);
-              if (existing) existing.quantity += 1;
-              else workingItems.push({ id: nextId(), name, quantity: 1, description: reg.def.description });
+              const existingIdx = workingItems.findIndex(i => i.name === name);
+              if (existingIdx !== -1) {
+                const prev = workingItems[existingIdx];
+                workingItems = workingItems.map((i, idx) =>
+                  idx === existingIdx ? { ...prev, quantity: prev.quantity + 1 } : i
+                );
+              } else {
+                workingItems = [...workingItems, { id: nextId(), name, quantity: 1, description: reg.def.description }];
+              }
             });
             feedback.cmdResults.push(`📦 獎勵物品：${quest.reward.items.join('、')}`);
           }
@@ -453,7 +478,6 @@ export function reduceCommands(
           name,
           job: cmd.parsed.job as string || '',
           affection: 0,
-          affectionLabel: '陌生',
           appearance: cmd.parsed.appearance as string || '',
           personality: cmd.parsed.personality as string || '',
           gender: cmd.parsed.gender as string || '',
@@ -573,8 +597,13 @@ export function reduceCommands(
         break;
       }
 
+      // 認不得的指令：舊版直接 break，格式打錯完全無聲（整份程式只有 FACTION_JOIN
+      // 會 warn）。玩家只會看到「數值沒變」而無從查起，故補上診斷輸出。
       case 'UNKNOWN':
+        console.warn(`[COMMANDS] 無法解析的指令，已略過：${cmd.raw}`);
+        break;
       default:
+        console.warn(`[COMMANDS] 未處理的指令類型 ${cmd.type}，已略過：${cmd.raw}`);
         break;
     }
   }
@@ -599,14 +628,25 @@ export function reduceCommands(
   }
 
   if (affinityUpdates.length > 0) {
+    // 同一回合同一 NPC 可能有多條 AFFINITY（例如先 +5 再 -2）。
+    // 舊實作用 find 只取第一條，其餘被靜默丟棄，但 cmdResults 已經把每條都顯示給玩家，
+    // 造成「畫面顯示 +5 -2、實際只加了 5」的對不上。改為先加總再套用。
+    const affinitySum = new Map<string, number>();
+    for (const { npcName, value } of affinityUpdates) {
+      affinitySum.set(npcName, (affinitySum.get(npcName) ?? 0) + value);
+    }
     workingNpcs = workingNpcs.map(npc => {
-      const update = affinityUpdates.find(a => a.npcName === npc.name);
-      return update ? { ...npc, affection: Math.max(-100, npc.affection + update.value) } : npc;
+      const delta = affinitySum.get(npc.name);
+      return delta !== undefined ? { ...npc, affection: Math.max(-100, npc.affection + delta) } : npc;
     });
   }
 
   // LOD 淘汰：背包內道具受保護，其餘依 lastUsedAt 由舊到新淘汰
   workingCatalog = pruneItemCatalog(workingCatalog, new Set(workingItems.map(i => i.name)));
+
+  // 同理淘汰記憶：critical / manual 豁免，其餘 flavor 優先、最久未觸發優先。
+  // 未超量時 pruneMemories 回傳原 reference，不會平白產生新陣列。
+  workingMemories = pruneMemories(workingMemories);
 
   stateChanges.quests = workingQuests;
   stateChanges.npcs = workingNpcs;

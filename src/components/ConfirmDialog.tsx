@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 
 export interface DialogRequest {
   title: string;
@@ -22,9 +22,14 @@ interface ConfirmDialogProps {
 export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({ request, onClose }) => {
   const [value, setValue] = useState('');
 
-  useEffect(() => {
+  // 換一個 request（開新對話框）時清空輸入框。
+  // 用 render 期間比對上一次 props 而非 useEffect：effect 版會先 commit 一次
+  // 帶著舊文字的畫面再重設，玩家可能瞄到前一個對話框殘留的輸入值。
+  const [prevRequest, setPrevRequest] = useState(request);
+  if (request !== prevRequest) {
+    setPrevRequest(request);
     if (request) setValue('');
-  }, [request]);
+  }
 
   if (!request) return null;
 

@@ -71,88 +71,108 @@ LLM 擔任 GM 的開放式世界文字冒險 RPG，玩家以自由文字輸入�
 
 ---
 
-## CSS Variables 完整清單（`src/index.css`）
+## CSS Variables 清單（`src/index.css`）
 
-```css
-:root {
-/* ── 背景層次 ──────────────────────────────────────────── */
-  --bg-base:         #0c0d0d;   /* 最外層背景 */
-  --bg-elevated:     #282929;   /* 左右側欄、Modal 底色 */
-  --bg-ui-card:      #353434;   /* Modal 內部二次容器（讓 A/B 區塊易於區別） */
-  --bg-overlay:      rgba(0, 0, 0, 0.2);
-  --bg-mark:         #ff637e;   /* 新日記亮點「通知」 */
+> ⚠️ **值以 `src/index.css` 的 `:root` 為唯一準據。**
+> 這裡只列**變數名與用途**，刻意不複製色碼——過去這張表複製了完整色值後長期沒同步，
+> 一度有 13 個值與實際不符（例如 `--text-title` 記成亮桃紅，實際是霧卡其），
+> 反而誤導。要知道確切顏色請直接看 `index.css`；寫程式時你只需要變數名。
+>
+> 共 80 個變數（`:root` 內，不含 `@theme` 的兩個字體）。若在下列找不到需要的語意，**先回 `index.css` 確認**，
+> 不要因為表上沒有就硬編碼色碼（那會違反上方的顏色系統強制規則）。
 
-  /* ── 邊框 ───────────────────────────────────────────────── */
-  --border-default:  #4e4e4e;   /* 所有邊框 */
-  --border-width:    0.5px;
-  --border-accent:   #7e7c72;   /* 選中狀態邊框 */
+### 背景層次
+| 變數 | 用途 |
+|---|---|
+| `--bg-base` | 最外層背景 |
+| `--bg-elevated` | 右側欄、Modal 底色 |
+| `--bg-ui-card` | Modal 內部二次容器（讓 A/B 區塊易於區別） |
+| `--bg-overlay` | 遮罩 |
+| `--bg-glass-left` / `--bg-glass-right` | 左／右欄玻璃底色 |
+| `--bg-mark` | 新日記亮點「通知」 |
+| `--bg-note-paper` | 便條紙背景（筆記紙 Widget） |
+| `--text-note` / `--text-note-muted` | 便條紙文字（深色紙上用，與一般文字色相反） |
 
-  /* ── 文字 ───────────────────────────────────────────────── */
-  --text-primary:    #e9d69e;   /* 左右欄功能名稱、Modal 名稱（暖黃） */
-  --text-title:      #ff11d7;   /* 欄位名稱、地名 */
-  --text-tab:        #fff7e2;   /* 分頁標題（如：人物、怪物） */
-  --text-body:       #fffaf1;   /* 地點介紹、一般段落 */
-  --text-main:       #e8e8e9;   /* 輸入文字 */
-  --text-muted:      #acacac;   /* 提示文字、時間戳、placeholder */
-  --text-stat-label: #bdb394;   /* 狀態名稱（HP、MP、金幣等標籤） */
-  --text-stat-value: #fafafa;   /* 狀態數值（HP、MP、金幣等數字） */
-  --text-danger:     #ff5757;   /* 危險動作文字（刪除、重置） */
+### 邊框
+`--border-default`（所有邊框）、`--border-width`、`--border-accent`（選中狀態）
 
-  /* ── 分頁 ───────────────────────────────────────────────── */
-  --tab-active:      #0069a8;   /* 選中分頁標籤底色 */
-  --tab-inactive:    #282929;   /* 未選中分頁標籤底色 */
+### 文字
+| 變數 | 用途 |
+|---|---|
+| `--text-primary` | 左右欄功能名稱、Modal 名稱（暖黃） |
+| `--text-title` | 欄位名稱、地名 |
+| `--text-tab` | 分頁標題（如：人物、怪物） |
+| `--text-body` | 地點介紹、一般段落 |
+| `--text-main` | 輸入文字 |
+| `--text-muted` | 提示文字、時間戳、placeholder |
+| `--text-stat-label` / `--text-stat-value` | 狀態標籤／數值（HP、MP、金幣） |
+| `--text-danger` | 危險動作文字（刪除、重置） |
 
-  /* ── 按鈕：Primary（新增、儲存）───────────────────────── */
-  --btn--text:           #ffffff;   /* 預設 */
-  --btn-primary:         #00598a;   /* 預設 */
-  --btn-primary-hover:   #006aa3;   /* 懸停 */
-  --btn-primary-active:  #007dbe;   /* 按下 */
+### 分頁 / 按鈕 / 表單
+- 分頁：`--tab-active`、`--tab-inactive`
+- Primary 按鈕：`--btn-primary`、`--btn-primary-hover`、`--btn-primary-active`、`--btn--text`
+- Secondary 按鈕（取消）：`--btn-secondary`、`--btn-secondary-hover`、`--btn-secondary-active`
+- 表單：`--bg-sys-field`（輸入框底）、`--bg-sys-tag`（關鍵字膠囊底）
+- 陰影：`--shadow`
 
-  /* ── 按鈕：Secondary（取消）────────────────────────────── */
-  --btn-secondary:         #a0a0a1;   /* 預設 */
-  --btn-secondary-hover:   #7d8694;   /* 懸停 */
-  --btn-secondary-active:  #a1a1a1;   /* 按下 */
+### 對話視窗
+`--bg-bubble-self`、`--bg-bubble-npc`、`--bg-dialog-input`、`--text-dialog-main`（台詞）、`--text-dialog-muted`（敘述描寫）
 
-  /* ── 陰影 ───────────────────────────────────────────────── */
-  --shadow:          0 4px 12px rgba(16, 68, 171, 0.2);
+### 毛玻璃效果
+`--glass-sidebar-bg`、`--glass-sidebar-blur`、`--glass-border`、`--glass-bubble-self`、`--glass-bubble-npc`、`--glass-bubble-blur`
 
-  /* ── 表單 ───────────────────────────────────────────────── */
-  --bg-sys-field:    #454545;   /* 輸入框底色 */
-  --bg-sys-tag:      #0092cc;   /* 關鍵字膠囊底色 */
+### RPG 視覺特效（`--fx-*`）
+`--fx-vignette`、`--fx-orb-amber`、`--fx-orb-violet`、`--fx-orb-sky`、`--fx-message-shadow`
 
-  /* ── 對話視窗 ───────────────────────────────────────────── */
-  --bg-bubble-self:    rgba(117, 117, 117, 0.15);  /* 玩家對話泡泡 */
-  --bg-bubble-npc:     rgba(68, 68, 68, 0.45);    /* NPC 對話泡泡 */
-  --bg-dialog-input:   #282929;                 /* 玩家輸入框 */
-  --text-dialog-main:  #fafafa;                 /* 對話台詞 */
-  --text-dialog-muted: #d1d1d1;                 /* 敘述描寫 */
+### 語意色（取代 @theme 覆寫）
+| 變數 | 語意 | 注意 |
+|---|---|---|
+| `--color-rose` | 刪除／危險動作 | |
+| `--color-emerald` | 好感度愛心 | ⚠️ 實際是**粉紅**，不是綠色 |
+| `--color-amber` | 警告／稀有 | |
+| `--color-blue` | 連結／資訊 | |
+| `--color-violet` | 魔法／特殊 | |
+| `--color-success` | 成功／進行中 | |
+| `--color-sky` | 已完成 | |
+| `--color-taupe` | 失敗／負面 | |
 
-  /* ── 語意色（Tailwind 對應，取代 @theme 覆寫） ─────────── */
-  --color-rose:    #ff2222;   /* 刪除／危險動作 */
-  --color-emerald: #fb7185;   /* 好感度愛心（粉紅） */
-  --color-amber:   #ffd037;   /* 警告／稀有 */
-  --color-blue:    #5f93d3;   /* 連結／資訊 */
-  --color-violet:  #7008e7;   /* 魔法／特殊 */
-  --color-success: #4ade80;   /* 成功／進行中 */
-  --color-sky:     #30b1d8;   /* 已完成 */  
-  --color-taupe:   #ac9f9a;   /* 失敗／負面 */
+### 好感度顏色（固定語意色，不隨主題變動）
+`--affection-max`（≥100）、`--affection-high`（≥80）、`--affection-mid`（≥50）、`--affection-low`（≥0）、`--affection-hostile`（<0 敵對）
 
-  /* ── 好感度顏色（固定語意色，不隨主題變動） ────────────── */
-  --affection-max:     #ff2d2d;   /* ≥ 100 */
-  --affection-high:    #ff7967;   /* ≥ 80  */
-  --affection-mid:     #ffaa83;   /* ≥ 50  */
-  --affection-low:     #acacac;   /* ≥ 0   */
-  --affection-hostile: #928366;   /* < 0（敵對） */
+唯一判斷入口是 `utils/affectionColor.ts` 的 `affectionColor()`，不要在別處自行比對門檻。
 
-  /* ── 任務卡片背景 ─────────────────────────────────────── */
-  --bg-quest-active:      rgba(22, 101, 52, 0.12);
-  --border-quest-active:  rgba(34, 197, 94, 0.30);
-  --bg-quest-pending:     rgba(120, 53, 15, 0.12);
-  --border-quest-pending: rgba(245, 158, 11, 0.40);
-  --bg-quest-failed:      rgba(69, 10, 10, 0.10);
-  --border-quest-failed:  rgba(153, 27, 27, 0.30);
-}
-```
+**語意標籤**同理走 `utils/affectionLabel.ts`：
+
+| 好感度 | < 0 | 0–19 | 20–49 | 50–79 | 80–99 | ≥ 100 |
+|---|---|---|---|---|---|---|
+| 標籤 | 敵對 | 陌生 | 相識 | 友好 | 信賴 | 摯友 |
+
+- `affectionLabel(affection)` — 由好感度現算，**不存進存檔**（存起來只會漂移，舊的 `Npc.affectionLabel` 就是這樣爛掉的）
+- `relationText(relationship, affection)` — 顯示與 prompt 注入的共用入口：有明確 `relationship` 時以它為準，沒有時退回標籤
+- 門檻對齊 `affectionColor()` 的邊界，額外的 20 是 backstory 解鎖門檻；改動時兩邊要一起看（`affectionLabel.test.ts` 有一致性檢查釘著）
+
+### 任務卡片
+`--bg-quest-active` / `--border-quest-active`、`--bg-quest-pending` / `--border-quest-pending`、`--bg-quest-failed` / `--border-quest-failed`
+
+### Z-Index 層級（數值即語意，故列出）
+| 變數 | 值 | 用途 |
+|---|---|---|
+| `--z-bg` | 0 | 背景圖層（遊戲背景、天空梯度） |
+| `--z-base` | 10 | 基礎層（欄位標籤、右欄 Lorebook） |
+| `--z-hud` | 20 | 頂部 HUD / 導航欄 |
+| `--z-menu` | 30 | 局部菜單（右鍵選單、下拉） |
+| `--z-drawer-bg` | 40 | 手機 Drawer 遮罩 |
+| `--z-drawer` | 50 | 手機 Drawer 本體 |
+| `--z-modal-bg` | 60 | Modal 暗色背景 |
+| `--z-modal` | 61 | Modal 本體 |
+| `--z-modal-high` | 62 | Modal 內部高層（選單、彈窗） |
+| `--z-toast` | 100 | 通知 Toast |
+| `--z-popover` | 110 | 浮動菜單（Inventory、Consumables） |
+
+`constants.ts` 的 `Z_INDEX` 物件與此對應，JS 端請用它而非硬寫數字。
+
+### 字體（`@theme` 區塊，只有這兩個，不得在此加顏色）
+`--font-sans`、`--font-mono`
 
 ### 按鈕使用標準
 
@@ -256,8 +276,16 @@ interface MemoryEntry {
   source: 'manual' | 'ai_generated'
   createdAt: string
   expiresAt?: string
+  lastTriggeredAt?: number            // epoch ms，供 LOD 淘汰排序
 }
 ```
+- **LOD 淘汰**：超過 300 條時 `pruneMemories` 淘汰，`flavor` 優先、最久未觸發優先；
+  `critical` 與 `source === 'manual'` 豁免（前者刪掉劇情斷裂，後者是玩家手寫的）。
+  可淘汰的不夠時寧可暫時超量，不動受保護的
+- **LRU 時間戳**：`tickMemoryCounters` 每回合以 `touchMemories` 標記本回合觸發過的記憶。
+  `createdAt` 是遊戲內日期字串（「4/15」）無法比大小，故另存 epoch ms
+- ⚠️ 兩支都在無變更時回傳**原 reference**——每回合無條件產生新陣列會讓存檔髒標記永遠為髒
+- 純函數層在 `src/utils/memoryStore.ts`
 
 ### lorebookEntries[]（設定集）
 ```typescript
@@ -298,7 +326,8 @@ interface Npc {
   name: string
   job: string
   affection: number
-  affectionLabel: string
+  // 註：舊的 affectionLabel 欄位已移除——它只在建檔時寫入、之後永不更新。
+  // 標籤改由 affectionLabel(affection) 現算，見下方「好感度顏色」段。
   appearance: string
   personality: string
   other?: string
@@ -336,6 +365,17 @@ interface NpcMemory {
 - 更新 `appearingNpcs`，下一輪 `buildPrompt` 才注入完整 NPC 資料
 - 防呆：`matchAll` 收集所有標記並去重
 
+**`[出場:]` 的三種語意，缺一不可**：
+
+| AI 輸出 | 語意 | 行為 |
+|---|---|---|
+| `[出場:芬里爾,萊尼]` | 這些人在場 | 設為這些人，並更新足跡 |
+| `[出場:]`（空） | **現場無人** | **清空 `appearingNpcs`**，不動足跡 |
+| 完全沒有標記 | AI 沒照規矩 | 維持現狀（保守，避免誤清） |
+
+⚠️ 空標記務必寫入。`appearingNpcs` 在 `buildPrompt` 裡**先於地點過濾**判定，只增不減的話
+該 NPC 會無視地點跟著玩家跨城鎮，而且此狀態會存進存檔。
+
 **NPC 注入資格（Phase 2 後）**：
 1. `appearingNpcs` 裡的 NPC
 2. `isPinned === true` 的 NPC
@@ -345,27 +385,64 @@ interface NpcMemory {
 
 ## AI 回應格式約定
 
+### 結構化標籤清單（敘事內，非 COMMANDS 區塊）
+
+| 標籤 | 用途 | 解析位置 |
+|---|---|---|
+| `<<COMMANDS>>…<</COMMANDS>>` | 指令區塊界定（容忍 `</COMMANDS>>`） | `commandParser.ts` |
+| `COMMANDS v1` | 版本 header，解析時跳過 | `commandParser.ts` |
+| `[出場:名1,名2]` | 出場 NPC（空 = 現場無人） | `App.tsx` + `APPEAR_TAG_*_PATTERN` |
+| `[FONT:sans\|serif\|spell]…[/FONT]` | 字體切換，需成對 | `markdownParser.renderMarkdown` |
+| `{{user}}` | systemPrompt 模板佔位符 → 玩家名字 | `promptBuilder` 的 `fillUser` |
+
+**新增標籤時，三件事缺一不可**：① prompt 教 AI 輸出、② 前端有解析、
+③ `cleanNarrative` 能清掉殘骸（含未閉合／未成對的畸形寫法）。
+少了 ③ 就會直接印在故事裡給玩家看——`[重要NPC]` 就是這樣活了很久（已移除）。
+
+出場標記的正則一律用 `markdownParser` 匯出的共用常數，不要再各寫一份
+（曾散落在串流遮蔽、最終清理、名單擷取三處）。`m` flag 不可省，否則未閉合標籤
+後面接換行時 `$` 不匹配。
+
+### COMMANDS 指令格式
+
+**格式為 COMMANDS v1：一律 `指令|key=value|key=value`**，不再使用冒號分隔。
+
 ```
 <<COMMANDS>>
-HP:-10
-MP:+5
-GOLD:+100
-AFFINITY:芬里爾:+5
-LOCATION:月湖鎮
-TIME:+2h
-ITEM_ADD:草藥:1:回復 20 HP:heal:20
-ITEM_REMOVE:草藥:1
-ITEM_USE:草藥
-NPC_NEW:芬里爾:精靈:男:獵人:銀髮高挑:冷靜寡言:深山出身的獨行獵人。
-NPC_HOME:芬里爾:迷霧森林
-NPC_LOCATION:芬里爾:月湖鎮
-NPC_THOUGHT:芬里爾:覺得玩家值得信任
-NPC_RELATIONSHIP:芬里爾:盟友
-QUEST_GOAL_MET:任務ID
-QUEST_COMPLETE:任務ID
-MEMORY_ADD:region:normal:迷霧森林昨日大火:locations=迷霧森林:keywords=大火:sticky=3
+COMMANDS v1
+STAT|field=hp|delta=-10
+STAT|field=gold|delta=+100
+AFFINITY|npc=芬里爾|delta=+5
+LOCATION|name=月湖鎮
+TIME|delta=+2h
+ITEM_ADD|name=草藥|qty=1|desc=回復 20 HP
+ITEM_USE|name=草藥
+NPC_NEW|name=芬里爾|race=精靈|gender=男|job=獵人|appearance=銀髮高挑|personality=冷靜寡言
+NPC_THOUGHT|npc=芬里爾|text=覺得玩家值得信任
+QUEST_COMPLETE|title=任務名
+MEMORY_ADD|type=region|importance=normal|content=迷霧森林昨日大火|locations=迷霧森林|keywords=大火|sticky=3
+FACTION_NEW|name=黑牙氏族|type=criminal|desc=盤據東境的盜賊團
 <</COMMANDS>>
 ```
+
+⚠️ **完整指令清單以 `promptBuilder.ts` 的 `[COMMAND FORMAT]` 區塊為準**（那份才是真正送給 AI 的規格），這裡只示範格式。兩邊過去各記一份而長期不同步，不要再把完整清單複製到這裡。
+
+### 指令參數的防衛（都是踩過的坑）
+
+| 參數 | 規則 | 為什麼 |
+|---|---|---|
+| `TIME\|delta=` | `parseTimeDelta()`：支援 `h`/`m`/中文單位；**缺單位時以分鐘解讀並 warn**，不丟棄 | TIME 是每回應必須輸出的指令，丟棄＝遊戲時鐘停擺且無跡象 |
+| `STAT\|field=` | 白名單 `STAT_FIELDS`（hp/mp/gold），未知欄位丟棄並 warn | 舊版 `type = field.toUpperCase()` 照單全收，未知欄位變幽靈 type 死在 reducer 的 default |
+| `qty=` | `parseQty()`：非正整數退回 1 | `parseInt(x) \|\| 1` 讓**負數**原樣通過（負數是 truthy），ITEM_ADD 會變成扣庫存 |
+
+認不得的指令在 reducer 的 `UNKNOWN` / `default` 分支會 `console.warn` 並附上原始文字。
+不要把這些 warn 拿掉——指令靜默失效時，玩家只看得到「數值沒變」，沒有 log 就無從查起。
+
+**為什麼一律用 pipe**：冒號格式無法區分分隔符與內容本身的冒號。
+`MEMORY_ADD:world:critical:魔王宣布:向月湖鎮宣戰` 會被截成 `content = "魔王宣布"`，
+後半段**靜默丟棄**。冒號格式僅作為舊存檔的 fallback 保留在 `commandParser.ts` 的
+`default` 分支（已修正為掃描到第一個已知 meta key 才結束 content），不要在 prompt
+中再教 AI 使用。
 
 **COMMANDS 區塊在串流結束後才解析**，不要在串流中途觸發。
 
@@ -381,6 +458,10 @@ MEMORY_ADD:region:normal:迷霧森林昨日大火:locations=迷霧森林:keyword
 | API Key 不進存檔 | 安全性考量 |
 | callAI 封裝層 | 未來換 API 服務只需改一處 |
 | 記憶四層架構 | world / region / scene / npc，依影響範圍分層注入 |
+| `summaryPool` 注入為 `[前情提要]` | 助理 GM 的中期記憶原本只流向日記、從不回主 GM，「最近 20 則」與「日記」之間整段對 AI 不存在 |
+| prompt 靜態層排最前 | Gemini context caching 是前綴匹配；COMMAND FORMAT（約 2.7k 字）原本排在 Recent Chat 之後，永遠不可能命中 |
+| 空區塊整段省略 | 「（無）」佔位每回合白燒 token，且模型得讀完標題才知道沒東西 |
+| memories[] LOD 淘汰 | 注入端截斷只管單回合送幾條，不影響儲存量；沒有上限則存檔無限膨脹、每回合全量掃描 |
 | CSS Variables 統一顏色 | 主題切換只需改 Variables，不動 className |
 | 顏色禁止硬編碼 | 維護性，未來多主題支援 |
 | NPC 兩階段注入 | 避免全體 NPC 塞滿 prompt |
@@ -411,7 +492,7 @@ MEMORY_ADD:region:normal:迷霧森林昨日大火:locations=迷霧森林:keyword
 
 6. **NPC `thoughts[]` 滿 10 則時自動串接寫入 `memories[]`**（source: `pre_merge`）並清空，不要改變這個閾值
 
-7. **`[出場:]` 標記用 `matchAll` 收集並去重**，不要改回單次 `match`
+7. **`[出場:]` 標記用 `matchAll` 收集並去重**，不要改回單次 `match`；**空標記代表「現場無人」，必須寫入以清空 `appearingNpcs`**，不要再加 `length > 0` 的守衛（見上方三種語意表）
 
 8. **`pinnedNpcs` 已在 `relevantLorebook` 去重**，不要讓同一 NPC 出現兩次於 prompt
 
@@ -424,6 +505,20 @@ MEMORY_ADD:region:normal:迷霧森林昨日大火:locations=迷霧森林:keyword
 12. **`@theme` 區塊只保留字體定義**，不得覆寫任何顏色
 
 13. **道具去重走 `itemCatalog` 先寫先贏**：`ITEM_ADD` 遇同名道具沿用圖鑑既有描述，不要改成「後寫覆蓋」；道具名稱一律先過 `normalizeItemName()` 再當 key
+
+14. **好感度標籤是衍生值，不要再加回存檔欄位**。舊的 `Npc.affectionLabel` 只在建檔時寫入、之後永不更新，好感度漲到 90 仍停在「陌生」，且 AI 建檔與手動建檔各寫一種預設值。一律呼叫 `relationText()` 現算
+
+15. **出場 NPC 的 prompt 必須帶「對玩家」欄位**（`promptBuilder` 的 `[Scene Lorebook]`）。那是 NPC 決定語氣與態度的唯一依據，先前整條漏掉，模型只拿得到外貌／個性／記憶
+
+16. **prompt 的靜態前綴順序是 `[System Context]` → `[Player]` → `[COMMAND FORMAT]`，不要打散**。三段逐回合幾乎不變，合計約 2.9k 字元；只要有任何逐回合變動的內容插進去，後面全部失去 context caching 資格。動態內容一律排在 `---` 之後（`promptBuilder` 的 `staticContext` / `commandSpec` / `dynamicSections`），`promptBuilder.test.ts` 有測試釘住順序與前綴逐字一致性
+
+17. **空區塊用 `section()` 整段省略，不要補「（無）」佔位**。唯一例外是 `[當前場景可能出現的角色]`——沒有候選時那句「無已知角色在附近。若故事需要新角色請自由創造。」是給 AI 的**指示**，不是佔位符，刪掉 AI 會不敢生成新角色
+
+18. **NPC 的勢力歸屬唯一來源是 `Npc.factionIds`**。`Faction.npcIds` 已於 schema v5 廢除（`migrateV4toV5` 摺進 `factionIds` 後移除欄位），不要再讀寫它。先前兩邊各寫各的：`FACTION_JOIN` 寫 `factionIds`、勢力分頁勾選寫 `npcIds`，而 `promptBuilder` 只讀 `factionIds`——玩家手動勾的成員 AI 根本看不到。UI 端一律走 `onSetNpcFactions`（故事集勾選與 NPC 卡下拉選單共用）
+
+19. **NPC 匯出入的勢力欄位存「名稱」不是 id**。`factionIds` 是各存檔自己編的流水號，跨檔必然對不上；匯入時以名稱比對現有勢力，查無的收集進 `unknownFactions` 回報，不靜默丟棄。這個功能**不會**建立新勢力
+
+20. **「把 NPC 加進遊戲」一律要建兩份資料**：`npcs[]`（好感度／記憶庫／釘選／足跡）＋ `lorebookEntries` 的 NPC 條目（注入 prompt 的靜態設定）。`NPC_NEW`、`handleAddNpc`、`mergeImportedNpcs` 三個入口都是這樣做的。只建設定集條目的話，角色進得了 prompt 但沒有好感度、開不了記憶庫；只建 `npcs[]` 的話則不會出現在 Phase 1 的地點候選名單裡
 
 ---
 
@@ -448,5 +543,8 @@ MEMORY_ADD:region:normal:迷霧森林昨日大火:locations=迷霧森林:keyword
 | `useGameStore` `loadFromData(data)` | 匯入存檔並自動 migrate 舊格式（`saveDataMapper` + `runMigrations`）|
 | `useAuth` `saveToCloud / loadFromCloud / listCloudSaves / deleteCloudSave` | Supabase `saves` 表 CRUD |
 | `utils/affectionColor.ts` `affectionColor(affection)` | 回傳好感度對應 CSS 變數字串（唯一入口） |
+| `utils/affectionLabel.ts` `affectionLabel / relationText` | 好感度語意標籤（衍生值，不存檔）；`relationText` 為顯示與 prompt 注入的共用入口 |
 | `utils/itemCatalog.ts` `registerItemDef / touchItemDef / pruneItemCatalog / selectKnownItemNames` | 道具圖鑑：先寫先贏登錄、更新使用時間、LOD 淘汰、prompt 名稱切片 |
+| `utils/memoryStore.ts` `pruneMemories / touchMemories` | memories[] 儲存層：LOD 淘汰、LRU 時間戳（無變更時回傳原 reference） |
+| `utils/npcImport.ts` `parseNpcImport / mergeImportedNpcs / buildNpcExport / NPC_IMPORT_TEMPLATE` | NPC 批次匯入匯出：解析 JSON、同名先寫先贏合併、匯出（勢力以名稱來回）、範本 |
 | `useCommandParser` `consumeItem(name, qty?)` | 使用道具（原名 useItem，因 hook 命名慣例改名） |

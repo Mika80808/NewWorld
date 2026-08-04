@@ -61,7 +61,11 @@ export interface Faction {
   color?: string;        // hex，例如 '#7F77DD'，未設定時 UI 自動從調色盤指派
   isActive: boolean;
   homeId?: number;       // LorebookEntry.id of home location on map
-  npcIds?: number[];     // UI-managed member list (NPC ids)
+  /**
+   * @deprecated v5 起改以 Npc.factionIds 為唯一來源，載入時由 migrateV4toV5 摺除。
+   * 型別留著只為了讓遷移程式能讀舊存檔，新程式碼一律不要讀寫這個欄位。
+   */
+  npcIds?: number[];
   relations?: FactionRelation[];
 }
 
@@ -88,7 +92,6 @@ export interface Npc {
   name: string;
   job: string;
   affection: number;
-  affectionLabel: string;
   appearance: string;
   personality: string;
   gender?: string;
@@ -176,6 +179,12 @@ export interface MemoryEntry {
   source: 'manual' | 'ai_generated';
   createdAt: string;
   expiresAt?: string;
+  /**
+   * 最後一次通過觸發判定的 epoch ms，供 pruneMemories 做 LRU 淘汰排序。
+   * 舊存檔沒有這個欄位，淘汰時退回以 id 內嵌的建檔時間戳排序（見 memoryStore.ts）。
+   * createdAt 是遊戲內日期字串（「4/15」），無法比大小，不能拿來排序。
+   */
+  lastTriggeredAt?: number;
 }
 
 export interface EquipmentItem {

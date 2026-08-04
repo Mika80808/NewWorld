@@ -5,6 +5,438 @@
 
 ---
 
+### Bug 修正｜助理 GM 可並行執行，摘要互相覆蓋、日記重複生成 2026-08-04 [Claude Code]
+
+`updateAdventureState` 是 fire-and-forget（`handleSendMessage` 沒有 await 它），
+而 `handleSendMessage` 的 `finally` 立刻把 `aiRequestStatus` 設回 `idle`——
+玩家可以在助理 GM 還在跑時送出下一則。`hasKeyEvent`（**任何一條 `LOCATION` 指令**就成立）
+又會跳過節流，所以「兩輪並行」是實際到得了的狀態，不是理論值。
+
+並行的兩個後果：
+
+1. **摘要互相覆蓋**——兩邊都從 `summaryPoolRef` 讀同一份舊池，再各自「整份寫回」，
+   後寫的吃掉先寫的那則
+2. **壓縮階段更糟**——A 還在 `await` 壓縮用的 `callAI` 時池子尚未清空，
+   B 讀到同一份 10 則的池子也判定該壓縮。兩份壓縮結果互相覆蓋，
+   `compressCount` 還可能一起跨過 3 而**生成兩篇日記**
+
+壓縮路徑因為多一次 `callAI`（總長翻倍），正好是最容易被追上的那條路。
+sub GM 的 retry（429/500/503 指數退避）會把窗口再拉長。
+
+**修法**：加 `subGMBusyRef` 重入鎖，上一輪沒跑完就跳過本輪。跳過是安全的——
+這只是背景摘要，本來就在節流。鎖刻意放在**節流計數之前**：被跳過的那輪不該
+消耗節流額度，否則會連帶讓下一輪也被冷卻擋掉。
+
+> 沒有改用 functional update 解：壓縮判斷需要知道池子長度，`setSummaryPool(prev => ...)`
+> 的 updater 內不能做決策（updater 必須是純函數，見 CLAUDE.md）。重入鎖是這裡唯一乾淨的解。
+
+---
+
+### Bug 修正｜出場 NPC 的足跡蓋成「移動前」的地點 2026-08-04 [Claude Code]
+
+`handleSendMessage` 在 `await parseAndExecuteCommands(fullText)` **之後**，用閉包裡的
+`currentLocation` / `timeState` 去蓋出場 NPC 的 `location` / `lastSeenLocation` / `lastSeenDate`。
+但那兩個值停在玩家按下送出的那一刻，而 `LOCATION` / `TIME` 指令已經在上一行執行完了。
+
+AI 非常常在同一則回應裡一邊移動玩家、一邊讓 NPC 出場（「你走進酒館，看到芬里爾」），
+於是芬里爾的足跡被記成**酒館外的舊地點**。這正是 CLAUDE.md 已經寫過的那條規則
+——「async 函數在 await 之後不要讀取閉包捕獲的 state」——只是這兩行漏網了。
+
+**可見症狀**：
+- `NpcModal` 的「上次見到」顯示錯的地名
+- `SceneNpcsWidget` 用 `n.location === currentLocation` 篩當前場景人物，
+  玩家之後回到舊地點時，會看到一個其實不在那裡的 NPC
+- 跨日的 `TIME` 會讓 `lastSeenDate` 停在前一天
+
+**修法**：`ParseResult` 增加 `location` / `date` 兩個欄位，由 `parseAndExecuteCommands`
+從 `stateChanges.currentLocation ?? currentLocation`、`stateChanges.timeState ?? timeState`
+算出「指令套用後」的值回傳。呼叫端改用它們，不再讀閉包。
+
+> 為什麼不用最新值 ref：`setCurrentLocation` 是 React state 更新，要等重新渲染才生效，
+> 在同一個 async 流程裡讀不到。唯一拿得到新值的地方就是 reducer 算出來的 `stateChanges`。
+
+`reduceCommands` 內部的 `NPC_LOCATION` 用的是推進前的 `timeState`（TIME 在 reduce 最後才結算），
+這點維持原樣——「NPC 是在時間流逝前被看到的」在語意上站得住，且改動會牽扯指令順序語意。
+
+**測試**：119 passed（+3）。`commandReducer.test.ts` 釘住三件事：同批 `LOCATION` + `TIME`
+會同時進 `stateChanges`（否則修正會靜默退回舊值）、跨日 `TIME` 會推進 `day`、
+沒有這兩個指令時欄位維持 `undefined`（讓 `??` 正確退回原值）。
+
+---
+
+### Bug 修正｜React 19 hooks 規則清零（重試鈕靠 ref 決定顯示、render 期間寫 ref） 2026-08-04 [Claude Code]
+
+`npm run lint` 長期帶著 21 個 react-hooks warning。逐條看完後分成三類：一個真 bug、
+一批「能寫得更好」、少數規則誤判。清完後 **0 errors 0 warnings**，116 個測試不動。
+
+#### 一、真 bug：「重試」鈕用 ref 決定要不要顯示
+
+中斷／超時／錯誤列的 `{lastInputRef.current && <button>重試</button>}` —— **ref 變動不會觸發重繪**。
+它至今看起來正常，純粹是因為 `aiRequestStatus` 改變時順帶重繪了一次，時序剛好對上。
+一旦 `lastInputRef` 的寫入與狀態變更不在同一批次，玩家就會遇到「顯示發生錯誤但沒有重試鈕」。
+改成 `useState`：畫面依賴的東西就該是 state，這是規則真正想抓的那種錯。
+
+#### 二、render 期間寫 ref（9 處，App.tsx）
+
+`itemsRef.current = items` 這類同步全部散在 render body。render 必須是純函數——
+React 可能捨棄或重跑一次 render，寫進去的值會留在一個從未被提交的畫面上。
+集中成一個 `useEffect`（無 deps，每次 commit 後跑）。
+
+⚠️ 時序關鍵：這個 effect **宣告在所有其他 effect 之前**，同一次 commit 內最先執行，
+所以 `persistToken` 存檔 effect 讀到的 `buildSaveSnapshotRef` 仍是最新版本。
+搬動它的位置會讓「手動編輯後按儲存會存到舊快照」那個坑復活。
+
+#### 三、effect 內 setState → 改成 render 期間比對 props
+
+React 官方的「props 改變時調整 state」寫法（比對上一次的值），比 effect 版少一次
+帶著舊狀態的 commit：
+
+| 位置 | 症狀 |
+|---|---|
+| `ConfirmDialog` | 開新對話框時，玩家可能瞄到前一個對話框殘留的輸入值 |
+| `NpcModal` | 切換 NPC 時，會先畫出「新 NPC 的資料配上前一個 NPC 的編輯狀態」 |
+| `App.tsx` 可見訊息數 | 載入存檔時聊天區閃一下空白 |
+
+⚠️ 後兩者的初始值必須用**哨兵**（`'init'` / `-1`），不能用當下的 props：
+原本的 effect 在 mount 當下也會跑一次。用 props 當初始值會讓首次 render 直接跳過，
+造成「新角色不會自動進編輯模式」與「載入存檔後聊天區全空」。這兩個都實際在瀏覽器驗過。
+
+#### 四、規則誤判與刻意保留（附註解 disable）
+
+- `useMemo(() => debounce(() => ...ref...))` —— 規則看到 useMemo 內有 ref 存取就當成 render 期間讀取，
+  但那支 arrow function 是交給 debounce 排程的，必定晚於 commit
+- `setIsCloudSaving(true)` ×2 —— 只是打開「上傳中」旗標，不導出其他 setState，不構成連鎖重繪
+- `selectedNpc` 與 `npcs` 同步 —— updater 無變化時原樣回傳 `prev`，React 直接 bail out。
+  要真正消掉得把 `selectedNpc` 改存 id 由 npcs 現算，但呼叫點散在多處（含尚未進 npcs 的「新角色」），
+  在沒有組件層測試的情況下不值得動
+- `NpcModal` 清除 isNew 標記的 deps —— 加上 `selectedNpc` 會讓「開著記憶分頁時新進的記憶」
+  一出現就被清掉高亮，玩家等於沒看到那個「新」標記
+
+> eslint-disable 註解要放在**回報行**的前一行，不是 `useEffect(` 那行——
+> `exhaustive-deps` 回報在 deps 陣列那行，`set-state-in-effect` 回報在 setState 那行。
+> 放錯位置會變成「Unused eslint-disable directive」，原本的 warning 也沒消掉。
+
+**驗證**：`npm test` 116 passed、`npm run lint` 全清。另在瀏覽器實跑（`VITE_DEV_SKIP_AUTH`）：
+訊息正常顯示、ConfirmDialog 打字→取消→重開會清空、新角色掛載即進編輯模式、
+存檔後 NPC 名稱同步且 console 無任何警告（無無限重繪）。
+
+---
+
+### Bug 修正｜指令參數層的靜默失效（TIME 停擺、幽靈 STAT、負數量） 2026-08-03 [Claude Code]
+
+承上一輪的標籤盤點，把 26 條指令逐條對照 prompt → parser → reducer 三層。
+指令本身沒有缺漏（沒有「教了沒解析」或「解析了沒教」），但**參數層**有四個洞，
+共同特徵是：出錯時完全無聲，玩家只看到「數值沒變」而無從查起。
+
+#### 一、`TIME|delta=30`（漏寫單位）→ 整條指令消失
+
+舊版 `minutes <= 0` 就 `return null`。而 TIME 是 prompt 明訂「**每次回應必須輸出**」
+的最高頻指令——一旦模型漏寫單位，遊戲時鐘直接停擺，且沒有任何跡象。
+
+抽出 `parseTimeDelta()`：缺單位時以**分鐘**解讀並 `console.warn`（時鐘略偏遠好過完全不動），
+只有完全找不到數字才丟棄。順帶支援中文單位（`2小時30分`）——prompt 教的是 `+1h`，
+但模型輸出中文時本來會整條落空。
+
+#### 二、`STAT|field=<非 hp/mp/gold>` → 幽靈 type 靜默消失
+
+parser 是 `type = field.toUpperCase()` 照單全收，AI 自行發明 `field=exp` 就產生
+type `'EXP'`，reducer 沒有對應 case，落到 `default: break`。
+改為在 parser 以 `STAT_FIELDS` 白名單攔下並警告，不再產生查無此類的幽靈指令。
+
+#### 三、`qty=-3` 讓庫存反向操作
+
+`parseInt(kv.qty || '1') || 1` 看似「缺失就給 1」，但**負數是 truthy**，會原樣通過：
+`ITEM_ADD|qty=-3` 變成扣庫存、`ITEM_REMOVE|qty=-3` 變成加庫存。
+抽出 `parseQty()`，非正整數一律退回 1（`qty=0`、`qty=abc` 的行為與原本相同）。
+
+#### 四、認不得的指令完全無聲
+
+整份程式只有 `FACTION_JOIN` 找不到對象時會 warn。reducer 的 `UNKNOWN` / `default`
+兩個分支補上 `console.warn`（含原始指令文字），格式打錯時至少查得到。
+
+**測試**：109 → 116 passed。`commandParser.test.ts` 補 TIME 增量（時分／中文單位／缺單位／
+無數字）與參數防衛（qty 負數與 0、STAT 未知欄位、STAT 大小寫）兩組。
+
+**未處理**：所有 `npc=` 欄位仍是精確比對。prompt 對 `ITEM_ADD`（「必須沿用完全相同的名稱」）
+與 `QUEST_COMPLETE`（「需與 QUEST_ADD 完全一致」）都寫了名稱一致的要求，但 NPC 名字沒有，
+儘管它是 7 個指令的查找鍵。修法應比照現有慣例在 prompt 加一句，而非在程式加模糊比對
+（模糊比對會配到錯的 NPC，尤其名字互為子字串時）。
+
+---
+
+### Bug 修正｜結構化標籤全面盤點：出場標記語意漏失、兩個無人解析的標籤 2026-08-03 [Claude Code]
+
+把 AI 會輸出的所有結構化標籤抓出來，逐個對照「prompt 怎麼教」vs「前端怎麼解」。
+
+| 標籤 | prompt | 前端 | 結果 |
+|---|---|---|---|
+| `<<COMMANDS>>…<</COMMANDS>>` | ✓ | ✓ | OK |
+| `COMMANDS v1` | ✓ | ✓ 跳過 | OK |
+| `[出場:名1,名2]` | ✓ | ✓ | **空標記被吃掉** |
+| `[出場:` 未閉合 | — | 串流遮蔽、最終不處理 | **殘留** |
+| `[FONT:…]…[/FONT]` | ✓ | ✓ 需成對 | **未成對時殘留** |
+| `[重要NPC]` | ✓ systemPrompt #8 | ✗ 無 | **死標籤** |
+| `{{user}}` | 模板佔位符 | ✗ 無替換 | **沒填** |
+
+#### 一、`[出場:]` 空標記被忽略 → NPC 永遠不下場（最嚴重）
+
+prompt 明訂「無人可輸出 `[出場:]`」，但 `App.tsx` 的 `setAppearingNpcs` 被
+`if (uniqueNames.length > 0)` 擋著（且這是全專案唯一的呼叫點），AI 說「這裡沒有人」時
+`appearingNpcs` 保持不變——**上一場的 NPC 留在台上，直到有別的 NPC 出場才被換掉**。
+
+`appearingNpcs` 是 NPC 完整注入的第一順位條件，且在 `buildPrompt` 裡**先於地點過濾**判定，
+所以那個 NPC 的完整檔案（含這輪新加的好感度）會無視地點、每輪繼續注入，GM 很自然
+就讓他出現在沒去過的地方；連帶他的 NPC 記憶持續觸發、`specialNpcMems` 的排除邏輯被污染、
+右欄「在場角色」也持續顯示他。而且 `appearingNpcs` 會存進存檔，重載也不會清。
+
+**修正**：空陣列照樣寫入（＝清空），足跡更新才維持「真的有人出場」才跑。
+完全沒有標記時不動——那是 AI 沒照規矩，維持現狀比誤清安全。
+
+#### 二、未閉合／未成對的標籤殘留
+
+- `[出場:芬里爾`（漏寫 `]`）：串流中的遮蔽邏輯**有**處理未閉合片段，但最終文字用的是
+  嚴格的 `/\[出場:[^\]]*\]/g`，於是同一個標籤「串流時被藏起來、寫入訊息時又冒出來」。
+  改用共用的 `APPEAR_TAG_PATTERN`（容忍未閉合，只吃到行尾、不跨行）。
+  ⚠️ `m` flag 不可少：`$` 沒有 `m` 時只匹配整個字串結尾，接換行就不匹配（寫測試時踩到）。
+- `[FONT:serif]` 漏寫 `[/FONT]`：`fontRegex` 要求成對，整段不匹配，標記當正文印出來。
+  改在 `renderMarkdown` 配對之後清理落單標記（抽成 `stripOrphanFontTags` 以便純函數層測試）。
+  **不能放進 `cleanNarrative`**——它跑在 `renderMarkdown` 之前，會連成對的一起吃掉、字體功能全失效。
+
+#### 三、兩個沒有任何解析的標籤
+
+- **`[重要NPC]`**：出自預設 systemPrompt 的 roleplayRules 第 8 條，全專案沒有一處讀它，
+  AI 照做就直接印在故事裡。NPC 建檔早就由 `NPC_NEW` 負責了，該句改為指向 `NPC_NEW` + `NPC_HOME`。
+  ⚠️ systemPrompt 存在存檔裡，**舊存檔仍留著自己的副本**，所以顯示層也要擋（`cleanNarrative`）。
+- **`{{user}}`**：三段 systemPrompt 都是含此佔位符的模板，但完全沒有替換步驟，
+  模型收到的是字面上的 `{{user}}`。`buildPrompt` 加入替換（容忍多餘空白），
+  預設文案裡誤植的 `{{userr}}` 一併修正，替換正則也容忍該誤植以救舊存檔。
+
+#### 四、`stripBareCommands` → `cleanNarrative`
+
+職責已從「濾裸指令」擴大到「清掉所有標籤殘骸」，函式與 props 一併更名以符實。
+出場標記的正則原本散在三處（串流遮蔽、最終清理、名單擷取），現在收斂到共用常數。
+
+**測試**：99 → 109 passed。`markdownParser.test.ts` 補 8 條（含「`cleanNarrative` 不得碰 FONT」
+這條防止有人日後把它移錯層），`promptBuilder.test.ts` 補 2 條 `{{user}}` 替換。
+
+---
+
+### Bug 修正｜出場 NPC 的 prompt 缺少「對玩家的態度」；affectionLabel 改為衍生值 2026-08-03 [Claude Code]
+
+從「好感 90 的 NPC 在 Lorebook 仍顯示陌生人」追下去，發現顯示只是表徵，真正的洞在 prompt。
+
+#### 核心問題：AI 不知道 NPC 對玩家是友好還是敵對
+
+`promptBuilder` 組 `[Scene Lorebook]` 的出場 NPC 那行，注入了外貌、個性、背景、勢力、
+近期想法、記憶庫——**唯獨沒有好感度，也沒有關係**。`npcData` 在上一行就查出來了，只是沒用在這件事上。
+也就是說，對真正在演的那批 NPC，模型手上沒有任何依據判斷該用什麼態度對待玩家。
+`[Pinned NPCs]` 那條有 `好感度:${n.affection}` 裸數字，但沒有語意——模型得自己猜 37 分算親近還是冷淡。
+
+**修正**：兩處都改為注入 `對玩家：{關係}（好感度 N）`，並在 `[Scene Lorebook]` 標頭加一句
+說明該欄位是角色看待玩家的當前立場，語氣、稱呼、肯不肯幫忙都要與它一致。
+
+#### 連帶：`affectionLabel` 是永遠停在初始值的死欄位
+
+`Npc.affectionLabel` 只在建檔時寫入（`NPC_NEW` 寫 '陌生'、手動建檔寫 '陌生人'），
+**之後再也沒有任何地方更新**。全專案只有一個讀取點（LorebookModal 卡片的
+`relationship || affectionLabel || '陌生人'` 中間那層），而它永遠等於常數，
+整條 fallback 實質等於 `relationship || '陌生人'`——中間層等於不存在。
+另外 AI 建檔寫 '陌生'、手動建檔寫 '陌生人'，同欄位兩種預設值。
+
+**修正**：新增 `utils/affectionLabel.ts`，標籤改為由 `affection` 現算的純函數（存起來只會再漂移）。
+門檻對齊 `affectionColor()` 的邊界（0 / 50 / 80 / 100），確保顏色與標籤不會互相矛盾；
+額外的 20 是程式裡已有語意的門檻（backstory 永久解鎖），不是新發明的數字：
+
+| 好感度 | < 0 | 0–19 | 20–49 | 50–79 | 80–99 | ≥ 100 |
+|---|---|---|---|---|---|---|
+| 標籤 | 敵對 | 陌生 | 相識 | 友好 | 信賴 | 摯友 |
+
+`relationText(relationship, affection)` 是顯示與注入的共用入口：有明確 `relationship`
+（AI 送 `NPC_RELATIONSHIP` 寫入）時以它為準，沒有時退回標籤——補上 AI 只在
+「初次確立關係或重大轉變」才送指令、而好感度靠 `AFFINITY` 獨立累積的那段空窗。
+`Npc.affectionLabel` 欄位連同三處寫入點一併移除；舊存檔殘留該 key 無害（沒有任何地方讀）。
+
+**測試**：91 → 99 passed。新增 `affectionLabel.test.ts`（含「顏色換色的邊界上標籤必定也換」
+的一致性檢查），`promptBuilder.test.ts` 補 4 條態度注入的回歸。
+
+---
+
+### Bug 修正｜COMMANDS v1 遷移的三處漏網 + 助理 GM 回傳值型別防衛 2026-08-03 [Claude Code]
+
+一輪主動 Debug（lint / test / 核心邏輯逐檔審）的結果。六個修正，分三類。
+
+#### 一、指令格式從冒號改 pipe 時，三處「字串比對」沒跟著改
+
+`promptBuilder` 早已改教 AI 輸出 `STAT|field=hp|delta=-10`，但三處硬寫的偵測字串
+還停在 legacy 冒號格式，等於功能靜默失效：
+
+1. **`App.tsx` `hasKeyEvent`** — 比對 `'QUEST_ADD:'` / `'\nLOCATION:'` / `'MEMORY_ADD:world'`，
+   在 v1 格式下**恆為 false**。CLAUDE.md 寫的「關鍵事件跳過節流」從遷移後就沒生效過，
+   接任務、換地點、世界級記憶一律得等滿 3 回合才觸發助理 GM。
+   改為兩種格式都比對（`/^QUEST_ADD[|:]/m` 等），舊存檔重跑時仍成立。
+
+2. **`markdownParser.BARE_CMD_PATTERN`** — 顯示層最後一道防線。
+   `parseCommandsToAST` 在沒有 `<<COMMANDS>>` 區塊時**刻意保留原文**
+   （見 commandParser.test.ts「narrative 保留原文」），漏出來的裸指令靠
+   `stripBareCommands` 在渲染前濾掉。而該 pattern 只列冒號格式，
+   所以 AI 一旦漏寫區塊標記，`ITEM_ADD|name=草藥|qty=1` 就原封不動顯示給玩家。
+   改為指令名清單 + pipe 分支，並補上沒配對到的 `<<COMMANDS>>` 殘骸與 `COMMANDS v1` header。
+   冒號分支原樣保留，不動既有行為。
+
+#### 二、`commandReducer` 兩個純函數層 bug
+
+3. **同一 NPC 多條 AFFINITY 只生效第一條** — `affinityUpdates.find(...)` 取首筆，
+   其餘靜默丟棄；但 `feedback.cmdResults` 每條都推給玩家看。
+   「畫面顯示 +5 −2、實際只加了 5」。改為先用 Map 加總再套用。
+
+4. **reducer 就地竄改傳入的 items** — `workingItems` 只是 `currentState.items` 的淺拷貝，
+   `existingItem.quantity += n`、`item.quantity -= n` 改到的是 React state 裡的同一個物件
+   （ITEM_ADD / ITEM_REMOVE / QUEST_COMPLETE 獎勵三處）。目前沒有 memo 化的道具清單，
+   所以畫面看不出來，但 reducer 是文件明訂的純函數、前一版快照會被回溯改寫。
+   全部換成產生新物件。
+
+#### 三、助理 GM 回傳值沒驗型別 → 可能永久白畫面
+
+5. **`updateAdventureState` 的 `data.goals`** — 只判斷 truthy 就 `setCurrentGoals(data.goals)`。
+   模型偶爾會回 `"goals": "去月湖鎮"`（字串而非陣列），`GoalsPanel` 的 `.map` 立刻炸掉。
+   更糟的是它會被寫進雲端存檔，而 `saveDataMapper` 的 `|| []` 對非空字串無效
+   ——**之後每次載入該存檔都白畫面**。改為 `Array.isArray` 驗證，字串則包成單元素陣列。
+
+6. **`saveDataMapper` 的陣列欄位** — 同一個 `|| []` 問題遍布 `currentGoals` / `adventureLog` /
+   `summaryPool` / `quests` / `memories` / `diaryEntries` / `lorebookEntries` / `messages` /
+   `quickOptions` / `appearingNpcs`。一律改用 `Array.isArray`，讓已經被寫壞的存檔能自我修復。
+
+**測試**：81 → 91 passed。新增 `markdownParser.test.ts`（pipe/legacy/區塊殘骸/不誤刪敘事），
+`commandReducer.test.ts` 補 AFFINITY 累加與兩條純函數回歸，
+`saveDataMapper.test.ts` 補陣列欄位型別防衛。lint 維持 0 errors / 21 warnings（無新增）。
+
+---
+
+### Bug 修正｜「儲存」按鈕不存檔、匯出漏掉未同步的編輯 2026-08-03 [Claude Code]
+
+由「存檔匯出時沒有玩家資料」回報追查而來。根因是**手動編輯完全沒有持久化路徑**。
+
+#### 問題一：「儲存」按鈕只關視窗
+
+- `ProfileModal`：按鈕文字為「儲存」，`onClick` 卻只有 `onClose`
+- `SystemPromptModal`：`onClose()` 之後還 `showToast('已儲存系統底層邏輯')`——**明確告知使用者已儲存，實際什麼都沒寫**
+- `NpcModal.handleSaveEdit`、`LorebookModal`：只寫回 React state
+
+自動存檔的 effect 只監聽 `[isLoading, isUpdatingLog]`，即**僅在 AI 回應後**觸發。因此個人資訊／設定集／NPC／System Prompt 的編輯在關閉分頁後全部遺失（訊息編輯／刪除除外，那兩處有顯式 `saveToCloud`）。
+
+**修正**：App.tsx 新增 `requestPersist()` 作為單一提交入口，傳給四個 Modal 的 `onSave`。
+
+刻意採用 token + effect 而非直接呼叫 `saveToCloud`：呼叫端（如 `NpcModal.handleSaveEdit`）常在同一事件中剛做完 setState，同步組快照會讀到舊值——與同日修正的 `handleImportSave` 是同一個坑。遞增 token 會與那些 setState 同批次，effect 於 commit 後才執行，此時 `buildSaveSnapshotRef.current` 已指向持有最新 state 的版本。
+
+#### 問題二：匯出從雲端重讀
+
+`handleExportSave` 原本 `await loadFromCloud(...)`，而雲端只在 AI 回應後才更新，因此匯出會漏掉所有尚未同步的手動編輯——最典型的就是「剛填完個人資訊就匯出，檔案裡 profile 是空的」。改為匯出 `buildSaveSnapshot()`（當前狀態），並移除已無用的 async。
+
+**驗證**（dev + 攔截匯出 blob）：填入 profile 後匯出，檔案含完整 `profile`，檔名由 `RPworld-玩家-` 變為 `RPworld-測試角色名-`（檔名邏輯為 `profile.name || '玩家'`，可直接反映修正生效）。按「儲存」後「上次存檔」時間戳更新且出現「已儲存」提示。
+
+lint 20 → 21 warnings：新增的 effect 內有 `setIsCloudSaving`，與既有自動存檔 effect 同款 `set-state-in-effect`，非新問題。81 passed。
+
+---
+
+### Bug 修正｜匯入存檔後把「匯入前」的舊狀態上傳覆蓋雲端 2026-08-03 [Claude Code]
+
+**問題**（`App.tsx handleImportSave`）：
+
+```js
+loadFromData(parsed);                   // setState —— 非同步，本次 render 尚未生效
+const snapshot = buildSaveSnapshot();   // 讀閉包捕獲的 state = 匯入前的舊資料
+await saveToCloud(authUser.id, currentSlotName, snapshot);
+```
+
+`buildSaveSnapshot` 讀的是本次 render 閉包捕獲的 state，而 `loadFromData` 的 setState 要到下次 render 才反映。因此**匯入後上傳到雲端的是匯入前的內容**。
+
+症狀相當隱蔽：畫面立即顯示匯入結果（記憶體 state 確實更新了），但雲端槽已被舊資料覆蓋。玩家若在匯入後未送出任何訊息就重新整理，匯入的內容會整份消失——而且原本該槽的資料也被寫回成匯入前的狀態。若接著送出訊息，回應後的自動存檔會以當時（正確的）state 覆蓋，問題自行消失，因此不易察覺與重現。
+
+正好違反 CLAUDE.md 架構規則的「async 函數在 await 之後不要讀取閉包捕獲的 state」。
+
+**修正**：改用 `saveDataMapper(parsed)`。它是純函數，回傳的正是 `loadFromData` 寫進 state 的同一份正規化資料，完全不經過 React state。`App.tsx` 從 `useGameStore` 追加匯入 `saveDataMapper`。
+
+註：此處改用最新值 ref（`buildSaveSnapshotRef`）也**無效**——ref 在 render 期間更新，而同步呼叫時 setState 尚未 flush。必須完全繞開 state。
+
+**測試**：`saveDataMapper.test.ts` 新增 2 案守住修法前提——完整 v4 存檔經 mapper 後所有欄位（profile／地點／時間／NPC／任務／勢力／itemCatalog）不被預設值覆蓋，以及 mapper 冪等（確保「上傳的」與「載入的」是同一份）。81 passed。
+
+**附帶澄清**：本次是由「匯入後個人資訊是空的」回報追查而發現，但那個現象本身**不是 bug**——該存檔匯出時 `profile.name` 就已為空，證據是匯出檔名為 `RPworld-玩家-...`（`App.tsx` 的檔名邏輯為 `profile.name || '玩家'`）。
+
+---
+
+### 文件｜CLAUDE.md CSS Variables 清單重建 2026-08-03 [Claude Code]
+
+**問題**：文件的顏色表與 `index.css` 長期脫節——86 個變數只記了 53 個（缺整個 glass 毛玻璃系列、`--fx-*` 視覺特效、`--z-*` 層級、便條紙色），且已記載的 53 個裡**有 13 個值是錯的**。最誇張的是 `--text-title` 記成 `#ff11d7`（亮桃紅），實際為 `#d3cb9b`（霧卡其）。
+
+影響大於表面：CLAUDE.md 每次都會載進 AI 上下文，而其第一條硬規則就是顏色系統。缺漏會**主動誘發違規**——需要毛玻璃底色卻在表上找不到對應變數，就容易改去硬編碼色碼。
+
+**做法**：改為只列**變數名與用途**，不再複製色碼，並標明「值以 `index.css` 為唯一準據」。理由與同日 COMMAND FORMAT 的處理一致——重複可變資料正是漂移的來源，而寫程式時只需要變數名，色值幾乎用不到。
+
+Z-Index 保留數值（數值本身就是語意），並註明 JS 端應使用 `constants.ts` 的 `Z_INDEX`。另補上兩個容易誤用的註記：`--color-emerald` 實際是粉紅色（好感度愛心）、好感度判定唯一入口是 `affectionColor()`。
+
+**驗證**：腳本比對 `index.css` 與 CLAUDE.md 的變數名，86 個全部涵蓋、零遺漏；文件多出的 `--color-emerald-400`/`--color-rose-400` 是「禁止事項」段落的反例，屬預期。
+
+---
+
+### 清理｜死碼移除 + dev-only 登入繞過 2026-08-03 [Claude Code]
+
+#### 死碼移除（lint warnings 32 → 20，`no-unused-vars` 歸零）
+
+- `MapModal.tsx`：移除 `starPoints()`（無引用）與 `routeSegments`——後者是一整段建 Map + Set 的路線計算，**每次 render 都在跑但結果從未被使用**
+- `NpcModal.tsx`：移除 `menuOpen` state 與整個 click-outside effect。`menuRef` 從未掛到任何元素，`menuRef.current` 恆為 null，該 handler 每次 mousedown 都執行但什麼都不做
+- `App.tsx`：移除未使用的 `Settings`/`Send` import、`editingMemoryId`/`editingMemoryContent` 兩組 state，三個 `catch (e)` 改 `catch`
+
+剩餘 20 個 warning（refs-during-render 9、set-state-in-effect 7、exhaustive-deps 4）**刻意不動**：那些是為了避開 async stale closure 與維持 `React.memo` 的既有設計，且部分為 lint 誤報（如 `setIsCloudSaving` 本就是在同步外部系統）。真正的解法是導入 React Compiler 並移除手工 memo 體操，屬獨立任務。
+
+#### dev-only 登入繞過（`VITE_DEV_SKIP_AUTH`）
+
+背景：預覽瀏覽器不允許導向 localhost 以外網址，Google OAuth 在本機自動化環境走不完，導致 UI 無法在本機被實際檢視。
+
+- `useAuth.ts` 新增 `DEV_SKIP_AUTH = import.meta.env.DEV && VITE_DEV_SKIP_AUTH === 'true'` 雙鎖。開啟時提供假 user，並讓 `saveToCloud`/`loadFromCloud`/`listCloudSaves`/`deleteCloudSave` **全部 no-op**——不觸碰正式 Supabase 存檔
+- App.tsx 零改動：所有雲端呼叫本就經由 `authUser` + useAuth 的 CRUD
+- `.claude/launch.json` 新增 `newworld-prod`（`vite preview`），供驗證正式 build 的 chunk 行為
+
+驗證：production build hash 與加入此功能前**完全相同**，且掃描 dist 確認不含 `dev-local-user`/`DEV_SKIP_AUTH` 等字串——整段被 tree-shake，不可能誤上線。dev 模式實測三欄介面完整渲染、零 console error、**零筆 supabase.co 請求**。
+
+已知限制：`preview_screenshot` 在此頁面會逾時（暫停動畫後仍然如此，原因未明）。UI 驗證改用 `preview_snapshot`（結構／文字）與 `preview_inspect`（計算後樣式、顏色、尺寸）。
+
+---
+
+### 優化｜首屏 bundle −52 kB + MEMORY_ADD 內容截斷修正 + DSL 格式統一 2026-08-03 [Claude Code]
+
+三項一起處理，彼此獨立。
+
+#### 1. `@google/genai` 改為動態載入（首屏 gzip 273 kB → 221 kB，−19%）
+
+實測 `vendor` chunk 810 kB 的組成：`@google/genai` + `web-streams-polyfill` 佔 267 kB／gzip 52 kB，但從登入畫面到玩家送出第一則訊息之前完全用不到。
+
+- `useAIRequest.ts` 移除靜態 import，改 module-level Promise 快取的 `loadGenAI()`，於 `callAI` 內 `await`（放在 `abortedRef` 重設之後，abort 由迴圈開頭的檢查接手）
+- `vite.config.ts` `manualChunks` 加例外回傳 `undefined`——**關鍵**：原本無條件把所有 `node_modules` 歸進 `vendor`，會讓動態 import 完全失效。此套件不依賴 React，不會踩既有註解警告的模組初始化順序坑
+- 結果：`vendor` 810→542 kB（gzip 212→160），genai 切出 273 kB 獨立 async chunk
+- 驗證：`vite preview` 實測首屏只請求 `index` + `vendor` + css，genai chunk 未被載入，零 console error，登入畫面正常渲染
+
+#### 2. `parseLegacyMemoryAdd` 靜默吃掉記憶內容（Bug）
+
+`content` 原本只取 `colonParts[2]`，內容含半形冒號時後半段會落進 meta 陣列，又因缺少 `=` 被無聲丟棄：
+
+```
+MEMORY_ADD:world:critical:魔王宣布:向月湖鎮宣戰:keywords=魔王
+→ content = "魔王宣布"      「向月湖鎮宣戰」消失，無任何錯誤
+```
+
+改為從 index 2 往後掃到第一個「已知 meta key=value」片段為止（`LEGACY_MEMORY_META_KEYS`），中間全部以 `:` 接回。content 內若含非 meta key 的等號（`A=B`）不會誤判。
+
+#### 3. Prompt DSL 格式統一為 pipe
+
+`promptBuilder` 的 `[COMMAND FORMAT]` 區塊中，`MEMORY_ADD` 與 `FACTION_NEW/JOIN/RELATION`、`NPC_RELATION` 這 5 條仍在教 AI 用冒號格式，其餘指令已是 v1 pipe——同一份規格混用兩種分隔符會拉高 AI 格式錯誤率，而格式錯誤是靜默失敗。parser 本來就支援這些指令的 pipe 格式，只是 prompt 沒跟上。冒號分支保留為 legacy fallback。
+
+同步更新 `CLAUDE.md`「AI 回應格式約定」——該區塊整份仍是冒號格式且與實際規格長期不同步，改為只示範格式並指明**以 `promptBuilder.ts` 為準**，避免再次雙份漂移。
+
+#### 測試
+`commandParser.test.ts` 新增 6 案：冒號 content 含冒號／無 meta 欄位／含非 meta 等號，以及 MEMORY_ADD、FACTION_NEW+JOIN、NPC_RELATION 的 pipe 格式。73 → 79 passed，lint 維持 0 errors。
+
+---
+
 ### Bug 修正｜記憶觸發擲骰一回合只做一次 2026-08-02 [Claude Code]
 
 **問題**：`isMemoryTriggered`（`useCommandParser.ts`）結尾是 `Math.random() * 100 < probability`，但一回合被呼叫兩次且各自擲骰：

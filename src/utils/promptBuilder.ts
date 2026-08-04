@@ -5,6 +5,7 @@ import {
 } from '../types'
 import { getTotalDaysFromTimeState, getQuestRemainingDays } from './timeUtils'
 import { selectKnownItemNames } from './itemCatalog'
+import { relationText } from './affectionLabel'
 import { COMMANDS_VERSION } from './commandParser'
 
 export interface BuildPromptDeps {
@@ -20,6 +21,14 @@ export interface BuildPromptDeps {
   quests: Quest[]
   timeState: TimeState
   currentLocation: string
+  /**
+   * 助理 GM 產出的中期記憶池（每 3 回合一則，滿 10 則壓縮成一段）。
+   *
+   * 先前這個池子只流向日記、從不回到主 GM，於是「最近 20 則對話」與
+   * 「日記（要壓縮 3 次≈90 回合才生成，且須關鍵字命中才注入）」之間整段是空的——
+   * 那期間發生的事只要 AI 當時沒輸出 MEMORY_ADD，對它就等於沒發生過。
+   */
+  summaryPool: string[]
   diaryEntries: DiaryEntry[]
   statusEffects: StatusEffect[]
   factions: Faction[]
@@ -50,7 +59,7 @@ export function buildPrompt(
   const {
     profile, systemPrompt, npcs, appearingNpcs, lorebookEntries,
     memories, equipment, items, itemCatalog, quests, timeState, diaryEntries,
-    statusEffects, factions,
+    statusEffects, factions, summaryPool,
     scanKeywords, isMemoryTriggered,
   } = deps
 
@@ -185,82 +194,101 @@ export function buildPrompt(
 
   const recentMessages = currentMessages.slice(-SLIDING_WINDOW)
 
-  const prompt = `[System Context]
-World Premise: ${systemPrompt.worldPremise}
-Roleplay Rules: ${systemPrompt.roleplayRules}
-Writing Style: ${systemPrompt.writingStyle}
+  // systemPrompt 三段都是模板文字，內含 {{user}} 佔位符指代玩家。
+  // 先前完全沒有替換步驟，模型收到的是字面上的「{{user}}」——它只能從
+  // [Player] Name 反推是在講誰。預設文案裡還有一處誤植成 {{userr}}，
+  // 所以這裡容忍 user 後面多餘的 r 與前後空白，一律換成玩家名字。
+  const fillUser = (tpl: string): string =>
+    tpl.replace(/\{\{\s*user+\s*\}\}/gi, profile.name || '玩家')
+
+  // ── 區塊組裝 ────────────────────────────────────────────────────────────────
+  // body 為空時整段省略，不留「（無）」佔位（Minimal Viable Context）。
+  // 先前有 9 個區塊在沒內容時仍照送標題加「（無）」，每回合白燒 token，
+  // 而且模型得先讀完標題才知道這裡沒東西。
+  // ⚠️ 唯一保留「無內容」分支的是下方「當前場景可能出現的角色」——那句話是給 AI
+  // 的指示（沒有已知角色時可自由創造），不是佔位符，刪掉 AI 會不敢生新角色。
+  const section = (title: string, body: string): string =>
+    body.trim() ? `${title}\n${body.trim()}` : ''
+
+  const memLines = (mems: MemoryEntry[], tagKey?: 'factions' | 'locations' | 'npcs') =>
+    mems.map(m => {
+      const tags = tagKey ? m.tags?.[tagKey] : undefined
+      return `- ${m.content}${tags?.length ? ` [${tags.join(',')}]` : ''}`
+    }).join('\n')
+
+  // ── 靜態前綴：逐回合幾乎不變的內容，一律排在最前面 ──────────────────────────
+  // 這不只是分層整齊。Gemini 的 context caching 是「前綴」匹配——前面只要有一個
+  // 字元變了，後面全部失去快取資格。COMMAND FORMAT 是整份 prompt 裡最大的一塊
+  // 固定內容，先前卻排在 Recent Chat 之後：擺在最變動的內容後面，等於永遠不可能
+  // 命中快取。
+  // ⚠️ 調整此處順序前，請先確認模型對指令格式的遵循度沒有下降（尤其是每回應必須
+  // 輸出的 TIME 與 [出場:] 標記）。
+  const staticContext = `[System Context]
+World Premise: ${fillUser(systemPrompt.worldPremise)}
+Roleplay Rules: ${fillUser(systemPrompt.roleplayRules)}
+Writing Style: ${fillUser(systemPrompt.writingStyle)}
 
 ---
 [Player]
 Name: ${profile.name} | Job: ${profile.job}
 Appearance: ${profile.appearance}
-Personality: ${profile.personality}
-${profile.other ? `Other: ${profile.other}` : ''}
+Personality: ${profile.personality}${profile.other ? `\nOther: ${profile.other}` : ''}`
 
-[Current State]
-Location: ${loc}
-Time: ${timeState.year}年${timeState.month}月${timeState.day}日 ${String(timeState.hour).padStart(2,'0')}:${String(timeState.minute).padStart(2,'0')} | Weather: ${timeState.weather}
-HP: ${profile.hp} | MP: ${profile.mp} | Gold: ${profile.gold}
-Status Effects: ${statusEffects.length > 0 ? statusEffects.map(s => { const dur = s.duration === -1 ? '永久' : `${s.duration} 回合`; return `${s.emoji} ${s.name}（${dur}）`; }).join('、') : '（無）'}
+  const dynamicSections = [
+    section('[Current State]', [
+      `Location: ${loc}`,
+      `Time: ${timeState.year}年${timeState.month}月${timeState.day}日 ${String(timeState.hour).padStart(2,'0')}:${String(timeState.minute).padStart(2,'0')} | Weather: ${timeState.weather}`,
+      `HP: ${profile.hp} | MP: ${profile.mp} | Gold: ${profile.gold}`,
+      statusEffects.length > 0
+        ? `Status Effects: ${statusEffects.map(s => { const dur = s.duration === -1 ? '永久' : `${s.duration} 回合`; return `${s.emoji} ${s.name}（${dur}）`; }).join('、')}`
+        : '',
+    ].filter(Boolean).join('\n')),
 
-[Inventory]
-${equipment.length > 0 ? equipment.map(e => `- [裝備] ${e.name}${e.isEquipped ? '（裝備中）' : ''}: ${e.description}`).join('\n') : '（無裝備）'}
-${(() => {
-  if (items.length === 0) return ''
-  const hasEffect = (desc: string) => /HP|MP|回復|治療|效果|使用後|傷害|攻擊|防禦|強化|解毒|能量/i.test(desc)
-  // 超過 15 件時，只有最近新增的 5 件才保留完整說明
-  const recentIds = [...items].sort((a, b) => b.id - a.id).slice(0, 5).map(i => i.id)
-  const overLimit = items.length > 15
-  return items.map(i => {
-    const showFull = (i.quantity > 1 || hasEffect(i.description)) && (!overLimit || recentIds.includes(i.id))
-    return showFull ? `- ${i.name} x${i.quantity}: ${i.description}` : `- ${i.name} x${i.quantity}`
-  }).join('\n')
-})()}
-${(() => {
-  // 道具圖鑑切片：只注入名稱（定義存於圖鑑），引導 AI 沿用既有名稱避免同義新名
-  const known = selectKnownItemNames(itemCatalog)
-  return known.length > 0
-    ? `\n[已知物品（僅列名稱，介紹已登錄於圖鑑）]\n${known.join('、')}`
-    : ''
-})()}
+    section('[Inventory]', [
+      ...equipment.map(e => `- [裝備] ${e.name}${e.isEquipped ? '（裝備中）' : ''}: ${e.description}`),
+      ...(() => {
+        if (items.length === 0) return [] as string[]
+        const hasEffect = (desc: string) => /HP|MP|回復|治療|效果|使用後|傷害|攻擊|防禦|強化|解毒|能量/i.test(desc)
+        // 超過 15 件時，只有最近新增的 5 件才保留完整說明
+        const recentIds = [...items].sort((a, b) => b.id - a.id).slice(0, 5).map(i => i.id)
+        const overLimit = items.length > 15
+        return items.map(i => {
+          const showFull = (i.quantity > 1 || hasEffect(i.description)) && (!overLimit || recentIds.includes(i.id))
+          return showFull ? `- ${i.name} x${i.quantity}: ${i.description}` : `- ${i.name} x${i.quantity}`
+        })
+      })(),
+    ].join('\n')),
 
-[進行中任務]
-${(() => {
-  const active = quests.filter(q => q.status === 'active')
-  if (active.length === 0) return '（無）'
-  const currentTotalDays = getTotalDaysFromTimeState(timeState)
-  return active.map(q => {
-    const remainingDays = getQuestRemainingDays(q, currentTotalDays)
-    const remaining = remainingDays != null ? `剩 ${remainingDays} 天` : '無期限'
-    if (q.isGoalMet) {
-      return `${q.title}（委託：${q.giver}，目標已達成，待玩家回報）`
-    }
-    return `${q.title}（委託：${q.giver}，${remaining}）`
-  }).join('\n')
-})()}
+    // 道具圖鑑切片：只注入名稱（定義存於圖鑑），引導 AI 沿用既有名稱避免同義新名
+    section('[已知物品（僅列名稱，介紹已登錄於圖鑑）]', selectKnownItemNames(itemCatalog).join('、')),
 
----
-[🌍 World Memory]
-${finalWorldMems.length > 0 ? finalWorldMems.map(m => `- ${m.content}${m.tags?.factions?.length ? ' ['+m.tags.factions.join(',')+']' : ''}`).join('\n') : '（無）'}
+    section('[進行中任務]', (() => {
+      const active = quests.filter(q => q.status === 'active')
+      if (active.length === 0) return ''
+      const currentTotalDays = getTotalDaysFromTimeState(timeState)
+      return active.map(q => {
+        const remainingDays = getQuestRemainingDays(q, currentTotalDays)
+        const remaining = remainingDays != null ? `剩 ${remainingDays} 天` : '無期限'
+        if (q.isGoalMet) {
+          return `${q.title}（委託：${q.giver}，目標已達成，待玩家回報）`
+        }
+        return `${q.title}（委託：${q.giver}，${remaining}）`
+      }).join('\n')
+    })()),
 
-[🗺️ Region Memory]
-${finalRegionMems.length > 0 ? finalRegionMems.map(m => `- ${m.content}${m.tags?.locations?.length ? ' ['+m.tags.locations.join(',')+']' : ''}`).join('\n') : '（無）'}
+    section('[🌍 World Memory]', memLines(finalWorldMems, 'factions')),
+    section('[🗺️ Region Memory]', memLines(finalRegionMems, 'locations')),
+    section(`[🏠 Scene Memory: ${loc}]`, memLines(finalSceneMems)),
+    section('[👤 NPC Memory]', memLines(finalNpcMems, 'npcs')),
 
-[🏠 Scene Memory: ${loc}]
-${finalSceneMems.length > 0 ? finalSceneMems.map(m => `- ${m.content}`).join('\n') : '（無）'}
+    // 不套 section()：沒有候選角色時那句話是給 AI 的指示，不是佔位符
+    `[當前場景可能出現的角色]\n${npcCandidates.length > 0
+      ? npcCandidates.map(e => `${e.title}（${e.job || ''}）`).join('、') + '\n以上為可能在場的角色，非必須出場。若故事需要新角色請自由創造。'
+      : '無已知角色在附近。若故事需要新角色請自由創造。'}`,
 
-[👤 NPC Memory]
-${finalNpcMems.length > 0 ? finalNpcMems.map(m => `- ${m.content}${m.tags?.npcs?.length ? ' ['+m.tags.npcs.join(',')+']' : ''}`).join('\n') : '（無）'}
-
----
-[當前場景可能出現的角色]
-${npcCandidates.length > 0
-  ? npcCandidates.map(e => `${e.title}（${e.job || ''}）`).join('、') + '\n以上為可能在場的角色，非必須出場。若故事需要新角色請自由創造。'
-  : '無已知角色在附近。若故事需要新角色請自由創造。'}
-
----
-[Scene Lorebook]
-${relevantLorebook.map(e => {
+    section(
+      '[Scene Lorebook]\n（NPC 的「對玩家」欄位是該角色看待玩家的當前立場，語氣、稱呼、肯不肯幫忙都要與它一致；敵對者不會親暱，摯友不會見外。）',
+      relevantLorebook.map(e => {
   if (e.category === 'NPC') {
     const npcData = npcs.find(n => n.name === e.title)
     const thoughtsText = npcData?.thoughts && npcData.thoughts.length > 0
@@ -282,13 +310,19 @@ ${relevantLorebook.map(e => {
     const ageText = e.age ? `｜年齡：${e.age}` : ''
     const backstoryText = (npcData?.affection ?? 0) >= 20 && e.backstory ? `｜背景：${e.backstory}` : ''
     const factionText = getNpcFactionText(npcData?.factionIds)
-    return `[NPC] ${e.title}｜性別：${e.gender || ''}${raceText}${ageText}｜職業：${e.job || ''}｜外貌：${e.appearance || ''}｜個性：${e.personality || ''}${backstoryText}${factionText}${thoughtsText}${memoriesText}`
+    // 對玩家的態度：這是 NPC 決定「怎麼對待玩家」的直接依據，先前整條漏掉——
+    // 出場 NPC 只拿得到外貌／個性／背景／記憶，卻不知道自己對玩家是友好還是敵對。
+    // 有明確關係時以 relationship 為準，沒有時退回好感度推導的標籤（見 affectionLabel.ts）
+    const affectionText = npcData
+      ? `｜對玩家：${relationText(npcData.relationship, npcData.affection)}（好感度 ${npcData.affection}）`
+      : ''
+    return `[NPC] ${e.title}｜性別：${e.gender || ''}${raceText}${ageText}｜職業：${e.job || ''}｜外貌：${e.appearance || ''}｜個性：${e.personality || ''}${backstoryText}${factionText}${affectionText}${thoughtsText}${memoriesText}`
   }
   return `[${e.category}] ${e.title}：${e.content}`
-}).join('\n') || '（無）'}
+}).join('\n'),
+    ),
 
-[Pinned NPCs]
-${pinnedNpcs.length > 0 ? pinnedNpcs.map(n => {
+    section('[Pinned NPCs]', pinnedNpcs.map(n => {
   const thoughtsText = n.thoughts && n.thoughts.length > 0
     ? `｜[近期想法] ${n.thoughts.map((t, i) => `${i + 1}.${t.text}`).join(' / ')}`
     : ''
@@ -300,7 +334,9 @@ ${pinnedNpcs.length > 0 ? pinnedNpcs.map(n => {
     const jobPinned = lorePinned?.job ?? n.job ?? ''
     const backstoryPinned = n.affection >= 20 && lorePinned?.backstory ? `｜背景：${lorePinned.backstory}` : ''
     const factionPinned = getNpcFactionText(n.factionIds)
-    const lines: string[] = [`- ${n.name}（${genderPinned}${jobPinned}）${racePinned}${agePinned}好感度:${n.affection}${backstoryPinned}${factionPinned}${thoughtsText}`]
+    // 原本只給裸數字，模型得自己猜 37 分算friendly還是冷淡；補上語意標籤與明確關係
+    const relPinned = relationText(n.relationship, n.affection)
+    const lines: string[] = [`- ${n.name}（${genderPinned}${jobPinned}）${racePinned}${agePinned}對玩家：${relPinned}（好感度 ${n.affection}）${backstoryPinned}${factionPinned}${thoughtsText}`]
     // 好感度 ≥ 60 且有記憶才注入
     if (n.affection >= 60 && n.memories && n.memories.length > 0) {
       const MAX_NORMAL = 5
@@ -335,34 +371,31 @@ ${pinnedNpcs.length > 0 ? pinnedNpcs.map(n => {
     return lines.join('\n')
   })()
 
-}).join('\n') : '（無）'}
+}).join('\n')),
 
----
-[Active Diary]
-${(() => {
-  const triggered = diaryEntries.filter(e => {
-    if (!e.isActive) return false
-    return scanKeywords(e.keywords || [])
-  })
-  return triggered.length > 0
-    ? triggered.map(e => {
+    section('[Active Diary]', diaryEntries
+      .filter(e => e.isActive && scanKeywords(e.keywords || []))
+      .map(e => {
         const kwLabel = e.keywords?.length > 0 ? ` [觸發詞: ${e.keywords.join(',')}]` : ''
         return `- ${e.text}${kwLabel}`
-      }).join('\n')
-    : '（無）'
-})()}
+      }).join('\n')),
 
-${isPriority ? `---
-[⚠️ PRIORITY INSTRUCTION — 玩家明確要求，本回合必須優先採納，不可忽略或淡化]
-${userInput}
----` : ''}
----
-[Recent Chat (最近${Math.min(SLIDING_WINDOW, recentMessages.length)}則)]
-${recentMessages.map(m => `${m.role === 'user' ? 'Player' : 'DM'}: ${m.text}`).join('\n')}
-Player: ${userInput}
+    section(
+      '[前情提要（早於下方對話的經歷，已壓縮，依時間順序）]',
+      summaryPool.map(s => `- ${s}`).join('\n'),
+    ),
+  ].filter(Boolean)
 
----
-[COMMAND FORMAT — COMMANDS ${COMMANDS_VERSION}]
+  const priorityBlock = isPriority
+    ? `[⚠️ PRIORITY INSTRUCTION — 玩家明確要求，本回合必須優先採納，不可忽略或淡化]\n${userInput}`
+    : ''
+
+  const recentChatBlock = `[Recent Chat (最近${Math.min(SLIDING_WINDOW, recentMessages.length)}則)]\n${[
+    ...recentMessages.map(m => `${m.role === 'user' ? 'Player' : 'DM'}: ${m.text}`),
+    `Player: ${userInput}`,
+  ].join('\n')}`
+
+  const commandSpec = `[COMMAND FORMAT — COMMANDS ${COMMANDS_VERSION}]
 數值或狀態有變化時，在回應最前面輸出指令區塊：
 <<COMMANDS>>
 COMMANDS ${COMMANDS_VERSION}
@@ -384,18 +417,18 @@ NPC_LOCATION|npc=姓名|loc=地點
 NPC_THOUGHT|npc=角色名|text=第一人稱內心想法
 NPC_RELATIONSHIP|npc=角色名|rel=關係描述
 LOCATION_DISCOVER|name=地點名稱|x=0|y=0
-MEMORY_ADD:region:normal:迷霧森林昨日大火:locations=迷霧森林:factions=黑牙氏族:keywords=大火,火災:sticky=3
-MEMORY_ADD:scene:normal:酒館因打架暫時關閉:locations=酒館
-MEMORY_ADD:npc:normal:芬里爾透露停火協議內容:npcs=芬里爾:keywords=停火,協議
-MEMORY_ADD:world:critical:魔王宣布向月湖鎮宣戰:keywords=魔王,宣戰
+MEMORY_ADD|type=region|importance=normal|content=迷霧森林昨日大火|locations=迷霧森林|factions=黑牙氏族|keywords=大火,火災|sticky=3
+MEMORY_ADD|type=scene|importance=normal|content=酒館因打架暫時關閉|locations=酒館
+MEMORY_ADD|type=npc|importance=normal|content=芬里爾透露停火協議內容|npcs=芬里爾|keywords=停火,協議
+MEMORY_ADD|type=world|importance=critical|content=魔王宣布向月湖鎮宣戰|keywords=魔王,宣戰
 STATUS_ADD|emoji=☠️|name=中毒|duration=3
 STATUS_ADD|emoji=🔥|name=燃燒|duration=-1
 STATUS_REMOVE|name=中毒
 STATUS_CLEAR
-FACTION_NEW:勢力名:類型(race/guild/nation/religion/criminal/other):描述
-FACTION_JOIN:勢力名:NPC名
-FACTION_RELATION:勢力A:(ally/enemy/neutral/vassal/rival):勢力B[:備註]
-NPC_RELATION:NPC名:(family/ally/rival/enemy/acquaintance/romantic):目標名或PLAYER[:備註]
+FACTION_NEW|name=勢力名|type=race/guild/nation/religion/criminal/other|desc=描述
+FACTION_JOIN|faction=勢力名|npc=NPC名
+FACTION_RELATION|a=勢力A|type=ally/enemy/neutral/vassal/rival|b=勢力B|note=備註(選填)
+NPC_RELATION|npc=NPC名|type=family/ally/rival/enemy/acquaintance/romantic|target=目標名或PLAYER|note=備註(選填)
 <</COMMANDS>>
 
 敘事開頭輸出出場標記（非 COMMANDS 區塊，每回應必須）：
@@ -433,9 +466,20 @@ NPC_RELATION:NPC名:(family/ally/rival/enemy/acquaintance/romantic):目標名或
 [FONT:serif]...[/FONT] 信件/公告/正式文書（明朝體）
 [FONT:spell]...[/FONT] 咒語/古文/神諭（書法體）
 
-指令區塊在敘事之前。無數值變化則省略指令區塊。
+指令區塊在敘事之前。無數值變化則省略指令區塊。`
 
-Please respond as the DM.`
+  // 靜態層（世界觀／玩家設定／指令規格）→ 動態層（狀態／記憶／設定集）→ 對話 → 動作指示。
+  // filter(Boolean) 把空區塊與未啟用的 priorityBlock 一併濾掉。
+  const prompt = [
+    staticContext,
+    commandSpec,
+    '---',
+    ...dynamicSections,
+    priorityBlock,
+    '---',
+    recentChatBlock,
+    'Please respond as the DM.',
+  ].filter(Boolean).join('\n\n')
 
   // 回傳「通過觸發判定」的完整清單（截斷前）。呼叫端據此更新 sticky / cooldown，
   // 與舊有行為一致；差別只在於擲骰現在全程只做一次。

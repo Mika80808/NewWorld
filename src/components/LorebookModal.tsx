@@ -1,8 +1,10 @@
 import React, { useState, useMemo } from 'react';
-import { BookOpen, Plus, Search, CheckSquare, Square, Trash2, Heart, MoreHorizontal } from 'lucide-react';
+import { BookOpen, Plus, Search, CheckSquare, Square, Trash2, Heart, MoreHorizontal, Upload, Download, FileJson } from 'lucide-react';
 import { LorebookEntry, Npc, Faction } from '../types';
 import { debounce } from '../utils/debounce';
+import { NPC_IMPORT_TEMPLATE, buildNpcExport } from '../utils/npcImport';
 import { affectionColor } from '../utils/affectionColor';
+import { relationText } from '../utils/affectionLabel';
 
 interface LorebookModalProps {
   isOpen: boolean;
@@ -11,6 +13,10 @@ interface LorebookModalProps {
   npcs: Npc[];
   onAddLorebook: (category: string) => number;
   onAddNpc: () => void;
+  /** 批次匯入 NPC：接原始 JSON 文字，解析與合併都在 App 端（utils/npcImport） */
+  onImportNpcs?: (rawJson: string) => void;
+  /** 設定 NPC 的所屬勢力（唯一寫入點，見 Npc.factionIds） */
+  onSetNpcFactions?: (npcId: number, factionIds: number[]) => void;
   onUpdateLorebook: (id: number, updates: Partial<LorebookEntry>) => void;
   onDeleteLorebook: (id: number) => void;
   onLorebookKeywordAdd: (id: number, field: 'keywords' | 'secondaryKeys', keyword: string) => void;
@@ -20,6 +26,8 @@ interface LorebookModalProps {
   factions?: Faction[];
   onAddFaction?: (faction: Faction) => void;
   onUpdateFaction?: (id: number, updates: Partial<Faction>) => void;
+  /** 條目／勢力編輯完成時提交至雲端（設定集的編輯是即時寫回 state 的） */
+  onSave?: () => void;
 }
 
 const FACTION_PALETTE = ['#7F77DD', '#E24B4A', '#1D9E75', '#EF9F27', '#5f93d3', '#C47D3E', '#FF637E'];
@@ -35,6 +43,8 @@ export const LorebookModal: React.FC<LorebookModalProps> = ({
   npcs,
   onAddLorebook,
   onAddNpc,
+  onImportNpcs,
+  onSetNpcFactions,
   onUpdateLorebook,
   onDeleteLorebook,
   onLorebookKeywordAdd,
@@ -44,6 +54,7 @@ export const LorebookModal: React.FC<LorebookModalProps> = ({
   factions = [],
   onAddFaction,
   onUpdateFaction,
+  onSave,
 }) => {
   const [editingLorebookId, setEditingLorebookId] = useState<number | null>(null);
   const [lorebookFilter, setLorebookFilter] = useState<string>('地點');
@@ -83,6 +94,41 @@ export const LorebookModal: React.FC<LorebookModalProps> = ({
   const handleDelete = (id: number) => {
     onDeleteLorebook(id);
     if (editingLorebookId === id) setEditingLorebookId(null);
+  };
+
+  // ─── NPC 批次匯入 ────────────────────────────────────────────────────────────
+  const handleImportFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !onImportNpcs) return;
+    const reader = new FileReader();
+    reader.onload = ev => onImportNpcs(ev.target?.result as string);
+    reader.onerror = () => showToast('❌ 檔案讀取失敗');
+    reader.readAsText(file);
+    // 清空才能連續匯入同一個檔案（否則 onChange 不會再觸發）
+    e.target.value = '';
+  };
+
+  const downloadJson = (data: unknown, filename: string) => {
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  const handleDownloadTemplate = () => {
+    downloadJson(NPC_IMPORT_TEMPLATE, 'NPC匯入範本.json');
+    showToast('範本已下載，照著填再匯入即可');
+  };
+
+  const handleExportNpcs = () => {
+    if (npcs.length === 0) { showToast('目前沒有角色可匯出'); return; }
+    downloadJson(buildNpcExport(npcs, lorebookEntries, factions), 'NPC匯出.json');
+    showToast(`已匯出 ${npcs.length} 位角色`);
   };
 
   const inputStyle: React.CSSProperties = {
@@ -130,7 +176,7 @@ export const LorebookModal: React.FC<LorebookModalProps> = ({
         <Trash2 className="w-3.5 h-3.5" /> 刪除
       </button>
       <button
-        onClick={() => setEditingLorebookId(null)}
+        onClick={() => { setEditingLorebookId(null); onSave?.(); }}
         className="text-sm px-3 py-1.5 rounded-[8px] transition"
         style={{ background: 'var(--btn-primary)', color: 'var(--btn--text)' }}
         onMouseEnter={e => { e.currentTarget.style.background = 'var(--btn-primary-hover)'; }}
@@ -600,7 +646,6 @@ export const LorebookModal: React.FC<LorebookModalProps> = ({
               name: entry.title,
               job: entry.job ?? '',
               affection: 0,
-              affectionLabel: '陌生人',
               appearance: entry.appearance ?? '',
               personality: entry.personality ?? '',
               other: entry.other ?? '',
@@ -650,7 +695,7 @@ export const LorebookModal: React.FC<LorebookModalProps> = ({
                   </span>
                   <div className="flex-1" />
                   <span className="text-sm shrink-0" style={{ color: 'var(--color-emerald)' }}>
-                    {relationship || npcData?.affectionLabel || '陌生人'}
+                    {relationText(relationship, affection)}
                   </span>
                 </div>
               </div>
@@ -740,18 +785,20 @@ export const LorebookModal: React.FC<LorebookModalProps> = ({
             <div className="text-xs mb-2" style={{ color: 'var(--text-muted)' }}>成員</div>
             <div className="grid grid-cols-2 gap-1 max-h-32 overflow-y-auto">
               {npcs.map(npc => {
-                const isMember = (existing.npcIds ?? []).includes(npc.id)
-                  || (npc.factionIds ?? []).includes(existing.id);
+                const isMember = (npc.factionIds ?? []).includes(existing.id);
                 return (
                   <label key={npc.id} className="flex items-center gap-1.5 px-2 py-1 rounded cursor-pointer text-sm"
                     style={{ color: isMember ? 'var(--text-primary)' : 'var(--text-muted)' }}
                     onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.05)'; }}
                     onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'transparent'; }}>
+                    {/* 寫 Npc.factionIds（唯一來源）。先前寫的是 Faction.npcIds，
+                        而 promptBuilder 只讀 factionIds——在這裡勾的成員 AI 看不到。 */}
                     <input type="checkbox" checked={isMember} onChange={() => {
-                      if (!onUpdateFaction) return;
-                      const cur = existing.npcIds ?? npcs.filter(n => (n.factionIds ?? []).includes(existing.id)).map(n => n.id);
-                      const next = isMember ? cur.filter(id => id !== npc.id) : [...cur, npc.id];
-                      onUpdateFaction(existing.id, { npcIds: next });
+                      if (!onSetNpcFactions) return;
+                      const cur = npc.factionIds ?? [];
+                      onSetNpcFactions(npc.id, isMember
+                        ? cur.filter(id => id !== existing.id)
+                        : [...cur, existing.id]);
                     }} className="w-3 h-3 accent-blue-500" />
                     {npc.name}
                   </label>
@@ -799,7 +846,7 @@ export const LorebookModal: React.FC<LorebookModalProps> = ({
                   });
                 }
                 setFactionAction(null);
-                showToast(isEdit ? '✓ 勢力已更新' : '✓ 勢力已新增');
+                onSave?.();
               }}
               className="text-sm px-3 py-1.5 rounded-[8px] transition"
               style={{ background: 'var(--btn-primary)', color: 'var(--btn--text)',
@@ -834,9 +881,7 @@ export const LorebookModal: React.FC<LorebookModalProps> = ({
         {/* Faction cards */}
         {factions.map((faction, fi) => {
           const fc = faction.color ?? autoFactionColor(fi);
-          const memberCount = npcs.filter(n =>
-            (n.factionIds ?? []).includes(faction.id) || (faction.npcIds ?? []).includes(n.id)
-          ).length;
+          const memberCount = npcs.filter(n => (n.factionIds ?? []).includes(faction.id)).length;
           const isEditing = factionAction === faction.id;
 
           if (isEditing) return renderFactionForm(true, faction);
@@ -973,6 +1018,40 @@ export const LorebookModal: React.FC<LorebookModalProps> = ({
                 style={{ background: 'color-mix(in srgb, var(--bg-elevated) 50%, transparent)', color: 'var(--text-body)' }}
               />
             </div>
+            {lorebookFilter === 'NPC' && onImportNpcs && (
+              <>
+                <button
+                  onClick={handleDownloadTemplate}
+                  title="下載 JSON 範本，照著填好再匯入"
+                  className="backdrop-blur-sm border border-white/10 px-3 h-8 rounded-[16px] flex items-center gap-1.5 transition shrink-0"
+                  style={{ background: 'var(--btn-secondary)', color: 'var(--text-body)' }}
+                  onMouseEnter={e => { e.currentTarget.style.background = 'var(--btn-secondary-hover)'; }}
+                  onMouseLeave={e => { e.currentTarget.style.background = 'var(--btn-secondary)'; }}
+                >
+                  <FileJson className="w-4 h-4" /> 範本
+                </button>
+                <button
+                  onClick={handleExportNpcs}
+                  title="匯出所有角色（格式與匯入相同，可再匯回）"
+                  className="backdrop-blur-sm border border-white/10 px-3 h-8 rounded-[16px] flex items-center gap-1.5 transition shrink-0"
+                  style={{ background: 'var(--btn-secondary)', color: 'var(--text-body)' }}
+                  onMouseEnter={e => { e.currentTarget.style.background = 'var(--btn-secondary-hover)'; }}
+                  onMouseLeave={e => { e.currentTarget.style.background = 'var(--btn-secondary)'; }}
+                >
+                  <Download className="w-4 h-4" /> 匯出
+                </button>
+                <label
+                  title="批次匯入角色（同名的會保留現有資料）"
+                  className="backdrop-blur-sm border border-white/10 px-3 h-8 rounded-[16px] flex items-center gap-1.5 transition shrink-0 cursor-pointer"
+                  style={{ background: 'var(--btn-secondary)', color: 'var(--text-body)' }}
+                  onMouseEnter={e => { e.currentTarget.style.background = 'var(--btn-secondary-hover)'; }}
+                  onMouseLeave={e => { e.currentTarget.style.background = 'var(--btn-secondary)'; }}
+                >
+                  <Upload className="w-4 h-4" /> 匯入
+                  <input type="file" accept="application/json,.json" onChange={handleImportFile} className="hidden" />
+                </label>
+              </>
+            )}
             <button
               onClick={handleAdd}
               className="backdrop-blur-sm border border-white/10 px-10 h-8 rounded-[16px] flex items-center gap-1.5 transition shrink-0"

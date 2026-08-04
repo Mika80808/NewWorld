@@ -20,7 +20,7 @@ interface MessageCardProps {
   onEditCancel: () => void;
   onEditSave: (msgId: number, newText: string) => void;
   renderMarkdown: (text: string) => React.ReactNode;
-  stripBareCommands: (text: string) => string;
+  cleanNarrative: (text: string) => string;
 }
 
 // React.memo：callbacks 由 App 以 useCallback 穩定，長對話下只有內容變動的卡片會重渲染
@@ -40,7 +40,7 @@ export const MessageCard: React.FC<MessageCardProps> = React.memo(({
   onEditCancel,
   onEditSave,
   renderMarkdown,
-  stripBareCommands,
+  cleanNarrative,
 }) => {
   const isUser = msg.role === 'user';
   const isAssistant = msg.role === 'assistant';
@@ -158,7 +158,7 @@ export const MessageCard: React.FC<MessageCardProps> = React.memo(({
         ) : isUser ? (
           <p className="leading-relaxed whitespace-pre-wrap">{msg.text}</p>
         ) : (
-          <div className="leading-relaxed">{renderMarkdown(stripBareCommands(msg.text))}</div>
+          <div className="leading-relaxed">{renderMarkdown(cleanNarrative(msg.text))}</div>
         )}
       </MessageBubble>
     </motion.div>

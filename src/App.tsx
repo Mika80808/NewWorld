@@ -1,5 +1,5 @@
-import React, { useState, useRef, useEffect, useCallback, useMemo, lazy, Suspense } from 'react';
-import { Settings, Send, RefreshCw, MoreVertical, Book, BookOpen, Package, Beaker, Heart, MapPin, Zap, Coins, Calendar, Shield, CheckSquare, ChevronDown, ChevronRight, Map as MapIcon, Cloud, Sun, CloudRain, Snowflake, Moon, Wind, Brain, X, Pin } from 'lucide-react';
+﻿import React, { useState, useRef, useEffect, useCallback, useMemo, lazy, Suspense } from 'react';
+import { RefreshCw, MoreVertical, Book, BookOpen, Package, Beaker, Heart, MapPin, Zap, Coins, Calendar, Shield, CheckSquare, ChevronDown, ChevronRight, Map as MapIcon, Cloud, Sun, CloudRain, Snowflake, Moon, Wind, Brain, X, Pin } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useAIRequest } from './hooks/useAIRequest';
 import { Npc, LorebookEntry, Message, NpcMemory, EquipmentItem, ItemEntry, GMConfig, SubGMConfig } from './types';
@@ -27,14 +27,15 @@ const NpcModal      = lazy(() => import('./components/NpcModal').then(m => ({ de
 const SettingsModal = lazy(() => import('./components/SettingsModal').then(m => ({ default: m.SettingsModal })));
 const MapModal      = lazy(() => import('./components/MapModal').then(m => ({ default: m.MapModal })));
 import { MONTHS_DATA } from './constants';
-import { useGameStore } from './hooks/useGameStore';
+import { useGameStore, saveDataMapper } from './hooks/useGameStore';
 import { useCommandParser } from './hooks/useCommandParser';
 import { useAuth } from './hooks/useAuth';
 import { SaveSlot } from './lib/supabase';
 import { performanceMonitor } from './utils/performanceMonitor';
 import { debounce } from './utils/debounce';
-import { renderMarkdown, stripBareCommands } from './utils/markdownParser';
+import { renderMarkdown, cleanNarrative, APPEAR_TAG_PATTERN, APPEAR_TAG_CAPTURE_PATTERN } from './utils/markdownParser';
 import { buildPrompt, BuildPromptDeps, BuildPromptResult } from './utils/promptBuilder';
+import { parseNpcImport, mergeImportedNpcs } from './utils/npcImport';
 import { SaveSlotsModal } from './components/SaveSlotsModal';
 
 export default function App() {
@@ -69,18 +70,39 @@ export default function App() {
   const [mobileRightOpen, setMobileRightOpen] = useState(false);
   // Sub GM 節流：每 3 回合最多觸發一次（不存檔，session 內計數）
   const subGMRoundsRef = useRef(0);
+  // 重入鎖，見 updateAdventureState 開頭的說明
+  const subGMBusyRef = useRef(false);
 
   // 背景處理：整理冒險日誌與目標（使用 callAI 封裝層，不綁定特定 API）
   const updateAdventureState = async (history: Message[], newItems: string[] = [], hasKeyEvent = false) => {
     if (history.length < 2) return;
+
+    // ── 重入鎖：上一輪還沒跑完就直接跳過本輪 ──────────────────────────────
+    //
+    // 這支是 fire-and-forget（handleSendMessage 沒有 await 它），而 handleSendMessage
+    // 的 finally 立刻把 aiRequestStatus 設回 idle，所以玩家可以在助理 GM 還在跑時
+    // 送出下一則。`hasKeyEvent`（任何一條 LOCATION 指令就成立）會跳過節流，
+    // 於是兩輪並行是實際到得了的狀態。並行的後果：
+    //
+    //   1. 兩邊都從 summaryPoolRef 讀同一份舊池、再各自「整份寫回」——後寫的那個
+    //      會吃掉先寫的那則摘要
+    //   2. 壓縮階段更糟：A 還在 await 壓縮用的 callAI 時池子沒被清空，
+    //      B 讀到同一份 10 則的池子也判定該壓縮，兩份壓縮結果互相覆蓋，
+    //      compressCount 還可能一起跨過 3 而生成兩篇日記
+    //
+    // 跳過一輪是安全的——這只是背景摘要，本來就已經在節流。
+    // 刻意放在節流計數之前：被跳過的這輪不該消耗節流額度，下一輪會再試。
+    if (subGMBusyRef.current) return;
 
     // 節流：每 3 回合最多觸發一次；關鍵事件（任務/移動/世界記憶）可跳過冷卻
     subGMRoundsRef.current += 1;
     if (subGMRoundsRef.current < 3 && !hasKeyEvent) return;
     subGMRoundsRef.current = 0;
 
+    subGMBusyRef.current = true;
     setIsUpdatingLog(true);
     try {
+      const playerName = profileRef.current.name?.trim() || '主角';
       const lastMessages = history.slice(-6).map(m => `${m.role}: ${m.text}`).join('\n');
       const itemClassifySection = newItems.length > 0
         ? `\n\n另外，請判斷以下新增道具各屬於「裝備」（武器、防具、飾品等穿戴型）還是「道具」（消耗品、材料、卷軸等使用型）。
@@ -89,10 +111,13 @@ export default function App() {
         : '';
 
       // ── 階段一：生成本輪摘要 ──────────────────────────────────────────────
+      // ⚠️ 玩家角色一律以名字稱呼。這裡的產物會進 summaryPool → 壓縮 → 日記，
+      // 一旦寫成「主角」就會沿著整條鏈路擴散，之後每篇日記都跟著錯。
       const prompt = `你是 RPG 後台資料整理員，不負責說故事。
+玩家角色的名字是「${playerName}」，一律以此名稱呼，不可使用「主角」「玩家」「他」等代稱。
 根據以下最新一則對話，輸出固定 JSON，只輸出 JSON，不要任何說明：
 {
-  "summary": "以第三人稱過去式精簡記錄：主角做了什麼、結果如何、實質影響。若本輪純屬日常閒聊或無實質進展，輸出 null",
+  "summary": "以第三人稱過去式精簡記錄：${playerName}做了什麼、結果如何、實質影響。若本輪純屬日常閒聊或無實質進展，輸出 null",
   "goals": ["短期目標1", "短期目標2"]${newItems.length > 0 ? `,\n  "item_types": { "道具名": "equipment 或 item" }` : ''}
 }
 ${itemClassifySection}
@@ -107,8 +132,13 @@ ${lastMessages}`;
       const data = JSON.parse(clean);
 
       // 更新短期目標
-      if (data.goals) {
-        setCurrentGoals(data.goals);
+      // 型別防衛：AI 偶爾會回 "goals": "單一目標" 之類的非陣列值，
+      // 直接寫進 state 會讓 GoalsPanel 的 .map 爆炸，而且它會被存進雲端存檔，
+      // 之後每次載入都白畫面（saveDataMapper 的 `|| []` 對非空字串無效）
+      if (Array.isArray(data.goals)) {
+        setCurrentGoals(data.goals.filter((g: unknown): g is string => typeof g === 'string'));
+      } else if (typeof data.goals === 'string' && data.goals.trim()) {
+        setCurrentGoals([data.goals.trim()]);
       }
 
       // 道具分類（讀 itemsRef 取最新道具清單，寫入一律 functional update）
@@ -175,6 +205,7 @@ ${newPool.map((s, i) => `${i + 1}. ${s}`).join('\n')}`;
     } catch (error) {
       console.error("Failed to update adventure state:", error);
     } finally {
+      subGMBusyRef.current = false;
       setIsUpdatingLog(false);
     }
   };
@@ -190,8 +221,6 @@ ${newPool.map((s, i) => `${i + 1}. ${s}`).join('\n')}`;
   const [activeMenuId, setActiveMenuId] = useState<number | null>(null);
   const [editingMessageId, setEditingMessageId] = useState<number | null>(null);
   const [editMessageText, setEditMessageText] = useState('');
-  const [editingMemoryId, setEditingMemoryId] = useState<string | null>(null);
-  const [editingMemoryContent, setEditingMemoryContent] = useState('');
   const [isMapOpen, setIsMapOpen] = useState(false);
   const [dialogRequest, setDialogRequest] = useState<DialogRequest | null>(null);
   const [isLoadingQuickOptions, setIsLoadingQuickOptions] = useState(false);
@@ -256,8 +285,10 @@ ${newPool.map((s, i) => `${i + 1}. ${s}`).join('\n')}`;
   const { callAI, abort: abortAI, aiRequestStatus, setAiRequestStatus } = useAIRequest(mainGMConfig, subGMConfig);
   // isLoading 由 aiRequestStatus 派生，其他地方不需改動
   const isLoading = aiRequestStatus === 'loading';
-  // 儲存最後一次用戶輸入，供 abort 後重試用
-  const lastInputRef = useRef<string>('');
+  // 儲存最後一次用戶輸入，供 abort 後重試用。
+  // 用 state 而非 ref：中斷／超時／錯誤列的「重試」鈕是用這個值決定要不要顯示，
+  // 而寫 ref 不會觸發重繪——先前只是剛好靠 aiRequestStatus 的變動順帶重繪才看起來正常。
+  const [lastInput, setLastInput] = useState<string>('');
 
   // ─── 遊戲狀態（useGameStore）────────────────────────────────────────────────
   const store = useGameStore();
@@ -292,19 +323,41 @@ ${newPool.map((s, i) => `${i + 1}. ${s}`).join('\n')}`;
   } = store;
 
   // 最新值 refs：updateAdventureState 在 await AI 回應後讀取這些 ref，
-  // 避免 async 閉包捕獲舊快照（stale closure）覆蓋等待期間的狀態變更
+  // 避免 async 閉包捕獲舊快照（stale closure）覆蓋等待期間的狀態變更。
+  // 另外 messagesRef / buildSaveSnapshotRef 供 MessageCard 的穩定 callbacks
+  //（useCallback []）在事件觸發時讀取最新值，讓 React.memo 不因 callback 引用變動而失效。
   const itemsRef = useRef(items);
-  itemsRef.current = items;
   const summaryPoolRef = useRef(summaryPool);
-  summaryPoolRef.current = summaryPool;
   const compressCountRef = useRef(compressCount);
-  compressCountRef.current = compressCount;
-  // 供 MessageCard 的穩定 callbacks（useCallback []）在事件觸發時讀取最新值，
-  // 讓 React.memo 不因 callback 引用變動而失效
   const messagesRef = useRef(messages);
-  messagesRef.current = messages;
   const buildSaveSnapshotRef = useRef(buildSaveSnapshot);
-  buildSaveSnapshotRef.current = buildSaveSnapshot;
+  // 助理 GM 的摘要／日記 prompt 要用玩家名字稱呼角色。走 ref 而非直接讀 profile：
+  // 直接讀會讓 React Compiler 把 updateAdventureState / handleGenerateDiary* 判定為
+  // render 範圍內的反應式程式碼，連帶把它們（及其呼叫到的 _applyDiaryText）裡既有的
+  // Date.now() 全部報成 react-hooks/purity 違規。
+  const profileRef = useRef(profile);
+  // NPC 匯入是 FileReader 回呼，讀檔期間可能剛好有 AI 回應寫入 npcs／設定集。
+  // 走 ref 才不會用讀檔當下的舊快照算 id 與同名判斷，造成重複角色或 id 碰撞。
+  const npcsRef = useRef(npcs);
+  const lorebookEntriesRef = useRef(lorebookEntries);
+  const factionsRef = useRef(factions);
+
+  // 同步一律在 commit 後做，不在 render 期間寫 ref（render 必須是純函數：
+  // React 可能捨棄或重跑一次 render，render 期間寫入會留下不屬於任何已提交畫面的值）。
+  // 這個 effect 宣告在所有其他 effect 之前，同一次 commit 內會最先執行，
+  // 因此下面讀 ref 的 effect（例如 persistToken 存檔）拿到的仍是最新值。
+  // 讀取端全部落在 commit 之後（await 之後、或事件 callback 內），時序不變。
+  useEffect(() => {
+    itemsRef.current = items;
+    summaryPoolRef.current = summaryPool;
+    compressCountRef.current = compressCount;
+    messagesRef.current = messages;
+    buildSaveSnapshotRef.current = buildSaveSnapshot;
+    profileRef.current = profile;
+    npcsRef.current = npcs;
+    lorebookEntriesRef.current = lorebookEntries;
+    factionsRef.current = factions;
+  });
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -319,7 +372,11 @@ ${newPool.map((s, i) => `${i + 1}. ${s}`).join('\n')}`;
   const hiddenMessageCount = Math.max(messages.length - visibleMessages.length, 0);
 
   // ─── Phase 2: Debounced load-more handler ──────────────────────────────────────
+  // react-hooks/refs 誤判：規則看到 useMemo 內出現 ref 存取就當成 render 期間讀取，
+  // 但這個 arrow function 是交給 debounce 排程的，只會在捲動事件後才被呼叫，
+  // 執行時機必定晚於 commit。useMemo 本身只負責建立那支 debounced 函數，不碰 ref。
   const handleLoadMore = useMemo(
+    // eslint-disable-next-line react-hooks/refs
     () => debounce(() => {
       if (hiddenMessageCount > 0 && !isAutoLoadingRef.current) {
         isAutoLoadingRef.current = true;
@@ -361,17 +418,26 @@ ${newPool.map((s, i) => `${i + 1}. ${s}`).join('\n')}`;
     init();
   }, [authUser]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  useEffect(() => {
+  // 依訊息數調整可見則數：首次顯示 10 則，已捲到底時跟著新訊息長。
+  //
+  // 用 render 期間比對而非 useEffect：effect 版會先 commit 一次舊的可見則數、
+  // 下一幀才修正，載入存檔時聊天區會閃一下空白。
+  // 哨兵 -1 是必要的——原本的 effect 在 mount 當下也會跑一次，改成比對後
+  // 若用 messages.length 當初始值，首次 render 就不會執行，載入存檔後可見則數
+  // 會卡在 0（整個聊天區空白）。
+  const [prevMessagesLength, setPrevMessagesLength] = useState(-1);
+  if (messages.length !== prevMessagesLength) {
+    setPrevMessagesLength(messages.length);
     if (messages.length === 0) {
       if (visibleMessageCount !== 0) setVisibleMessageCount(0);
-      return;
+    } else {
+      setVisibleMessageCount(prev => {
+        if (prev === 0) return Math.min(messages.length, INITIAL_VISIBLE_MESSAGES);
+        if (prev >= messages.length - 1) return messages.length;
+        return prev;
+      });
     }
-    setVisibleMessageCount(prev => {
-      if (prev === 0) return Math.min(messages.length, INITIAL_VISIBLE_MESSAGES);
-      if (prev >= messages.length - 1) return messages.length;
-      return prev;
-    });
-  }, [messages.length]);
+  }
 
   useEffect(() => {
     if (!isAutoLoadingRef.current) return;
@@ -405,19 +471,16 @@ ${newPool.map((s, i) => `${i + 1}. ${s}`).join('\n')}`;
   const currentMonthData = MONTHS_DATA.find(m => m.id === timeState.month) || MONTHS_DATA[0];
   // 消耗品徽章數量：原本判斷與顯示各算一次 reduce
   const totalItemCount = items.reduce((acc, item) => acc + item.quantity, 0);
+  // 背景光暈的色調：隨遊戲時間變化。
+  // 原本還有 timeText 供 SCENE 資訊列使用，該列與底部狀態列完全重複已移除。
   const sceneMeta = useMemo(() => {
     const hour = timeState.hour;
     const isNightScene = hour >= 19 || hour < 5;
-    const sceneAccent = isNightScene ? 'var(--fx-orb-violet)' : 'var(--fx-orb-amber)';
-    const sceneAccentSecondary = hour >= 9 && hour < 17 ? 'var(--fx-orb-sky)' : 'var(--fx-orb-violet)';
-    const timeText = `${String(timeState.hour).padStart(2, '0')}:${String(timeState.minute).padStart(2, '0')}`;
-
     return {
-      sceneAccent,
-      sceneAccentSecondary,
-      timeText,
+      sceneAccent: isNightScene ? 'var(--fx-orb-violet)' : 'var(--fx-orb-amber)',
+      sceneAccentSecondary: hour >= 9 && hour < 17 ? 'var(--fx-orb-sky)' : 'var(--fx-orb-violet)',
     };
-  }, [timeState.hour, timeState.minute]);
+  }, [timeState.hour]);
 
   const getWeatherIcon = () => {
     switch (timeState.weather) {
@@ -631,15 +694,17 @@ ${newPool.map((s, i) => `${i + 1}. ${s}`).join('\n')}`;
   const handleGenerateDiary = async (silent = false) => {
     if (!mainGMConfig.apiKey.trim()) { if (!silent) showToast('❌ 請先設定 API Key'); return; }
     try {
+      const playerName = profileRef.current.name?.trim() || '主角';
       const recentChat = messages.slice(-20).map(m =>
         `${m.role === 'user' ? 'Player' : 'DM'}: ${m.text}`
       ).join('\n');
 
       const prompt = `你是一個故事日記助手。根據以下最近的20則對話紀錄，生成一則第三人稱的日記條目，格式如下：
 
+玩家角色的名字是「${playerName}」，一律以此名稱呼，不可使用「主角」「玩家」等代稱。
 
 ## 必須寫進日記的要點
-* 角色層面 - 主角變化、角色關係進展、重要新角色登場
+* 角色層面 - ${playerName}的變化、角色關係進展、重要新角色登場
 * 情節層面 - 推動主線的重大事件、重要伏筆和線索
 * 世界觀層面 - 新設定、關鍵道具、地點
 * 情感層面 - 情感轉折點、重要互動細節
@@ -669,7 +734,7 @@ ${recentChat}
       const text = await callAI(prompt, { role: 'main' });
       if (!text) { if (!silent) showToast('❌ 生成失敗，請稍後再試'); return; }
       _applyDiaryText(text, silent);
-    } catch (e) {
+    } catch {
       if (!silent) showToast('❌ 生成失敗，請稍後再試');
     }
   };
@@ -678,11 +743,15 @@ ${recentChat}
   const handleGenerateDiaryFromPool = async (pool: string[]) => {
     if (!mainGMConfig.apiKey.trim()) return;
     try {
+      const playerName = profileRef.current.name?.trim() || '主角';
       const poolText = pool.map((p, i) => `[紀錄 ${i + 1}]\n${p}`).join('\n\n');
       const prompt = `你是一個故事日記助手。根據以下冒險紀錄，生成一則第三人稱日記條目。
 
+玩家角色的名字是「${playerName}」，一律以此名稱呼，不可使用「主角」「玩家」等代稱。
+（下方冒險紀錄若出現「主角」字樣，是舊資料的殘留，請一併改用「${playerName}」。）
+
 ## 寫作要點
-- 角色層面：主角變化、關係進展、重要新角色
+- 角色層面：${playerName}的變化、關係進展、重要新角色
 - 情節層面：推動主線的重大事件、重要伏筆
 - 世界觀層面：新設定、關鍵道具、地點
 - 情感層面：情感轉折點、重要互動細節
@@ -774,7 +843,7 @@ ${poolText}
         )
       ]);
       showToast('💫 融合日記已生成');
-    } catch (e) {
+    } catch {
       showToast('❌ 融合失敗，請稍後再試');
     }
   };
@@ -794,7 +863,7 @@ ${poolText}
   const handleAddNpc = () => {
     const newId = Date.now();
     const newNpc: Npc = {
-      id: newId, name: '新角色', job: '', affection: 0, affectionLabel: '陌生人',
+      id: newId, name: '新角色', job: '', affection: 0,
       appearance: '', personality: '', gender: '', race: '',
       backstory: '', other: '', relationship: '',
       location: '', lastSeenLocation: '',
@@ -809,6 +878,56 @@ ${poolText}
     setNpcs(prev => [newNpc, ...prev]);
     setLorebookEntries(prev => [newLore, ...prev]);
     setSelectedNpc(newNpc);
+  };
+
+  // NPC 勢力歸屬的唯一寫入點。故事集的成員勾選與 NPC 卡的下拉選單都走這裡，
+  // 兩邊寫同一個欄位（Npc.factionIds），promptBuilder 也只讀它。
+  const handleSetNpcFactions = (npcId: number, factionIds: number[]) => {
+    setNpcs(prev => prev.map(n =>
+      n.id === npcId ? { ...n, factionIds: [...new Set(factionIds)] } : n
+    ));
+  };
+
+  // ─── NPC 批次匯入 ────────────────────────────────────────────────────────────
+  // 比照 NPC_NEW：同時建立 npcs[]（好感度／記憶庫／釘選）與設定集條目（注入 prompt），
+  // 只建一份的話角色會開不了記憶庫、或根本不進 prompt。同名先寫先贏。
+  const handleImportNpcs = (rawJson: string) => {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(rawJson);
+    } catch {
+      showToast('❌ 檔案不是有效的 JSON');
+      return;
+    }
+
+    const { npcs: incoming, errors } = parseNpcImport(parsed);
+    if (incoming.length === 0) {
+      showToast(`❌ 沒有可匯入的角色${errors[0] ? `：${errors[0]}` : ''}`);
+      return;
+    }
+
+    const result = mergeImportedNpcs(
+      incoming,
+      npcsRef.current,
+      lorebookEntriesRef.current,
+      `${timeState.month}/${timeState.day}`,
+      factionsRef.current,
+    );
+
+    if (result.addedNames.length === 0) {
+      showToast(`⚠️ ${result.skippedNames.length} 位角色已存在，未匯入`);
+      return;
+    }
+
+    setNpcs(result.npcs);
+    setLorebookEntries(result.lorebookEntries);
+
+    const parts = [`✅ 匯入 ${result.addedNames.length} 位角色`];
+    if (result.skippedNames.length > 0) parts.push(`已存在 ${result.skippedNames.length} 位`);
+    if (result.unknownFactions.length > 0) parts.push(`查無勢力「${result.unknownFactions.join('、')}」`);
+    if (errors.length > 0) parts.push(`${errors.length} 筆格式有誤`);
+    showToast(parts.join('，'));
+    if (errors.length > 0) console.warn('[NPC 匯入] 略過的資料：', errors);
   };
 
   const handleUpdateLorebook = (id: number, updates: Partial<LorebookEntry>) => {
@@ -835,12 +954,48 @@ ${poolText}
     ));
   };
 
+  // ─── 手動編輯的存檔提交（Modal 的「儲存」按鈕）─────────────────────────────
+  //
+  // 過去個人資訊／設定集／NPC／System Prompt 的編輯只寫進 React state，雲端要等到
+  // 下一次 AI 回應才會被寫入——關掉分頁就整份消失，而「儲存」按鈕還會顯示成功訊息。
+  //
+  // 這裡刻意用 token + effect 而不是直接呼叫 saveToCloud：呼叫端通常在同一個事件裡
+  // 剛做完 setState，同步組快照會讀到舊值（與 handleImportSave 踩過的是同一個坑）。
+  // 遞增 token 會與那些 setState 一起批次處理，effect 在 commit 後才跑，
+  // 此時 buildSaveSnapshotRef.current 已指向持有最新 state 的版本。
+  const [persistToken, setPersistToken] = useState(0);
+  const requestPersist = useCallback(() => setPersistToken(t => t + 1), []);
+
+  useEffect(() => {
+    if (persistToken === 0 || !authUser) return;
+    const snapshot = buildSaveSnapshotRef.current();
+    // 這不是規則想抓的 cascading render：setState 只是把「上傳中」旗標打開，
+    // 目的就是讓 UI 立刻顯示存檔指示器，之後由 .finally 關掉。
+    // 它不會再導出別的 setState，不構成連鎖重繪。
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setIsCloudSaving(true);
+    saveToCloud(authUser.id, currentSlotName, snapshot)
+      .then(ok => {
+        if (ok) {
+          const now = new Date();
+          localStorage.setItem('rpworld_last_saved', now.toISOString());
+          setLastSavedAt(now);
+          showToast('✅ 已儲存');
+        } else {
+          showToast('☁️ 儲存失敗，請檢查網路連線');
+        }
+      })
+      .finally(() => setIsCloudSaving(false));
+  }, [persistToken]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // ─── 每次 AI 回應結束後自動存檔 ─────────────────────────────────────────────
   // 「上次儲存」時間只在雲端寫入成功後更新，失敗時 toast 提醒，避免玩家誤以為已存檔
   useEffect(() => {
     if (!isLoading && !isUpdatingLog && messages.length > 0 && messages[messages.length - 1]?.role === 'assistant') {
       if (!authUser) return;
       const snapshot = buildSaveSnapshot();
+      // 同上：非連鎖重繪，只是打開「上傳中」旗標
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setIsCloudSaving(true);
       saveToCloud(authUser.id, currentSlotName, snapshot)
         .then(ok => {
@@ -857,10 +1012,12 @@ ${poolText}
   }, [isLoading, isUpdatingLog]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ─── 存檔匯出 ────────────────────────────────────────────────────────────────
-  const handleExportSave = async () => {
-    if (!authUser) return;
-    const raw = await loadFromCloud(authUser.id, currentSlotName);
-    if (!raw) { showToast('讀取存檔失敗'); return; }
+  const handleExportSave = () => {
+    // 匯出當前畫面狀態，不從雲端重讀。
+    // 雲端只在「AI 回應之後」才寫入，而個人資訊／設定集／NPC 等手動編輯是直接進
+    // state 的——從雲端重讀會漏掉所有尚未同步的編輯，玩家會拿到一份缺資料的檔案
+    // （最典型：剛填完個人資訊就匯出，檔案裡的 profile 是空的）。
+    const raw = buildSaveSnapshot();
 
     const blob = new Blob([JSON.stringify(raw, null, 2)], { type: 'application/json' });
     const now = new Date();
@@ -889,7 +1046,11 @@ ${poolText}
         const content = e.target?.result as string;
         const parsed = JSON.parse(content);
         loadFromData(parsed);
-        const snapshot = buildSaveSnapshot();
+        // ⚠️ 這裡不能用 buildSaveSnapshot()：它讀的是閉包捕獲的 state，
+        // 而 loadFromData 的 setState 要到下次 render 才生效——會把「匯入前」
+        // 的舊狀態上傳，等於用舊資料覆蓋雲端槽，玩家重整後匯入的內容就消失。
+        // 改用 saveDataMapper(parsed)：它是純函數，回傳的正是剛寫進 state 的同一份資料。
+        const snapshot = saveDataMapper(parsed);
         const ok = await saveToCloud(authUser.id, currentSlotName, snapshot);
         showToast(ok ? '存檔已匯入並同步至雲端' : '存檔已匯入（雲端同步失敗）');
         setIsSettingsModalOpen(false);
@@ -977,7 +1138,12 @@ ${poolText}
 
   // selectedNpc 與 npcs 同步：NPC 資料更新後讓開啟中的 Modal 顯示最新內容。
   // 取代原本在 setNpcs updater 內呼叫 setSelectedNpc 的做法（updater 必須是純函數）
+  // updater 在沒有變化時原樣回傳 prev，React 會直接 bail out，不會連鎖重繪；
+  // 規則看不出這一點。要真正消掉它得把 selectedNpc 改存 id、由 npcs 現算，
+  // 但 setSelectedNpc 的呼叫點散在多處（含尚未進 npcs 的「新角色」），
+  // 在沒有組件層測試的情況下不值得動。
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setSelectedNpc(prev => {
       if (!prev) return prev;
       const fresh = npcs.find(n => n.id === prev.id);
@@ -1080,7 +1246,7 @@ ${poolText}
     const deps: BuildPromptDeps = {
       profile, systemPrompt, npcs, appearingNpcs, lorebookEntries,
       memories, equipment, items, itemCatalog, quests, timeState, currentLocation,
-      diaryEntries, statusEffects, factions, scanKeywords, isMemoryTriggered,
+      summaryPool, diaryEntries, statusEffects, factions, scanKeywords, isMemoryTriggered,
     };
     return buildPrompt(deps, userInput, currentMessages, locationOverride, isPriority);
   };
@@ -1108,7 +1274,7 @@ ${recentContext}
           setShowQuickMenu(true);
         }
       }
-    } catch (e) {
+    } catch {
       showToast('⚡ 行動生成失敗');
     } finally {
       setIsLoadingQuickOptions(false);
@@ -1118,7 +1284,7 @@ ${recentContext}
   const handleSendMessage = async (text: string, historyToUse?: Message[], locationOverride?: string) => {
     if (!text.trim() || isLoading) return;
 
-    lastInputRef.current = text;
+    setLastInput(text);
     const currentIsPriority = isPriorityMode;
     if (isPriorityMode) setIsPriorityMode(false);
     const userMessage: Message = { id: Date.now(), role: 'user', text: text };
@@ -1160,7 +1326,10 @@ ${recentContext}
           const cutIdx = streamedText.indexOf('<<');
           if (cutIdx !== -1) commandsStarted = true;
           let visible = cutIdx === -1 ? streamedText : streamedText.slice(0, cutIdx);
-          visible = visible.replace(/\[出場:[^\]]*\]/g, '');
+          // 用共用 pattern，避免第三份寫死的出場標記正則各自漂移
+          visible = visible.replace(APPEAR_TAG_PATTERN, '');
+          // 上面只吃到行尾；標籤還在陸續到達（同一行、尚未收到 ]）時整段先藏起來，
+          // 免得殘缺的 [出場:芬 閃現一下。streamedText 保留完整累積值，不受影響
           const lastOpen = visible.lastIndexOf('[出場');
           if (lastOpen !== -1 && !visible.includes(']', lastOpen)) {
             visible = visible.slice(0, lastOpen);
@@ -1175,31 +1344,45 @@ ${recentContext}
         return;
       }
 
-      const { narrative: parsedNarrative, newItems } = await parseAndExecuteCommands(fullText);
+      // sceneLocation / sceneDate 是「本回應的指令套用之後」的值。
+      // 不能改用閉包裡的 currentLocation / timeState——那停在玩家送出的那一刻，
+      // 而 LOCATION / TIME 指令已經在上一行執行過了。AI 常在同一則回應裡
+      // 一邊移動玩家一邊讓 NPC 出場（「你走進酒館，看到芬里爾」），
+      // 用舊值會把出場 NPC 的足跡蓋成移動前的地點。
+      const {
+        narrative: parsedNarrative,
+        newItems,
+        location: sceneLocation,
+        date: sceneDate,
+      } = await parseAndExecuteCommands(fullText);
       const rawNarrative = parsedNarrative;
 
       // ── 助理 GM 接口：有新增道具時才觸發分類──────────
       // newItems 為本回合新增的道具名稱清單，updateAdventureState 會請助理 GM 分類
-      // 解析所有 [出場:] 標記
-
       // 解析所有 [出場:] 標記（matchAll），合併去重後更新 appearingNpcs
       // 防呆：AI 若重複輸出同一角色的 [出場:] 標記，前端只計一次
-      const allAppearMatches = [...rawNarrative.matchAll(/\[出場:([^\]]*)\]/g)];
+      const allAppearMatches = [...rawNarrative.matchAll(APPEAR_TAG_CAPTURE_PATTERN)];
       if (allAppearMatches.length > 0) {
         const allNames = allAppearMatches
           .flatMap(m => m[1].split(',').map((n: string) => n.trim()))
           .filter(Boolean);
         const uniqueNames = [...new Set(allNames)];
+        // 空的 [出場:] 是 prompt 明訂的「現場無人」訊號，必須寫入才能讓上一場的
+        // NPC 下台。舊版被 `uniqueNames.length > 0` 擋掉，結果 appearingNpcs 只增不減：
+        // 該 NPC 的完整檔案會無視地點、每一輪繼續注入 prompt（buildPrompt 的 inScene
+        // 判定先於地點過濾），等於跟著玩家跨城鎮，且此狀態會存進存檔。
+        setAppearingNpcs(uniqueNames);
+        // 足跡只在真的有人出場時更新
         if (uniqueNames.length > 0) {
-          setAppearingNpcs(uniqueNames);
           setNpcs(prev => prev.map(npc =>
             uniqueNames.some((n: string) => npc.name.includes(n) || n.includes(npc.name))
-              ? { ...npc, location: currentLocation, lastSeenLocation: currentLocation, lastSeenDate: `${timeState.month}/${timeState.day}` }
+              ? { ...npc, location: sceneLocation, lastSeenLocation: sceneLocation, lastSeenDate: sceneDate }
               : npc
           ));
         }
       }
-      const narrative = rawNarrative.replace(/\[出場:[^\]]*\]/g, '').trim();
+      // 完全沒有標記時不動 appearingNpcs：那是 AI 沒照規矩輸出，維持現狀比誤清安全
+      const narrative = rawNarrative.replace(APPEAR_TAG_PATTERN, '').trim();
 
       setMessages(prev => prev.map(m =>
         m.id === aiMessageId ? { ...m, text: narrative } : m
@@ -1209,8 +1392,8 @@ ${recentContext}
         if (narrative.includes(npc.name)) {
           return {
             ...npc,
-            lastSeenLocation: currentLocation,
-            lastSeenDate: `${timeState.month}/${timeState.day}`
+            lastSeenLocation: sceneLocation,
+            lastSeenDate: sceneDate
           };
         }
         return npc;
@@ -1222,10 +1405,15 @@ ${recentContext}
 
       // 觸發背景整理（Sub GM）
       // 關鍵事件：任務新增、地點移動、世界記憶寫入 → 強制跳過節流
+      // 偵測字串必須跟著 COMMANDS v1 的 pipe 格式走。舊版只比對冒號格式
+      // （'QUEST_ADD:' / '\nLOCATION:' / 'MEMORY_ADD:world'），而 promptBuilder 早已
+      // 改教 AI 輸出 pipe，導致 hasKeyEvent 恆為 false、跳過節流的機制形同關閉。
+      // 兩種格式都比對，舊存檔重跑時仍成立。
       const hasKeyEvent =
-        fullText.includes('QUEST_ADD:') ||
-        /\nLOCATION:[^\n]+/.test(fullText) ||
-        fullText.includes('MEMORY_ADD:world');
+        /^QUEST_ADD[|:]/m.test(fullText) ||
+        /^LOCATION[|:]/m.test(fullText) ||
+        /^MEMORY_ADD\|type=world\b/m.test(fullText) ||
+        /^MEMORY_ADD:world\b/m.test(fullText);
       updateAdventureState(
         [...newMessages, { id: aiMessageId, role: 'assistant', text: narrative }],
         newItems,
@@ -1277,7 +1465,7 @@ ${recentContext}
     };
     document.addEventListener('visibilitychange', handleVisibilityChange);
     return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
-  }, [isLoading, abortAI]);
+  }, [isLoading, abortAI, setMessages]);
 
   // ── Mobile: resize 偵測 ──────────────────────────────────────────
   useEffect(() => {
@@ -1308,8 +1496,12 @@ ${recentContext}
   // ─── 訊息卡片 callbacks ──────────────────────────────────────────────────────
   // 全部以 useCallback + 最新值 ref 穩定引用，讓 MessageCard 的 React.memo 生效；
   // callback 內一律讀 ref / functional update，不捕獲 render 當下的 state
+  // 同樣在 commit 後才寫（理由見上方最新值 refs 的註解）。
+  // 這支只被事件 callback 讀取，一定晚於 commit，時序不受影響。
   const handleSendMessageRef = useRef(handleSendMessage);
-  handleSendMessageRef.current = handleSendMessage;
+  useEffect(() => {
+    handleSendMessageRef.current = handleSendMessage;
+  });
 
   const handleRegenerate = useCallback((msgId: number) => {
     const msgs = messagesRef.current;
@@ -1816,24 +2008,6 @@ ${recentContext}
               if (e.currentTarget.scrollTop <= 4) handleLoadMore();
             }}
           >
-            <div
-              className="rpg-scene-panel max-w-3xl mx-auto rounded-[8px] px-4 py-3"
-              style={{
-                background: 'color-mix(in srgb, var(--bg-elevated) 45%, transparent)',
-                backdropFilter: 'blur(12px) saturate(130%)',
-                WebkitBackdropFilter: 'blur(12px) saturate(130%)',
-              }}
-            >
-              <div className="flex flex-wrap items-center gap-2 text-xs" style={{ color: 'var(--text-muted)' }}>
-                <span className="uppercase tracking-[0.24em]">Scene</span>
-                <span style={{ color: 'var(--fx-scene-line)' }}>|</span>
-                <span>{currentLocation}</span>
-                <span style={{ color: 'var(--fx-scene-line)' }}>|</span>
-                <span>{sceneMeta.timeText}</span>
-                <span style={{ color: 'var(--fx-scene-line)' }}>|</span>
-                <span>{timeState.weather}</span>
-              </div>
-            </div>
             {visibleMessages.map(msg => (
               // 串流中的佔位訊息（最後一則、assistant、text 仍為空）交給 StreamingBubble，
               // 由它自行持有串流文字，避免每個 chunk 重渲染整棵 App
@@ -1843,7 +2017,7 @@ ${recentContext}
                 key={msg.id}
                 ref={streamingBubbleRef}
                 renderMarkdown={renderMarkdown}
-                stripBareCommands={stripBareCommands}
+                cleanNarrative={cleanNarrative}
                 scrollAnchorRef={messagesEndRef}
               />
               ) : (
@@ -1864,7 +2038,7 @@ ${recentContext}
                 onEditCancel={handleEditCancel}
                 onEditSave={handleEditSave}
                 renderMarkdown={renderMarkdown}
-                stripBareCommands={stripBareCommands}
+                cleanNarrative={cleanNarrative}
               />
               )
             ))}
@@ -1950,13 +2124,13 @@ ${recentContext}
                     {aiRequestStatus === 'timeout'  && '請求超時'}
                     {aiRequestStatus === 'error'    && '發生錯誤'}
                   </span>
-                  {lastInputRef.current && (
+                  {lastInput && (
                     <button
                       className="px-2 py-0.5 rounded text-xs transition"
                       style={{ background: 'var(--btn-primary)', color: 'var(--btn--text)' }}
                       onMouseEnter={e => (e.currentTarget.style.background = 'var(--btn-primary-hover)')}
                       onMouseLeave={e => (e.currentTarget.style.background = 'var(--btn-primary)')}
-                      onClick={() => { setAiRequestStatus('idle'); handleSendMessage(lastInputRef.current); }}
+                      onClick={() => { setAiRequestStatus('idle'); handleSendMessage(lastInput); }}
                     >重試</button>
                   )}
                   <button
@@ -2038,6 +2212,7 @@ ${recentContext}
         profile={profile}
         setProfile={setProfile}
         statusEffects={statusEffects}
+        onSave={requestPersist}
       />
 
       {/* Diary Modal Overlay */}
@@ -2068,6 +2243,8 @@ ${recentContext}
         npcs={npcs}
         onAddLorebook={handleAddLorebook}
         onAddNpc={handleAddNpc}
+        onImportNpcs={handleImportNpcs}
+        onSetNpcFactions={handleSetNpcFactions}
         onUpdateLorebook={handleUpdateLorebook}
         onDeleteLorebook={handleDeleteLorebook}
         onLorebookKeywordAdd={handleLorebookKeywordAdd}
@@ -2077,6 +2254,7 @@ ${recentContext}
         factions={factions}
         onAddFaction={addFaction}
         onUpdateFaction={updateFaction}
+        onSave={requestPersist}
       />
       </Suspense>}
 
@@ -2095,6 +2273,9 @@ ${recentContext}
         onDeleteNpc={handleDeleteNpc}
         onClearNewMemories={handleClearNewMemories}
         onUpdateNpcName={handleUpdateNpcName}
+        factions={factions}
+        onSetNpcFactions={handleSetNpcFactions}
+        onSave={requestPersist}
       />
       </Suspense>}
 
@@ -2104,7 +2285,7 @@ ${recentContext}
         onClose={() => setIsSystemPromptModalOpen(false)}
         systemPrompt={systemPrompt}
         setSystemPrompt={setSystemPrompt}
-        showToast={showToast}
+        onSave={requestPersist}
       />
 
       {/* Settings Modal Overlay */}

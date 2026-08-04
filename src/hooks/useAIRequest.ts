@@ -8,8 +8,18 @@
  *   - 狀態：暴露 aiRequestStatus（'idle' | 'loading' | 'aborted' | 'timeout' | 'error'）
  */
 import { useState, useRef, useCallback } from 'react';
-import { GoogleGenAI } from '@google/genai';
 import { GMConfig, SubGMConfig } from '../types';
+
+// @google/genai（含其 web-streams-polyfill 依賴）壓縮後約 52 kB，但從登入畫面到玩家
+// 送出第一則訊息之前都用不到，靜態 import 會讓它躺在首屏 bundle 裡。
+// 改為動態載入並以 module-level Promise 快取，只有第一次 callAI 會真正下載。
+// ⚠️ vite.config.ts 的 manualChunks 必須同步排除此套件，否則會被強制併回 vendor，
+//    動態 import 的分包效果會被完全抵銷。
+let genaiModulePromise: Promise<typeof import('@google/genai')> | null = null;
+function loadGenAI() {
+  if (!genaiModulePromise) genaiModulePromise = import('@google/genai');
+  return genaiModulePromise;
+}
 
 export type AIRequestStatus = 'idle' | 'loading' | 'aborted' | 'timeout' | 'error';
 
@@ -74,6 +84,9 @@ export function useAIRequest(mainGMConfig: GMConfig, subGMConfig: SubGMConfig) {
     }
 
     abortedRef.current = false;
+
+    // 首次呼叫才下載 SDK；期間若被 abort，由迴圈開頭的 abortedRef 檢查接手
+    const { GoogleGenAI } = await loadGenAI();
 
     for (let attempt = 0; attempt <= MAX_RETRIES[role]; attempt++) {
       if (abortedRef.current) throw new DOMException('Aborted', 'AbortError');

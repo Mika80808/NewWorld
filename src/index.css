@@ -106,11 +106,7 @@
   --fx-orb-amber:         rgba(255, 208, 55, 0.16);
   --fx-orb-violet:        rgba(112, 8, 231, 0.18);
   --fx-orb-sky:           rgba(48, 177, 216, 0.12);
-  --fx-panel-stroke:      rgba(255, 255, 255, 0.08);
-  --fx-panel-shadow:      0 20px 60px rgba(0, 0, 0, 0.32);
   --fx-message-shadow:    0 10px 24px rgba(0, 0, 0, 0.22);
-  --fx-scene-line:        rgba(255, 255, 255, 0.16);
-  --fx-scene-chip:        rgba(0, 0, 0, 0.26);
 
   /* ── Z-Index 層級系統（由低至高）─────────────────────── */
   --z-bg:           0;      /* 背景圖層（遊戲背景、天空梯度） */
@@ -212,11 +208,6 @@
   border-radius: 9999px;
   filter: blur(64px);
   animation: rpg-orb-drift 9s ease-in-out infinite;
-}
-
-.rpg-scene-panel {
-  border: 1px solid var(--fx-panel-stroke);
-  box-shadow: var(--fx-panel-shadow);
 }
 
 .rpg-message-card {

@@ -9,6 +9,8 @@ interface ProfileModalProps {
   profile: Profile;
   setProfile: (profile: Profile) => void;
   statusEffects?: StatusEffect[];
+  /** 按下「儲存」時提交至雲端。省略時只關閉視窗（編輯仍在 state 內） */
+  onSave?: () => void;
 }
 
 export const ProfileModal: React.FC<ProfileModalProps> = ({
@@ -17,6 +19,7 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
   profile,
   setProfile,
   statusEffects = [],
+  onSave,
 }) => {
   if (!isOpen) return null;
 
@@ -116,7 +119,7 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
             style={{ background: 'var(--btn-primary)', color: 'var(--text-main)' }}
             onMouseEnter={e => e.currentTarget.style.background = 'var(--btn-primary-hover)'}
             onMouseLeave={e => e.currentTarget.style.background = 'var(--btn-primary)'}
-            onClick={onClose}
+            onClick={() => { onSave?.(); onClose(); }}
           >
             儲存
           </button>

@@ -8,7 +8,8 @@ interface SystemPromptModalProps {
   onClose: () => void;
   systemPrompt: SystemPrompt;
   setSystemPrompt: (prompt: SystemPrompt) => void;
-  showToast: (msg: string) => void;
+  /** 按下「儲存」時提交至雲端；成功與否的提示由該流程負責 */
+  onSave?: () => void;
 }
 
 export const SystemPromptModal: React.FC<SystemPromptModalProps> = ({
@@ -16,7 +17,7 @@ export const SystemPromptModal: React.FC<SystemPromptModalProps> = ({
   onClose,
   systemPrompt,
   setSystemPrompt,
-  showToast,
+  onSave,
 }) => {
 
   if (!isOpen) return null;
@@ -68,10 +69,7 @@ export const SystemPromptModal: React.FC<SystemPromptModalProps> = ({
 
         <div className="p-4 border-t border-white/5 flex justify-end" style={{ background: 'color-mix(in srgb, var(--bg-elevated) 50%, transparent)' }}>
           <button
-            onClick={() => {
-              onClose();
-              showToast('已儲存系統底層邏輯');
-            }}
+            onClick={() => { onSave?.(); onClose(); }}
             className="backdrop-blur-sm rounded-[8px] transition shadow-[var(--shadow)] border-none w-[96px] h-[36px] py-[6px] mr-[14px] flex items-center justify-center text-[14px] leading-[16px]"
             style={{ background: 'var(--btn-primary)', color: 'var(--btn--text' }}
             onMouseEnter={e => e.currentTarget.style.background = 'var(--btn-primary-hover)'}

@@ -1,7 +1,8 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Users, BookPlus, Pin, Star, Trash2, Lock, ChevronDown, ChevronUp, Edit2, Check, X, BookOpen, Heart, AlertTriangle } from 'lucide-react';
-import { Npc, NpcMemory, LorebookEntry } from '../types';
+import { Npc, NpcMemory, LorebookEntry, Faction } from '../types';
 import { affectionColor } from '../utils/affectionColor';
+import { relationText } from '../utils/affectionLabel';
 
 const SOURCE_LABEL: Record<NpcMemory['source'], string> = {
   manual:    '手動',
@@ -28,6 +29,12 @@ interface NpcModalProps {
   onDeleteNpc: (npcId: number, lorebookId?: number) => void;
   onClearNewMemories: (npcId: number) => void;
   onUpdateNpcName?: (npcId: number, name: string) => void;
+  /** 可指派的勢力清單（只能從已建立的勢力挑，不在這裡新建） */
+  factions?: Faction[];
+  /** 設定所屬勢力（唯一寫入點，見 Npc.factionIds） */
+  onSetNpcFactions?: (npcId: number, factionIds: number[]) => void;
+  /** 按下「儲存」時提交至雲端 */
+  onSave?: () => void;
 }
 
 export const NpcModal: React.FC<NpcModalProps> = ({
@@ -43,23 +50,31 @@ export const NpcModal: React.FC<NpcModalProps> = ({
   onDeleteNpc,
   onClearNewMemories,
   onUpdateNpcName,
+  factions = [],
+  onSetNpcFactions,
+  onSave,
 }) => {
   const [activeTab, setActiveTab] = useState<'info' | 'memories'>('info');
   const [showArchived, setShowArchived] = useState(false);
   const [editingMemId, setEditingMemId] = useState<string | null>(null);
   const [editingText, setEditingText] = useState('');
-  const [menuOpen, setMenuOpen] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [editFields, setEditFields] = useState<Partial<LorebookEntry>>({});
   const [editName, setEditName] = useState('');
   const [memoryPage, setMemoryPage] = useState(0);
   const newMemRef = useRef<HTMLTextAreaElement>(null);
-  const menuRef = useRef<HTMLDivElement>(null);
 
-  // 切換 NPC 時重置編輯狀態；若為新建角色則自動進入編輯模式
-  useEffect(() => {
-    setMenuOpen(false);
+  // 切換 NPC 時重置編輯狀態；若為新建角色則自動進入編輯模式。
+  //
+  // 用 render 期間比對 id、而非 useEffect：
+  //   1. effect 版會先 commit 一次「新 NPC 的資料配上前一個 NPC 編輯狀態」的畫面再重設
+  //   2. effect 版讀了 name/job/appearance 卻只把 id 放進 deps，是貨真價實的 stale 讀取
+  // 初始值用 'init' 哨兵而不是 selectedNpc?.id，因為 App.tsx 是 `{selectedNpc && <NpcModal/>}`，
+  // 每次開啟都是全新掛載——掛載當下就必須跑一次，否則新建角色不會自動進編輯模式。
+  const [prevNpcId, setPrevNpcId] = useState<number | undefined | 'init'>('init');
+  if (selectedNpc?.id !== prevNpcId) {
+    setPrevNpcId(selectedNpc?.id);
     setShowDeleteConfirm(false);
     setActiveTab('info');
     setMemoryPage(0);
@@ -71,26 +86,18 @@ export const NpcModal: React.FC<NpcModalProps> = ({
       setIsEditing(false);
       setEditFields({});
     }
-  }, [selectedNpc?.id]);
+  }
 
-  // 讀 isNew 記憶後自動清除標記
+  // 讀 isNew 記憶後自動清除標記。
+  // deps 刻意只有 id + 分頁：加上 selectedNpc 會讓「開著記憶分頁時新進的記憶」
+  // 一出現就被清掉高亮，玩家等於沒看到那個「新」標記。要維持「切進來時清一次」的語意。
   useEffect(() => {
     if (selectedNpc && activeTab === 'memories') {
       const hasNew = selectedNpc.memories?.some(m => m.isNew && !m.isMerged);
       if (hasNew) onClearNewMemories(selectedNpc.id);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedNpc?.id, activeTab]);
-
-  // 點外部關閉三點選單
-  useEffect(() => {
-    const handler = (e: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
-        setMenuOpen(false);
-      }
-    };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, []);
 
   if (!selectedNpc) return null;
 
@@ -128,7 +135,6 @@ export const NpcModal: React.FC<NpcModalProps> = ({
       other:       displayOther,
     });
     setIsEditing(true);
-    setMenuOpen(false);
     setActiveTab('info');
   };
 
@@ -141,6 +147,8 @@ export const NpcModal: React.FC<NpcModalProps> = ({
       onUpdateNpcName?.(selectedNpc.id, trimmedName);
     }
     setIsEditing(false);
+    // 與上面的 setState 同批次；App 端以 effect 在 commit 後才組快照，故讀得到新值
+    onSave?.();
   };
 
   // ── 記憶操作 ────────────────────────────────────────────────────────────────
@@ -265,7 +273,7 @@ export const NpcModal: React.FC<NpcModalProps> = ({
           {/* Row 2: 職業（左）＋ 關係（右） */}
           <div className="flex justify-between items-center text-sm">
             <span style={{ color: 'var(--text-body)' }}>{displayJob || '職業未知'}</span>
-            <span className="mr-19" style={{ color: 'var(--color-emerald)' }}>{selectedNpc.relationship || '關係未知'}</span>
+            <span className="mr-19" style={{ color: 'var(--color-emerald)' }}>{relationText(selectedNpc.relationship, selectedNpc.affection)}</span>
           </div>
 
           {/* Row 3: 上次見面 */}
@@ -373,6 +381,67 @@ export const NpcModal: React.FC<NpcModalProps> = ({
                         />
                       </div>
                     ))}
+                  </div>
+
+                  {/* 所屬勢力：只能從已建立的勢力挑，這裡不新建。
+                      多選——factionIds 是陣列且 FACTION_JOIN 可重複加入，
+                      做成單選會在選新的時候把 AI 加過的舊勢力靜默刪掉。 */}
+                  <div>
+                    <p className="text-sm ml-3 uppercase tracking-wider mb-0.5" style={{ color: 'var(--text-body)' }}>所屬勢力</p>
+                    {(() => {
+                      const current = selectedNpc.factionIds ?? [];
+                      const joined = factions.filter(f => current.includes(f.id));
+                      const available = factions.filter(f => !current.includes(f.id));
+                      if (factions.length === 0) {
+                        return (
+                          <p className="text-sm px-3 py-2" style={{ color: 'var(--text-muted)' }}>
+                            尚未建立任何勢力（故事集 → 勢力）
+                          </p>
+                        );
+                      }
+                      return (
+                        <>
+                          {joined.length > 0 && (
+                            <div className="flex flex-wrap gap-1.5 mb-1.5">
+                              {joined.map(f => {
+                                const fc = f.color ?? 'var(--text-body)';
+                                return (
+                                  <span key={f.id}
+                                    className="text-sm inline-flex items-center gap-1 px-2 py-1 rounded-[8px] border"
+                                    style={{ color: fc, borderColor: `color-mix(in srgb, ${fc} 40%, transparent)`, background: `color-mix(in srgb, ${fc} 12%, transparent)` }}>
+                                    {f.name}
+                                    <button
+                                      onClick={() => onSetNpcFactions?.(selectedNpc.id, current.filter(id => id !== f.id))}
+                                      title={`退出 ${f.name}`}
+                                      className="opacity-60 hover:opacity-100 transition"
+                                    >
+                                      <X className="w-3 h-3" />
+                                    </button>
+                                  </span>
+                                );
+                              })}
+                            </div>
+                          )}
+                          <select
+                            value=""
+                            onChange={e => {
+                              const id = parseInt(e.target.value, 10);
+                              if (Number.isFinite(id)) onSetNpcFactions?.(selectedNpc.id, [...current, id]);
+                            }}
+                            disabled={available.length === 0}
+                            className="w-full border border-white/10 rounded-[8px] px-3 py-2 text-sm outline-none transition disabled:opacity-40"
+                            style={inputStyle}
+                          >
+                            <option value="">
+                              {available.length === 0 ? '已加入所有勢力' : '＋ 加入勢力⋯'}
+                            </option>
+                            {available.map(f => (
+                              <option key={f.id} value={String(f.id)}>{f.name}</option>
+                            ))}
+                          </select>
+                        </>
+                      );
+                    })()}
                   </div>
 
                   {/* 外貌、個性、背景故事、其他 */}

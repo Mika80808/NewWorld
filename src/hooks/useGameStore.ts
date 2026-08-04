@@ -20,7 +20,7 @@ import {
 } from '../constants';
 
 // ─── Schema 版本 ──────────────────────────────────────────────────────────────
-export const CURRENT_SCHEMA = 4;
+export const CURRENT_SCHEMA = 5;
 
 // ─── 型別：儲存快照 ───────────────────────────────────────────────────────────
 export interface GameSaveData {
@@ -134,11 +134,47 @@ function migrateV3toV4(data: Record<string, unknown>): Record<string, unknown> {
   return out;
 }
 
+// v4 → v5：NPC 勢力歸屬統一成 Npc.factionIds，把 Faction.npcIds 摺進去
+//
+// 先前同一份關係存在兩個地方各寫各的：FACTION_JOIN 指令寫 Npc.factionIds，
+// 而勢力分頁的成員勾選寫 Faction.npcIds。UI 與地圖用 `A || B` 兩邊都認所以看起來
+// 正常，但 promptBuilder 只讀 Npc.factionIds——玩家在勢力分頁手動勾的成員，
+// AI 完全不知道。這裡把 npcIds 併進 factionIds 後移除，只留單一來源。
+export function migrateV4toV5(data: Record<string, unknown>): Record<string, unknown> {
+  const out = { ...data };
+  const factions = Array.isArray(out.factions) ? (out.factions as Faction[]) : [];
+  const npcs = Array.isArray(out.npcs) ? (out.npcs as Npc[]) : [];
+  if (factions.length === 0) return out;
+
+  const extra = new Map<number, number[]>();
+  for (const f of factions) {
+    for (const npcId of f.npcIds ?? []) {
+      extra.set(npcId, [...(extra.get(npcId) ?? []), f.id]);
+    }
+  }
+
+  if (extra.size > 0) {
+    out.npcs = npcs.map(n => {
+      const add = extra.get(n.id);
+      if (!add) return n;
+      return { ...n, factionIds: [...new Set([...(n.factionIds ?? []), ...add])] };
+    });
+  }
+  // 移除舊欄位：留著只會讓人以為它還是有效來源。資料已完整搬到 factionIds，
+  // 且舊版程式讀 npcIds 時本來就有 factionIds 的 fallback，回退也不會掉資料。
+  out.factions = factions.map(f => {
+    const { npcIds: _npcIds, ...rest } = f;
+    return rest;
+  });
+  return out;
+}
+
 const MIGRATIONS: Record<number, (d: Record<string, unknown>) => Record<string, unknown>> = {
   0: migrateV0toV1,
   1: migrateV1toV2,
   2: migrateV2toV3,
   3: migrateV3toV4,
+  4: migrateV4toV5,
 };
 
 function runMigrations(raw: Record<string, unknown>): Record<string, unknown> {
@@ -198,17 +234,17 @@ export function saveDataMapper(raw: Record<string, unknown>): GameSaveData {
       ...(p.maxMp != null ? { maxMp: p.maxMp } : {}),
     },
     systemPrompt:    (d.systemPrompt    as SystemPrompt)    || INITIAL_SYSTEM_PROMPT,
-    diaryEntries:    (d.diaryEntries    as DiaryEntry[])    || [],
-    lorebookEntries: (d.lorebookEntries as LorebookEntry[]) || INITIAL_LOREBOOK_ENTRIES,
+    diaryEntries:    Array.isArray(d.diaryEntries)    ? d.diaryEntries    as DiaryEntry[]    : [],
+    lorebookEntries: Array.isArray(d.lorebookEntries) ? d.lorebookEntries as LorebookEntry[] : INITIAL_LOREBOOK_ENTRIES,
     npcs:            mapNpcs(d.npcs),
-    appearingNpcs:   (d.appearingNpcs   as string[])        || [],
+    appearingNpcs:   Array.isArray(d.appearingNpcs)   ? d.appearingNpcs   as string[]        : [],
     equipment:       Array.isArray(d.equipment) ? migrateEquipment(d.equipment as unknown[]) : [],
     items:           Array.isArray(d.items)     ? migrateItems(d.items as unknown[])         : [],
     itemCatalog:     (d.itemCatalog as ItemCatalog) || {},
     currentLocation: (d.currentLocation as string)          || randomStart?.currentLocation || '迷霧森林',
-    messages:        (d.messages        as Message[])        || INITIAL_MESSAGES,
-    memories:        (d.memories        as MemoryEntry[])    || [],
-    quickOptions:    (d.quickOptions    as string[])         || ['觀察四周', '檢查自己', '大聲求助'],
+    messages:        Array.isArray(d.messages)     ? d.messages     as Message[]     : INITIAL_MESSAGES,
+    memories:        Array.isArray(d.memories)     ? d.memories     as MemoryEntry[] : [],
+    quickOptions:    Array.isArray(d.quickOptions) ? d.quickOptions as string[]      : ['觀察四周', '檢查自己', '大聲求助'],
     timeState: {
       year:    t.year    ?? 1024,
       month:   t.month   ?? randomStart?.timeState.month   ?? 4,
@@ -217,10 +253,12 @@ export function saveDataMapper(raw: Record<string, unknown>): GameSaveData {
       minute:  t.minute  ?? randomStart?.timeState.minute  ?? 30,
       weather: t.weather || randomStart?.timeState.weather || '晴朗',
     },
-    quests:       ((d.quests as Quest[]) || []).map(q => ({ isGoalMet: false, ...q })),
-    adventureLog:  (d.adventureLog  as string[]) || [],
-    currentGoals:  (d.currentGoals  as string[]) || [],
-    summaryPool:   (d.summaryPool   as string[]) || [],
+    quests:       (Array.isArray(d.quests) ? d.quests as Quest[] : []).map(q => ({ isGoalMet: false, ...q })),
+    // `|| []` 擋不掉「型別錯但 truthy」的值（例如助理 GM 回了字串的 goals），
+    // 那種值會一路進到 GoalsPanel 的 .map 而白畫面，所以一律用 Array.isArray 驗
+    adventureLog:  Array.isArray(d.adventureLog) ? d.adventureLog as string[] : [],
+    currentGoals:  Array.isArray(d.currentGoals) ? d.currentGoals as string[] : [],
+    summaryPool:   Array.isArray(d.summaryPool)  ? d.summaryPool  as string[] : [],
     compressCount: (d.compressCount as number)   || 0,
     // 舊存檔無此欄位時給空陣列；同時拋棄舊 profile.status 字串欄位
     statusEffects: Array.isArray(d.statusEffects)
