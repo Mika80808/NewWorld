@@ -42,6 +42,7 @@ export interface AsyncTask {
     npcId: number;
     npcName: string;
     memories: NpcMemory[];
+    gameDate: string;
   };
 }
 
@@ -72,6 +73,21 @@ export interface CurrentState {
 
 // ─── 勢力調色盤 ────────────────────────────────────────────────────────────────
 const FACTION_COLOR_PALETTE = ['#7F77DD', '#EF9F27', '#1D9E75', '#D85A30', '#888780', '#D4537E'];
+
+// ─── NPC 記憶濃縮參數 ──────────────────────────────────────────────────────────
+/** thoughts 累積到此數量就打包成一條 pre_merge 記憶 */
+export const THOUGHTS_LIMIT = 10;
+/** 可融合記憶累積到此數量就交給助理 GM 濃縮成一條 merged */
+export const MEMORY_MERGE_LIMIT = 10;
+
+/**
+ * 可融合 = 尚未封存，且非玩家手寫。
+ * `source: 'manual'` 涵蓋 NpcModal 記憶分頁的「新增（一般）」與「核心」兩顆按鈕，
+ * 亦即所有 `importance: 'core'` 的記憶都在其中（AI 只會產出 'normal'）。
+ * 玩家好感度練到 60 才特地手寫的記憶一律保留原文，不交給 AI 改寫。
+ */
+export const isMergeable = (m: NpcMemory): boolean =>
+  !m.isMerged && m.source !== 'manual';
 
 // ─── Main Reduce Function ──────────────────────────────────────────────────────
 
@@ -281,24 +297,32 @@ export function reduceCommands(
         workingNpcs = workingNpcs.map(npc => {
           if (npc.name !== npcName.trim()) return npc;
           const updatedThoughts = [
-            { text: thought, createdAt: `${currentState.timeState.month}/${currentState.timeState.day}` },
+            { text: thought, createdAt: gameDate },
             ...(npc.thoughts || []),
           ];
-          if (updatedThoughts.length > 10) {
-            const mergedText = updatedThoughts.slice(0, 10).reverse().map(t => `[${t.createdAt}] ${t.text}`).join('；');
+          // 滿 10 則就打包。舊版判斷 > 10，第 11 則才觸發，而打包只取最新 10 條，
+          // 接著 thoughts 整個清空 —— 最舊那則從未寫進記憶就消失了。
+          if (updatedThoughts.length >= THOUGHTS_LIMIT) {
+            const mergedText = updatedThoughts
+              .slice(0, THOUGHTS_LIMIT)
+              .reverse()
+              .map(t => `[${t.createdAt}] ${t.text}`)
+              .join('；');
             const newMemory: NpcMemory = {
               id: `nmem_${Date.now()}_${Math.random().toString(36).slice(2)}`,
               text: `${npc.name} 的想法整理：${mergedText}`,
               importance: 'normal',
               source: 'pre_merge',
-              createdAt: `${currentState.timeState.month}/${currentState.timeState.day}`,
+              createdAt: gameDate,
             };
             const updatedMemories = [...(npc.memories || []), newMemory];
-            const unmergedCount = updatedMemories.filter(m => !m.isMerged).length;
-            if (unmergedCount > 3) {
+            // 只計可融合的：玩家手寫的不參與融合，自然也不該把門檻墊高，
+            // 否則玩家手寫滿 10 條筆記就會觸發一次無事可做的融合。
+            const mergeableCount = updatedMemories.filter(isMergeable).length;
+            if (mergeableCount >= MEMORY_MERGE_LIMIT) {
               asyncTasks.push({
                 type: 'merge_npc_memories',
-                payload: { npcId: npc.id, npcName: npc.name, memories: updatedMemories },
+                payload: { npcId: npc.id, npcName: npc.name, memories: updatedMemories, gameDate },
               });
             }
             return { ...npc, thoughts: [], memories: updatedMemories };

@@ -4,7 +4,7 @@
  */
 
 import React from 'react';
-import { StateChanges, Feedback, AsyncTask } from './commandReducer';
+import { StateChanges, Feedback, AsyncTask, isMergeable } from './commandReducer';
 import { TimeState, Profile, Quest, MemoryEntry, Npc, ItemEntry, ItemCatalog, LorebookEntry, StatusEffect, Faction, NpcMemory } from '../types';
 
 // ─── 副作用依賴型別 ────────────────────────────────────────────────────────────
@@ -137,21 +137,22 @@ async function triggerNpcMemoryMerge(
     npcId: number;
     npcName: string;
     memories: NpcMemory[];
+    gameDate: string;
   },
   setters: Setters,
   callbacks: Callbacks
 ): Promise<void> {
-  const { npcId, npcName, memories } = payload;
+  const { npcId, npcName, memories, gameDate } = payload;
 
-  // 篩選未融合的記憶
-  const unmergedMemories = memories.filter(m => !m.isMerged);
+  // 只融合 AI 產出的 pre_merge / merged；玩家手寫的（含 ★ 核心）保留原文
+  const mergeableMemories = memories.filter(isMergeable);
 
-  if (unmergedMemories.length === 0) {
+  if (mergeableMemories.length === 0) {
     return;
   }
 
   // 構建融合提示詞（NpcMemory 用 .text 欄位）
-  const memoryTexts = unmergedMemories.map(m => m.text).join('\n\n');
+  const memoryTexts = mergeableMemories.map(m => m.text).join('\n\n');
   const mergePrompt = `以下是 NPC "${npcName}" 的多條記憶，請將其融合為一條簡潔、通俗易懂的句子，保留關鍵信息：
 
 ${memoryTexts}
@@ -162,15 +163,21 @@ ${memoryTexts}
     // 調用 AI 進行融合
     const mergedContent = await callbacks.callAI(mergePrompt, 'sub');
 
+    // callAI 在 API key 未設定時回傳空字串而非 throw。少了這道防護，
+    // 會寫入一條空記憶並把原文全數標記為已封存，等於該 NPC 的記憶被無聲清空。
+    if (!mergedContent.trim()) {
+      throw new Error('EMPTY_MERGE_RESULT');
+    }
+
     // 創建融合後的 NpcMemory 條目
     const mergedMemory: NpcMemory = {
       id: `nmem_${Date.now()}_${Math.random().toString(36).slice(2)}`,
       text: mergedContent.trim(),
       importance: 'normal',
       source: 'merged',
-      createdAt: new Date().toISOString().slice(0, 10),
+      createdAt: gameDate,
       isMerged: false,
-      mergedFrom: unmergedMemories.map(m => m.id),
+      mergedFrom: mergeableMemories.map(m => m.id),
     };
 
     // 標記原有記憶為已融合，並添加融合後的記憶
@@ -181,7 +188,7 @@ ${memoryTexts}
               ...npc,
               memories: [
                 ...(npc.memories || []).map(m =>
-                  unmergedMemories.some(um => um.id === m.id)
+                  mergeableMemories.some(mm => mm.id === m.id)
                     ? { ...m, isMerged: true }
                     : m
                 ),
@@ -192,7 +199,7 @@ ${memoryTexts}
       )
     );
 
-    callbacks.showToast(`✨ 融合了 ${npcName} 的 ${unmergedMemories.length} 條記憶`);
+    callbacks.showToast(`✨ 融合了 ${npcName} 的 ${mergeableMemories.length} 條記憶`);
   } catch (error) {
     console.error('NPC memory merge failed:', error);
     throw error;

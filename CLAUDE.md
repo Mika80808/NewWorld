@@ -490,7 +490,10 @@ FACTION_NEW|name=黑牙氏族|type=criminal|desc=盤據東境的盜賊團
 
 5. **`package.json` 的 dev script 綁定 `0.0.0.0:3000`**，不要改動
 
-6. **NPC `thoughts[]` 滿 10 則時自動串接寫入 `memories[]`**（source: `pre_merge`）並清空，不要改變這個閾值
+6. **NPC 記憶濃縮鏈：想法滿 10 則 → 1 條記憶，可融合記憶滿 10 條 → 1 條摘要**，兩個閾值都在 `commandReducer.ts`（`THOUGHTS_LIMIT` / `MEMORY_MERGE_LIMIT`），不要改動
+   - `thoughts[]` 滿 10 則串接寫入 `memories[]`（source: `pre_merge`）並清空。判斷式是 `>= 10` 不是 `> 10`，後者會在第 11 則才觸發、且打包只取最新 10 條，最舊那則隨清空一起消失
+   - 可融合記憶（`pre_merge` / `merged`）滿 10 條時交助理 GM 濃縮成一條 `merged`，原文標記 `isMerged: true` 封存
+   - **`source: 'manual'` 的玩家手寫記憶永不參與融合，也不計入門檻**（判斷入口 `isMergeable()`）。所有 `importance: 'core'` 都是手寫來的，因此一併受保護——玩家練到好感 60 才特地寫下的記憶被 AI 改寫掉是不可接受的
 
 7. **`[出場:]` 標記用 `matchAll` 收集並去重**，不要改回單次 `match`；**空標記代表「現場無人」，必須寫入以清空 `appearingNpcs`**，不要再加 `length > 0` 的守衛（見上方三種語意表）
 

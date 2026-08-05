@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { parseCommandsToAST } from '../commandParser';
-import { reduceCommands, CurrentState } from '../commandReducer';
-import { Npc, Quest, ItemEntry, StatusEffect, LorebookEntry } from '../../types';
+import { reduceCommands, CurrentState, isMergeable } from '../commandReducer';
+import { Npc, NpcMemory, Quest, ItemEntry, StatusEffect, LorebookEntry } from '../../types';
 
 const npc = (over: Partial<Npc> = {}): Npc => ({
   id: 1, name: '芬里爾', job: '獵人', affection: 10,
@@ -273,5 +273,88 @@ describe('reduceCommands — 勢力', () => {
     expect(stateChanges.factions).toHaveLength(1);
     expect(stateChanges.factions?.[0]).toMatchObject({ name: '獵人公會', type: 'guild' });
     expect(stateChanges.factions?.[0].color).toMatch(/^#/);
+  });
+});
+
+// thoughts[] 的 index 0 是最新的一則（新想法一律 unshift）
+const thoughts = (n: number) =>
+  Array.from({ length: n }, (_, i) => ({ text: `想法${i + 1}`, createdAt: '4/1' }));
+
+const npcMem = (id: string, over: Partial<NpcMemory> = {}): NpcMemory => ({
+  id, text: `記憶${id}`, createdAt: '4/1',
+  source: 'pre_merge', importance: 'normal',
+  ...over,
+});
+
+const overflow = (over: Partial<Npc> = {}) =>
+  run('NPC_THOUGHT|npc=芬里爾|text=第十則',
+      state({ npcs: [npc({ thoughts: thoughts(9), ...over })] }));
+
+describe('reduceCommands — NPC 想法打包', () => {
+  it('滿 10 則打包成一條 pre_merge 記憶並清空 thoughts', () => {
+    const target = overflow().stateChanges.npcs![0];
+    expect(target.thoughts).toEqual([]);
+    expect(target.memories).toHaveLength(1);
+    expect(target.memories[0]).toMatchObject({ source: 'pre_merge', importance: 'normal' });
+  });
+
+  it('打包保留全部 10 則，最舊一則不會遺失', () => {
+    const text = overflow().stateChanges.npcs![0].memories[0].text;
+    expect(text).toContain('想法9');    // 最舊
+    expect(text).toContain('第十則');   // 最新
+    expect(text.split('；')).toHaveLength(10);
+  });
+
+  it('記憶掛遊戲內日期而非現實日期', () => {
+    expect(overflow().stateChanges.npcs![0].memories[0].createdAt).toBe('4/15');
+  });
+
+  it('第 9 則不觸發打包', () => {
+    const s = state({ npcs: [npc({ thoughts: thoughts(8) })] });
+    const target = run('NPC_THOUGHT|npc=芬里爾|text=第九則', s).stateChanges.npcs![0];
+    expect(target.thoughts).toHaveLength(9);
+    expect(target.memories).toHaveLength(0);
+  });
+});
+
+describe('reduceCommands — NPC 記憶融合門檻', () => {
+  const many = (n: number, over: Partial<NpcMemory> = {}) =>
+    Array.from({ length: n }, (_, i) => npcMem(`${over.source ?? 'p'}${i}`, over));
+
+  it('可融合記憶滿 10 條時排入融合任務', () => {
+    const { asyncTasks } = overflow({ memories: many(9) });
+    expect(asyncTasks).toHaveLength(1);
+    expect(asyncTasks[0].payload).toMatchObject({ npcName: '芬里爾', gameDate: '4/15' });
+  });
+
+  it('未滿 10 條不觸發', () => {
+    expect(overflow({ memories: many(8) }).asyncTasks).toHaveLength(0);
+  });
+
+  it('玩家手寫記憶（含 ★ 核心）不計入門檻', () => {
+    const memories = [
+      ...many(5),
+      ...many(20, { source: 'manual' }),
+      ...many(3, { source: 'manual', importance: 'core' }),
+    ];
+    // 可融合的只有 5 + 本回合新增的 1 = 6 條
+    expect(overflow({ memories }).asyncTasks).toHaveLength(0);
+  });
+
+  it('已封存記憶不計入門檻', () => {
+    expect(overflow({ memories: many(20, { isMerged: true }) }).asyncTasks).toHaveLength(0);
+  });
+});
+
+describe('isMergeable', () => {
+  it('只有未封存的 AI 產出記憶可融合', () => {
+    expect(isMergeable(npcMem('a', { source: 'pre_merge' }))).toBe(true);
+    expect(isMergeable(npcMem('b', { source: 'merged' }))).toBe(true);
+    expect(isMergeable(npcMem('c', { source: 'pre_merge', isMerged: true }))).toBe(false);
+  });
+
+  it('玩家手寫的一律不可融合', () => {
+    expect(isMergeable(npcMem('d', { source: 'manual' }))).toBe(false);
+    expect(isMergeable(npcMem('e', { source: 'manual', importance: 'core' }))).toBe(false);
   });
 });
