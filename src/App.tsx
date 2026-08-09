@@ -35,7 +35,7 @@ import { performanceMonitor } from './utils/performanceMonitor';
 import { debounce } from './utils/debounce';
 import { renderMarkdown, cleanNarrative, APPEAR_TAG_PATTERN, APPEAR_TAG_CAPTURE_PATTERN } from './utils/markdownParser';
 import { buildPrompt, BuildPromptDeps, BuildPromptResult } from './utils/promptBuilder';
-import { parseNpcImport, mergeImportedNpcs } from './utils/npcImport';
+import { parseNpcImport, mergeImportedNpcs, mergeImportedFactions } from './utils/npcImport';
 import { SaveSlotsModal } from './components/SaveSlotsModal';
 
 export default function App() {
@@ -319,6 +319,7 @@ ${newPool.map((s, i) => `${i + 1}. ${s}`).join('\n')}`;
     factions, setFactions, addFaction, updateFaction,
     buildSaveSnapshot,
     loadFromData,
+    resetGame,
     setIsStoreReady,
   } = store;
 
@@ -900,34 +901,55 @@ ${poolText}
       return;
     }
 
-    const { npcs: incoming, errors } = parseNpcImport(parsed);
-    if (incoming.length === 0) {
+    const { npcs: incoming, factions: incomingFactions, errors } = parseNpcImport(parsed);
+    if (incoming.length === 0 && incomingFactions.length === 0) {
       showToast(`❌ 沒有可匯入的角色${errors[0] ? `：${errors[0]}` : ''}`);
       return;
     }
+
+    // 先合勢力再合角色：角色的勢力是用**名稱**解析的，勢力得先存在才對得上，
+    // 否則檔案裡明明帶了勢力定義，角色仍會被判成「查無勢力」而失去歸屬
+    const fResult = mergeImportedFactions(
+      incomingFactions,
+      factionsRef.current,
+      lorebookEntriesRef.current,
+    );
 
     const result = mergeImportedNpcs(
       incoming,
       npcsRef.current,
       lorebookEntriesRef.current,
       `${timeState.month}/${timeState.day}`,
-      factionsRef.current,
+      fResult.factions,
     );
 
-    if (result.addedNames.length === 0) {
+    if (result.addedNames.length === 0 && fResult.addedNames.length === 0) {
       showToast(`⚠️ ${result.skippedNames.length} 位角色已存在，未匯入`);
       return;
     }
 
-    setNpcs(result.npcs);
-    setLorebookEntries(result.lorebookEntries);
+    if (fResult.addedNames.length > 0) setFactions(fResult.factions);
+    if (result.addedNames.length > 0) {
+      setNpcs(result.npcs);
+      setLorebookEntries(result.lorebookEntries);
+    }
 
-    const parts = [`✅ 匯入 ${result.addedNames.length} 位角色`];
+    const parts: string[] = [];
+    if (result.addedNames.length > 0) parts.push(`✅ 匯入 ${result.addedNames.length} 位角色`);
+    if (fResult.addedNames.length > 0) parts.push(`新增 ${fResult.addedNames.length} 個勢力`);
     if (result.skippedNames.length > 0) parts.push(`已存在 ${result.skippedNames.length} 位`);
     if (result.unknownFactions.length > 0) parts.push(`查無勢力「${result.unknownFactions.join('、')}」`);
+    if (fResult.unresolvedRelations.length > 0) parts.push(`${fResult.unresolvedRelations.length} 條勢力關係對不到對象`);
     if (errors.length > 0) parts.push(`${errors.length} 筆格式有誤`);
     showToast(parts.join('，'));
     if (errors.length > 0) console.warn('[NPC 匯入] 略過的資料：', errors);
+    if (fResult.unresolvedRelations.length > 0) {
+      console.warn('[NPC 匯入] 對不到對象的勢力關係：', fResult.unresolvedRelations);
+    }
+
+    // 匯入只寫進 state，雲端要等下一次 AI 回應的自動存檔才會同步——
+    // 中間關掉分頁就整批白匯了。這裡主動送一次存檔
+    requestPersist();
   };
 
   const handleUpdateLorebook = (id: number, updates: Partial<LorebookEntry>) => {
@@ -1063,18 +1085,37 @@ ${poolText}
   };
 
   // ─── 重置遊戲 ────────────────────────────────────────────────────────────────
+  //
+  // 重置＝把目前這一槽的進度清回全新遊戲，**不刪存檔槽**。
+  // 舊版是「deleteCloudSave + reload」，但 reload 後的初始化（見上面的雲端載入
+  // effect）會去讀「最新的一槽」——玩家只要還有第二個存檔槽就會被直接載入，
+  // 結果是刪掉一個檔、然後掉進另一份舊進度，遊戲從頭到尾沒被重置。
   const handleResetGame = () => {
     setDialogRequest({
       title: '重置遊戲',
-      message: '確定要重置遊戲嗎？雲端存檔也會一併清除。',
+      message: `確定要重置「${currentSlotName}」嗎？對話、道具、任務、日記、好感度與時間地點都會回到全新遊戲；世界觀設定、設定集與角色設定會保留，其他存檔槽不受影響。`,
       confirmLabel: '重置',
       danger: true,
       onConfirm: async () => {
-        if (authUser) {
-          await deleteCloudSave(authUser.id, currentSlotName);
+        // 串流中重置的話，回應寫回來會落在新遊戲的訊息串上
+        abortAI();
+        setLastInput('');
+        // resetGame 回傳的正是剛寫進 state 的那份資料。這裡不能用 buildSaveSnapshot()：
+        // 它讀的是閉包捕獲的舊 state，會把重置前的進度原封不動再傳回雲端（同 handleImportSave 的坑）
+        const fresh = resetGame();
+        setIsSettingsModalOpen(false);
+        if (!authUser) return;
+        setIsCloudSaving(true);
+        const ok = await saveToCloud(authUser.id, currentSlotName, fresh);
+        setIsCloudSaving(false);
+        if (ok) {
+          const now = new Date();
+          localStorage.setItem('rpworld_last_saved', now.toISOString());
+          setLastSavedAt(now);
+          showToast('遊戲已重置');
+        } else {
+          showToast('遊戲已重置（雲端同步失敗）');
         }
-        localStorage.removeItem('rpworld_last_saved');
-        window.location.reload();
       },
     });
   };
