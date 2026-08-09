@@ -174,6 +174,41 @@
   :root { font-size: 14px; }
 }
 
+/* ── 對話泡泡的操作列（重新生成／更多操作）─────────────────
+ * ⚠️ 不要改回 Tailwind 的 `opacity-0 group-hover:opacity-100`。
+ * Tailwind v4 預設把 `hover:` 包進 `@media (hover: hover)`，觸控裝置
+ * （hover: none）那條規則永遠不生效，操作列會固定停在 opacity: 0——
+ * 按鈕其實還在、還能點，但玩家完全看不見，等於編輯／刪除整組消失。
+ * 這跟螢幕寬度無關，所以用 hover 能力判斷而非 max-width：
+ * 觸控筆電與平板在寬螢幕下也一樣需要常駐顯示。
+ */
+.msg-actions { opacity: 1; transition: opacity 0.15s ease; }
+
+@media (hover: hover) {
+  /* 有滑鼠才藏起來，靠 hover 顯露 */
+  .msg-actions { opacity: 0; }
+  .group:hover .msg-actions { opacity: 1; }
+}
+
+/* 選單展開時一律可見（否則觸控裝置點開選單後操作列自己淡掉） */
+.msg-actions[data-open='true'] { opacity: 1; }
+
+@media (hover: none) {
+  /* 觸控要有夠大的點擊區：原本 p-1 + 圖示只有 22px，遠低於可靠的觸控門檻。
+   * ⚠️ 用固定 px 而非 rem／padding——手機的 :root 是 14px（見上方 max-width: 640px），
+   * 用 rem 會被一起縮掉，實測只長到 26px。 */
+  .msg-actions .msg-action-btn {
+    min-width: 40px;
+    min-height: 40px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  /* 選單項目同理，py-2 在手機的 14px 根字級下只有約 36px */
+  .msg-menu-item { min-height: 44px; }
+}
+
 /* ── 動畫 ───────────────────────────────────────────────── */
 @keyframes blink-dot {
   0%, 80%, 100% { opacity: 0.2; transform: translateY(0); }

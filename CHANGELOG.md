@@ -5,6 +5,88 @@
 
 ---
 
+### Bug 修正｜手機版對話泡泡的編輯／刪除完全點不到 2026-08-10 [Claude Code]
+
+玩家回報手機上對話泡泡少了編輯／刪除。兩個獨立的成因，缺一個修都沒用。
+
+**1. 工具列在觸控裝置永遠隱形**
+
+`MessageCard` 的操作列寫成 `opacity-0 group-hover:opacity-100`。
+**Tailwind v4 預設把 `hover:` 包進 `@media (hover: hover)`**——編譯後長這樣：
+
+```css
+@media(hover:hover){ .group-hover\:opacity-100:is(:where(.group):hover *){opacity:1} }
+```
+
+觸控裝置是 `hover: none`，這條規則**永遠不會套用**，操作列固定停在 `opacity: 0`。
+按鈕其實還在 DOM 裡、也還能點（opacity 不擋 pointer events），但玩家完全看不見。
+
+修法：顯示邏輯移到 `index.css` 的 `.msg-actions`，以 **hover 能力**而非螢幕寬度判斷。
+沒用既有的 `isMobile`（`window.innerWidth <= 640`）是因為這跟寬度無關——
+觸控筆電與平板在寬螢幕下一樣壞。選單展開時另以 `[data-open='true']` 保持可見
+（特異性 0,2,0 壓過 hover 隱藏的 0,1,0，滑鼠移開後選單仍在，與原行為一致）。
+
+**2. 選單往上開，捲到頂端時被裁掉**
+
+修好第一點後才看得到第二個問題：選單寫死 `bottom-full`（一律往上開），
+最上面那則訊息的選單會被 `overflow-y-auto` 的對話串容器整個裁掉——
+按鈕看得到、選項點不到，編輯／刪除還是不能用。
+
+改成量測後翻轉：上方空間不足就 `top-full` 往下開。
+量測基準是**捲動祖先**而非視窗（`scrollClipRect`）——手機版頂部有 `pt-36` 的 HUD，
+用 `window` 判斷會誤以為上面還有空間。
+
+**順帶**：觸控的點擊區從 22px 放大到 40px（選單項目 44px）。
+⚠️ 用固定 px 不用 `rem`／`padding`——手機的 `:root` 是 14px（見 `index.css` 的
+`max-width: 640px`），用 rem 會被一起縮掉，實測只長到 26px。
+
+驗證方式：`@media (hover: hover)` 這類東西 jsdom 不會套用，所以用 Chromium 搭 CDP
+`Emulation.setEmulatedMedia` 分別模擬 `hover:none/pointer:coarse` 與
+`hover:hover/pointer:fine` 實測。`MessageCard.test.tsx` 5 條測試釘住 class 契約
+（改回 group-hover 就會紅）、`data-open`、選單項目與翻轉方向。
+
+---
+
+### 專案整理｜清掉根目錄的整棵「影子副本」，順帶救回兩份沒進 build 的工作 2026-08-10 [Claude Code]
+
+根目錄躺著 31 個 `src/` 的重複檔（`App.tsx`、`components/`、`hooks/`，還有一個
+`useGameStore.ts` 連 `hooks/` 都沒進就擺在最外層）。成因是上傳時傳錯層級——
+該進 `src/` 的檔案落在根目錄。
+
+**它不是無害的死碼。** build 確實只吃 `src/`（`index.html` → `/src/main.tsx`），
+但 `tsc --noEmit` 與 vitest 是掃全專案的：
+
+| 指令 | 清理前 | 清理後 |
+|---|---|---|
+| `npm run lint` | 100 個 TS 錯誤（全來自根目錄那棵，`src/` 是 0） | 0 |
+| `npm test` | 19 檔中 5 檔 FAIL | 15 檔全過，267 條測試 |
+
+錯誤來自 `types.ts` / `constants.ts` / `lib/` / `utils/` 早就只剩 `src/` 版，
+根目錄的 `App.tsx` 還在 `import './types'`、`'./utils/promptBuilder'`；
+測試則掛在解析不到的 `../../test/setupDom`。
+
+**31 個裡有 29 個與 `src/` 版位元組相同，但兩個不是，刪掉會掉東西：**
+
+1. **`MapModal.tsx` 的勢力星圖版本**——根目錄那份比 `src/` 的新 113 行，且
+   CLAUDE.md 的顏色明文例外早就寫著「`MapModal.tsx` 的 `FACTION_SKY` — 勢力關係圖的
+   星圖天幕配色」，而實際被 build 的 `src/components/MapModal.tsx` **一次都沒出現
+   `FACTION_SKY`**。文件描述的是一份沒進 build 的檔案。內容含星圖天幕
+   `FACTION_SKY`、固定種子星塵 `STAR_FIELD`（不可在 render 期間 `Math.random`，
+   否則每次重繪星星跳位）、hover 態，以及一個真的 bug 修正：同據點勢力標籤原本
+   固定錯開 28px，但節點半徑就有 22、「獵人公會(和平派)」這種標籤動輒 110px，
+   兩個同據點勢力會整團疊死；改成依最長名稱估算間距（`FACTION_LABEL_CHAR_W`）
+2. **`useGameStore.resetGame.test.tsx`**——`src/` 底下完全沒有這支。本檔 2026-08-09
+   那條「重置遊戲只刪存檔槽」的紀錄寫著「12 條測試釘住清單與保留清單」，
+   而那 12 條測試從頭到尾沒被跑過。移進 `src/hooks/__tests__/` 後全過
+
+反向的一個：`components/panels/SceneMemoryWidget.tsx` 是**舊版**（還留著已刻意移除的
+NPC 段落），`src/` 那份才是新的，直接丟棄。
+
+> ⚠️ 之後上傳檔案請確認層級。`tsconfig.json` 刻意**不加** `include: ["src"]`——
+> 加了之後錯位的檔案會被 lint 靜默忽略，反而更難發現。現在的行為是吵，但吵得對。
+
+---
+
 ### Bug 修正｜AI 把路過的過渡點建成常駐地點，座標還全疊在月湖鎮 2026-08-10 [Claude Code]
 
 玩家實際存檔裡長出這些條目：

@@ -3,6 +3,9 @@ import { X, Search } from 'lucide-react';
 import { LorebookEntry, Profile, MemoryEntry, Faction, Npc } from '../types';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
+/** 勢力名稱標籤的估算字寬（fontSize 11 的中日韓全形字約等寬），用於錯開同據點的節點 */
+const FACTION_LABEL_CHAR_W = 11;
+
 const SVG_W = 680;
 const SVG_H = 520;
 const MAP_SCALE = 2.2;
@@ -20,6 +23,37 @@ const MAP_PALETTE = {
   glow: 'rgba(193, 143, 115, 0.25)',
 };
 const FACTION_PALETTE = ['#7F77DD', '#E24B4A', '#1D9E75', '#EF9F27', '#5f93d3', '#C47D3E', '#FF637E'];
+
+/**
+ * 勢力關係圖的「星圖」調色盤。
+ * 與 MAP_PALETTE 同屬 CLAUDE.md 明文例外的「地圖類獨立調色盤」：
+ * 勢力圖是抽象的關係星座，不隨 UI 主題變動，故不走 CSS Variables。
+ */
+const FACTION_SKY = {
+  near:  '#1c2340',   // 天幕中心（較亮）
+  mid:   '#121728',
+  far:   '#0a0d16',   // 天幕邊緣（沉下去）
+  star:  '#cfd8ff',
+  core:  '#0e1524',   // 節點內圈底色，讓勢力色的字浮起來
+  label: '#f0e6c8',   // 勢力名稱
+  sub:   '#8d95ab',   // 類型等次要文字
+};
+
+/**
+ * 星塵座標：模組載入時以固定種子產生一次。
+ * ⚠️ 不可在 render 期間用 Math.random——每次重繪星星都會跳位而閃爍，
+ * 而且違反 render 必須是純函數的規則。
+ */
+const STAR_FIELD = (() => {
+  let seed = 20260815;
+  const rnd = () => { seed = (seed * 1664525 + 1013904223) % 4294967296; return seed / 4294967296; };
+  return Array.from({ length: 110 }, () => ({
+    x: rnd() * SVG_W,
+    y: rnd() * SVG_H,
+    r: 0.4 + rnd() * 1.2,
+    o: 0.18 + rnd() * 0.5,
+  }));
+})();
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 function toSvg(x: number, y: number, panX: number, panY: number) {
@@ -61,6 +95,7 @@ export const MapModal: React.FC<MapModalProps> = ({
   const [selectedFactionId, setSelectedFactionId] = useState<number | null>(null);
   const [factionPanX, setFactionPanX] = useState(0);
   const [factionPanY, setFactionPanY] = useState(0);
+  const [hoveredFactionId, setHoveredFactionId] = useState<number | null>(null);
   const isDragging = useRef(false);
   const lastPan = useRef({ x: 0, y: 0 });
   const panRafRef = useRef<number | null>(null);
@@ -199,10 +234,14 @@ export const MapModal: React.FC<MapModalProps> = ({
     if (faction.homeId != null) {
       const homeLoc = lorebookEntries.find(e => e.id === faction.homeId);
       if (homeLoc?.mapX != null && homeLoc?.mapY != null) {
-        const siblingIds = activeFactions.filter(f => f.homeId === faction.homeId).map(f => f.id);
-        const sibIdx = siblingIds.indexOf(faction.id);
-        const total = siblingIds.length;
-        const spread = total > 1 ? 28 : 0;
+        const siblings = activeFactions.filter(f => f.homeId === faction.homeId);
+        const sibIdx = siblings.findIndex(f => f.id === faction.id);
+        const total = siblings.length;
+        // 同據點的勢力先前固定錯開 28px，但節點半徑就有 22，名稱標籤更是動輒上百 px
+        // （「獵人公會(和平派)」十個字 ≈ 110px），兩個同據點的勢力會整團疊在一起、
+        // 標籤糊成一片無法閱讀。改成依最長名稱估算所需間距。
+        const widest = Math.max(...siblings.map(f => f.name.length));
+        const spread = total > 1 ? Math.max(72, widest * FACTION_LABEL_CHAR_W + 14) : 0;
         const offset = (sibIdx - (total - 1) / 2) * spread;
         const { cx, cy } = toSvg(homeLoc.mapX, homeLoc.mapY, factionPanX, factionPanY);
         return { x: cx + offset, y: cy - (total > 1 ? 20 : 0) };
@@ -708,8 +747,31 @@ export const MapModal: React.FC<MapModalProps> = ({
                       <marker id="arrow-vassal" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
                         <path d="M0,0 L0,6 L8,3 z" fill="#888780" />
                       </marker>
+                      {/* 天幕：中心亮、邊緣沉下去，取代原本的一塊純色 rect */}
+                      <radialGradient id="faction-sky" cx="50%" cy="42%" r="78%">
+                        <stop offset="0%"   stopColor={FACTION_SKY.near} />
+                        <stop offset="58%"  stopColor={FACTION_SKY.mid} />
+                        <stop offset="100%" stopColor={FACTION_SKY.far} />
+                      </radialGradient>
+                      {/* 每個勢力一組光暈漸層：用勢力色由內而外淡出 */}
+                      {activeFactions.map(f => {
+                        const fc = getFColor(f);
+                        return (
+                          <radialGradient key={f.id} id={`faction-orb-${f.id}`}>
+                            <stop offset="0%"   stopColor={fc} stopOpacity={0.5} />
+                            <stop offset="60%"  stopColor={fc} stopOpacity={0.14} />
+                            <stop offset="100%" stopColor={fc} stopOpacity={0} />
+                          </radialGradient>
+                        );
+                      })}
                     </defs>
-                    <rect width={SVG_W} height={SVG_H} fill="var(--bg-base)" />
+                    <rect width={SVG_W} height={SVG_H} fill="url(#faction-sky)" />
+                    {/* 星塵：座標於模組載入時固定，重繪不會跳位 */}
+                    <g style={{ pointerEvents: 'none' }}>
+                      {STAR_FIELD.map((s, i) => (
+                        <circle key={i} cx={s.x} cy={s.y} r={s.r} fill={FACTION_SKY.star} opacity={s.o} />
+                      ))}
+                    </g>
                     {activeFactions.length === 0 ? (
                       <text x={SVG_W / 2} y={SVG_H / 2} textAnchor="middle" fontSize="14" fill="#acacac"
                         fontFamily="'Noto Sans TC', sans-serif">尚無勢力資料</text>
@@ -726,12 +788,16 @@ export const MapModal: React.FC<MapModalProps> = ({
                             const pos2 = getFactionNodePos(tgt, tfi);
                             const rs = relationStyle(rel.type);
                             return (
-                              <line key={`${faction.id}-${rel.targetFactionId}`}
-                                x1={pos1.x} y1={pos1.y} x2={pos2.x} y2={pos2.y}
-                                stroke={rs.color} strokeWidth={rs.width}
-                                strokeDasharray={rs.dash}
-                                markerEnd={rel.type === 'vassal' ? 'url(#arrow-vassal)' : undefined}
-                                opacity={0.7} />
+                              // 底下墊一條粗而透明的同色線當作輝光，維持直線但在深色天幕上更顯眼
+                              <g key={`${faction.id}-${rel.targetFactionId}`} style={{ pointerEvents: 'none' }}>
+                                <line x1={pos1.x} y1={pos1.y} x2={pos2.x} y2={pos2.y}
+                                  stroke={rs.color} strokeWidth={rs.width + 4} opacity={0.12} />
+                                <line x1={pos1.x} y1={pos1.y} x2={pos2.x} y2={pos2.y}
+                                  stroke={rs.color} strokeWidth={rs.width}
+                                  strokeDasharray={rs.dash}
+                                  markerEnd={rel.type === 'vassal' ? 'url(#arrow-vassal)' : undefined}
+                                  opacity={0.9} />
+                              </g>
                             );
                           });
                         })}
@@ -741,25 +807,46 @@ export const MapModal: React.FC<MapModalProps> = ({
                           const fc = getFColor(faction);
                           const members = getFactionMembers(faction);
                           const isSelected = selectedFactionId === faction.id;
+                          const isHovered = hoveredFactionId === faction.id && !isSelected;
                           return (
                             <g key={faction.id} data-node="true" style={{ cursor: 'pointer' }}
                               onClick={e => { e.stopPropagation(); setSelectedFactionId(prev => prev === faction.id ? null : faction.id); }}
+                              onPointerEnter={() => setHoveredFactionId(faction.id)}
+                              onPointerLeave={() => setHoveredFactionId(prev => prev === faction.id ? null : prev)}
                             >
-                              {isSelected && <circle cx={x} cy={y} r={28} fill={fc + '22'} stroke={fc} strokeWidth={2} opacity={0.6} />}
-                              <circle cx={x} cy={y} r={22} fill={fc + '1a'} stroke={fc} strokeWidth={1.5} />
-                              <circle cx={x} cy={y} r={13} fill={fc + '33'} />
-                              <text x={x} y={y + 5} textAnchor="middle" fontSize="14" fontWeight="700" fill={fc}
+                              {/* 光暈：選中最大最亮 → hover 次之 → 一般最收斂。
+                                  三段式讓「可點」與「已選」一眼就分得出來。 */}
+                              <circle cx={x} cy={y} r={isSelected ? 46 : isHovered ? 38 : 32}
+                                fill={`url(#faction-orb-${faction.id})`}
+                                opacity={isSelected ? 1 : isHovered ? 0.85 : 0.55}
+                                style={{ pointerEvents: 'none', transition: 'r 160ms ease, opacity 160ms ease' }} />
+                              {isSelected && (
+                                <circle cx={x} cy={y} r={30} fill="none" stroke={fc} strokeWidth={1.4} opacity={0.7}
+                                  style={{ pointerEvents: 'none' }} />
+                              )}
+                              {/* 內圈壓深色底，勢力色的字才浮得起來（原本 10% alpha 幾乎看不見） */}
+                              <circle cx={x} cy={y} r={21} fill={FACTION_SKY.core}
+                                stroke={fc} strokeWidth={isSelected ? 2.6 : isHovered ? 2.2 : 1.8}
+                                style={{ transition: 'stroke-width 160ms ease' }} />
+                              <circle cx={x} cy={y} r={13} fill={fc} fillOpacity={isSelected ? 0.34 : 0.24}
+                                style={{ pointerEvents: 'none' }} />
+                              <text x={x} y={y + 6} textAnchor="middle" fontSize="16" fontWeight="700" fill={fc}
                                 style={{ pointerEvents: 'none', fontFamily: "'Noto Sans TC', sans-serif" }}>
                                 {faction.name.charAt(0)}
                               </text>
-                              <text x={x} y={y + 38} textAnchor="middle" fontSize="11" fill="var(--text-primary)" fontWeight="500"
+                              {/* 名稱升到 12.5 semibold、類型降到 9 並加字距，拉開兩行的權重差 */}
+                              <text x={x} y={y + 40} textAnchor="middle" fontSize="12.5" fontWeight="600"
+                                fill={isSelected || isHovered ? FACTION_SKY.label : 'var(--text-primary)'}
                                 style={{ pointerEvents: 'none', fontFamily: "'Noto Sans TC', sans-serif" }}>{faction.name}</text>
-                              <text x={x} y={y + 50} textAnchor="middle" fontSize="10" fill="var(--text-muted)"
+                              <text x={x} y={y + 53} textAnchor="middle" fontSize="9" letterSpacing="2" fill={FACTION_SKY.sub}
                                 style={{ pointerEvents: 'none', fontFamily: "'Noto Sans TC', sans-serif" }}>{typeLabel(faction.type)}</text>
-                              {/* NPC circles */}
-                              {members.slice(0, 6).map((npc, ni) => {
-                                const npcX = x - ((Math.min(members.length, 6) - 1) * 11) / 2 + ni * 11;
-                                const npcY = y + 64;
+                              {/* 成員頭像只在點開該勢力時展開。
+                                  先前每個節點下方都固定掛一排，勢力一多畫面就糊；
+                                  而且間距 11 小於直徑 18，頭像彼此還互相疊住。 */}
+                              {isSelected && members.slice(0, 6).map((npc, ni) => {
+                                const shown = Math.min(members.length, 6);
+                                const npcX = x - ((shown - 1) * 22) / 2 + ni * 22;
+                                const npcY = y + 74;
                                 return (
                                   <g key={npc.id} data-node="true" style={{ cursor: 'pointer' }}
                                     onClick={e => { e.stopPropagation(); onOpenNpcModal(npc.id); }}>
@@ -786,6 +873,32 @@ export const MapModal: React.FC<MapModalProps> = ({
                       </>
                     )}
                   </svg>
+                  {/* 關係線圖例：顏色先前完全沒有說明，玩家看不懂敵友。
+                      用 HTML 疊層而非畫進 SVG——viewBox 是 preserveAspectRatio="slice"，
+                      畫在 SVG 邊角的東西會被裁掉。 */}
+                  {activeFactions.length > 0 && (
+                    <div className="absolute bottom-[24px] right-[20px] rounded-[8px] px-3 py-2 pointer-events-none"
+                      style={{
+                        background: `color-mix(in srgb, ${FACTION_SKY.far} 82%, transparent)`,
+                        border: `0.5px solid ${FACTION_SKY.sub}44`,
+                        backdropFilter: 'blur(6px)',
+                      }}>
+                      {([['ally', '同盟'], ['enemy', '敵對'], ['rival', '競爭'], ['vassal', '附庸']] as const)
+                        .map(([type, label]) => {
+                          const rs = relationStyle(type);
+                          return (
+                            <div key={type} className="flex items-center gap-2 py-[2px]">
+                              <svg width="30" height="8" style={{ overflow: 'visible', flexShrink: 0 }}>
+                                <line x1="1" y1="4" x2={type === 'vassal' ? 22 : 29} y2="4"
+                                  stroke={rs.color} strokeWidth={rs.width} strokeDasharray={rs.dash} />
+                                {type === 'vassal' && <path d="M22,1 L29,4 L22,7 z" fill={rs.color} />}
+                              </svg>
+                              <span className="text-[10px] whitespace-nowrap" style={{ color: FACTION_SKY.sub }}>{label}</span>
+                            </div>
+                          );
+                        })}
+                    </div>
+                  )}
                   {/* Reset button */}
                   <button className="absolute bottom-[30px] left-[30px] transition-all duration-300 hover:scale-110 active:scale-95"
                     style={{ opacity: 1, background: 'none', border: 'none', padding: 0, cursor: 'pointer' }}
