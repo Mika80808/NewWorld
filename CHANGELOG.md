@@ -5,6 +5,41 @@
 
 ---
 
+### Bug 修正｜「重置遊戲」只刪存檔槽，進度沒被重置 2026-08-09 [Claude Code]
+
+`handleResetGame` 做的是 `deleteCloudSave(currentSlotName)` + `window.location.reload()`，
+從頭到尾沒有碰過任何一個 state——`useGameStore` 裡根本沒有重置的入口，全域改寫只有
+`loadFromData` 一條路。
+
+重整後的初始化 effect 是 `listCloudSaves` → **讀最新的那一槽**。所以：
+
+- 玩家有第二個存檔槽 → 直接被載入，畫面上是另一份舊進度。刪了一個檔，遊戲沒重置
+- 只有一槽 → 剛好變成全新遊戲，但那是「存檔不存在」的副作用，不是重置
+
+**修法**：`useGameStore` 新增 `resetGame()`，改成重置「這一槽的進度」而不刪存檔槽：
+
+- **清進度**：對話、背包／裝備／道具圖鑑、任務、日記、狀態、助理 GM 的
+  `adventureLog`／`currentGoals`／`summaryPool`／`compressCount`、HP／MP／金幣、
+  `appearingNpcs`、sticky／cooldown 計數器、時間地點（重新隨機開局）
+- **保留設定**：`systemPrompt`、`lorebookEntries`、`factions`、`source === 'manual'` 的記憶、
+  角色設定欄位（name／job／appearance／personality／other）
+- **NPC 不刪人，只歸零關係**：好感度、記憶、想法、釘選、足跡、`relationship` 清掉。
+  設定集的 NPC 條目既然保留，`npcs[]` 就不能清空——否則角色進得了 prompt 卻沒有
+  好感度紀錄，`AFFINITY` 指令會靜默失效（注意事項 20：兩份資料必須同時存在）
+
+兩個踩過的坑在這裡一併避開：
+
+1. 重置用 `saveDataMapper({})` **重算**，不用模組層的 `DEFAULTS`——後者在載入時就把隨機
+   開局算死了，整個 session 共用同一份，重置會回到跟本次開場一模一樣的地點與時間
+2. `resetGame()` **回傳剛寫進 state 的那份**給呼叫端上傳。改用 `buildSaveSnapshot()` 會讀到
+   閉包捕獲的舊 state（setState 要到次一次 render 才生效），等於把重置前的進度又寫回雲端
+   ——與 `handleImportSave` 是同一個坑
+
+不再 reload，也不再刪任何存檔槽；重置後直接以新快照覆寫目前這一槽。
+`useGameStore.resetGame.test.tsx` 12 條測試釘住清單與保留清單。
+
+---
+
 ### Bug 修正｜助理 GM 可並行執行，摘要互相覆蓋、日記重複生成 2026-08-04 [Claude Code]
 
 `updateAdventureState` 是 fire-and-forget（`handleSendMessage` 沒有 await 它），
