@@ -8,14 +8,18 @@ interface SceneMemoryWidgetProps {
 }
 
 /**
- * 右欄 Widget 3：場景 & 區域記憶（區域 / 場景 / NPC 三段）。
+ * 右欄 Widget 3：場景 & 區域記憶（區域 / 場景 兩段）。
  * 桌面右欄與手機右抽屜共用。
+ *
+ * ⚠️ 這裡刻意不顯示 `type === 'npc'` 的記憶。這個 Widget 講的是「你現在站的地方」，
+ * 而 NPC 記憶沒有地點條件（先前那一段完全不過濾 currentLocation），
+ * 於是跨場景的角色對話會一路累積在這裡，把真正的場景記憶擠掉。
+ * 角色相關的內容看 NPC 卡片的記憶庫；npc 記憶本身照常存在、照常注入 prompt。
  */
 export const SceneMemoryWidget: React.FC<SceneMemoryWidgetProps> = ({ memories, currentLocation }) => {
-  // 單趟走訪分三類，取代原本連續三次 memories.filter
+  // 單趟走訪分兩類，取代原本連續兩次 memories.filter
   const regionMems: MemoryEntry[] = [];
   const sceneMems: MemoryEntry[] = [];
-  const npcMems: MemoryEntry[] = [];
   for (const m of memories) {
     if (!m.isActive) continue;
     const locs = m.tags?.locations || [];
@@ -23,8 +27,6 @@ export const SceneMemoryWidget: React.FC<SceneMemoryWidgetProps> = ({ memories, 
       if (locs.length === 0 || locs.some(l => l === currentLocation)) regionMems.push(m);
     } else if (m.type === 'scene') {
       if (locs.some(l => l === currentLocation)) sceneMems.push(m);
-    } else if (m.type === 'npc') {
-      npcMems.push(m);
     }
   }
 
@@ -56,7 +58,7 @@ export const SceneMemoryWidget: React.FC<SceneMemoryWidgetProps> = ({ memories, 
       )}
 
       {/* 場景記憶 */}
-      <div className="mb-3">
+      <div>
         <p className="text-[0.625rem] uppercase tracking-widest mb-1.5 font-semibold" style={{ color: 'var(--text-muted)' }}>場景</p>
         {sceneMems.length > 0 ? (
           <ul className="space-y-1.5">
@@ -71,26 +73,6 @@ export const SceneMemoryWidget: React.FC<SceneMemoryWidgetProps> = ({ memories, 
           <p className="text-xs pl-1" style={{ color: 'var(--text-muted)' }}>此場景尚無記憶...</p>
         )}
       </div>
-
-      {/* NPC 記憶 */}
-      {npcMems.length > 0 && (
-        <div>
-          <p className="text-[0.625rem] uppercase tracking-widest mb-1.5 font-semibold" style={{ color: 'var(--text-muted)' }}>NPC</p>
-          <ul className="space-y-1.5">
-            {npcMems.map(mem => (
-              <li key={mem.id} className="flex items-start gap-2 text-xs leading-relaxed" style={{ color: 'var(--text-muted)' }}>
-                <span className="mt-1.5 w-1 h-1 rounded-full shrink-0" style={{ background: 'var(--color-emerald)', opacity: 0.7 }} />
-                <span>
-                  {mem.tags?.npcs?.length > 0 && (
-                    <strong className="mr-1" style={{ color: 'var(--text-title)' }}>[{mem.tags.npcs.join(',')}]</strong>
-                  )}
-                  {mem.content}
-                </span>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
     </div>
   );
 };

@@ -121,14 +121,19 @@ export const LorebookModal: React.FC<LorebookModalProps> = ({
   };
 
   const handleDownloadTemplate = () => {
-    downloadJson(NPC_IMPORT_TEMPLATE, 'NPC匯入範本.json');
+    downloadJson(NPC_IMPORT_TEMPLATE, '角色與勢力匯入範本.json');
     showToast('範本已下載，照著填再匯入即可');
   };
 
   const handleExportNpcs = () => {
     if (npcs.length === 0) { showToast('目前沒有角色可匯出'); return; }
-    downloadJson(buildNpcExport(npcs, lorebookEntries, factions), 'NPC匯出.json');
-    showToast(`已匯出 ${npcs.length} 位角色`);
+    // 勢力一併匯出：角色的勢力歸屬存的是名稱，目標存檔沒有同名勢力就會整段掉
+    downloadJson(buildNpcExport(npcs, lorebookEntries, factions), '角色與勢力匯出.json');
+    showToast(
+      factions.length > 0
+        ? `已匯出 ${npcs.length} 位角色與 ${factions.length} 個勢力`
+        : `已匯出 ${npcs.length} 位角色`
+    );
   };
 
   const inputStyle: React.CSSProperties = {
@@ -1032,7 +1037,7 @@ export const LorebookModal: React.FC<LorebookModalProps> = ({
                 </button>
                 <button
                   onClick={handleExportNpcs}
-                  title="匯出所有角色（格式與匯入相同，可再匯回）"
+                  title="匯出所有角色與勢力（格式與匯入相同，可再匯回）"
                   className="backdrop-blur-sm border border-white/10 px-3 h-8 rounded-[16px] flex items-center gap-1.5 transition shrink-0"
                   style={{ background: 'var(--btn-secondary)', color: 'var(--text-body)' }}
                   onMouseEnter={e => { e.currentTarget.style.background = 'var(--btn-secondary-hover)'; }}
