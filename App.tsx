@@ -35,7 +35,7 @@ import { performanceMonitor } from './utils/performanceMonitor';
 import { debounce } from './utils/debounce';
 import { renderMarkdown, cleanNarrative, APPEAR_TAG_PATTERN, APPEAR_TAG_CAPTURE_PATTERN } from './utils/markdownParser';
 import { buildPrompt, BuildPromptDeps, BuildPromptResult } from './utils/promptBuilder';
-import { parseNpcImport, mergeImportedNpcs } from './utils/npcImport';
+import { parseNpcImport, mergeImportedNpcs, mergeImportedFactions } from './utils/npcImport';
 import { SaveSlotsModal } from './components/SaveSlotsModal';
 
 export default function App() {
@@ -901,34 +901,55 @@ ${poolText}
       return;
     }
 
-    const { npcs: incoming, errors } = parseNpcImport(parsed);
-    if (incoming.length === 0) {
+    const { npcs: incoming, factions: incomingFactions, errors } = parseNpcImport(parsed);
+    if (incoming.length === 0 && incomingFactions.length === 0) {
       showToast(`❌ 沒有可匯入的角色${errors[0] ? `：${errors[0]}` : ''}`);
       return;
     }
+
+    // 先合勢力再合角色：角色的勢力是用**名稱**解析的，勢力得先存在才對得上，
+    // 否則檔案裡明明帶了勢力定義，角色仍會被判成「查無勢力」而失去歸屬
+    const fResult = mergeImportedFactions(
+      incomingFactions,
+      factionsRef.current,
+      lorebookEntriesRef.current,
+    );
 
     const result = mergeImportedNpcs(
       incoming,
       npcsRef.current,
       lorebookEntriesRef.current,
       `${timeState.month}/${timeState.day}`,
-      factionsRef.current,
+      fResult.factions,
     );
 
-    if (result.addedNames.length === 0) {
+    if (result.addedNames.length === 0 && fResult.addedNames.length === 0) {
       showToast(`⚠️ ${result.skippedNames.length} 位角色已存在，未匯入`);
       return;
     }
 
-    setNpcs(result.npcs);
-    setLorebookEntries(result.lorebookEntries);
+    if (fResult.addedNames.length > 0) setFactions(fResult.factions);
+    if (result.addedNames.length > 0) {
+      setNpcs(result.npcs);
+      setLorebookEntries(result.lorebookEntries);
+    }
 
-    const parts = [`✅ 匯入 ${result.addedNames.length} 位角色`];
+    const parts: string[] = [];
+    if (result.addedNames.length > 0) parts.push(`✅ 匯入 ${result.addedNames.length} 位角色`);
+    if (fResult.addedNames.length > 0) parts.push(`新增 ${fResult.addedNames.length} 個勢力`);
     if (result.skippedNames.length > 0) parts.push(`已存在 ${result.skippedNames.length} 位`);
     if (result.unknownFactions.length > 0) parts.push(`查無勢力「${result.unknownFactions.join('、')}」`);
+    if (fResult.unresolvedRelations.length > 0) parts.push(`${fResult.unresolvedRelations.length} 條勢力關係對不到對象`);
     if (errors.length > 0) parts.push(`${errors.length} 筆格式有誤`);
     showToast(parts.join('，'));
     if (errors.length > 0) console.warn('[NPC 匯入] 略過的資料：', errors);
+    if (fResult.unresolvedRelations.length > 0) {
+      console.warn('[NPC 匯入] 對不到對象的勢力關係：', fResult.unresolvedRelations);
+    }
+
+    // 匯入只寫進 state，雲端要等下一次 AI 回應的自動存檔才會同步——
+    // 中間關掉分頁就整批白匯了。這裡主動送一次存檔
+    requestPersist();
   };
 
   const handleUpdateLorebook = (id: number, updates: Partial<LorebookEntry>) => {

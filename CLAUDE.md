@@ -65,7 +65,8 @@ LLM 擔任 GM 的開放式世界文字冒險 RPG，玩家以自由文字輸入�
 - `affectionColor()` 函數回傳的 CSS 變數字串，用於 `style={{ color }}`
 - `App.tsx` `getSkyGradient()` 的天空漸層色碼 — 場景氛圍色，隨遊戲時間變化，非 UI 主題色
 - `App.tsx` HP / MP 條的 `linear-gradient` 色碼 — 遊戲數值語意色
-- `MapModal.tsx` 頂部的手繪地圖調色盤物件 — 羊皮紙地圖風格，獨立於 UI 主題
+- `MapModal.tsx` 頂部的手繪地圖調色盤物件（`MAP_PALETTE`）— 羊皮紙地圖風格，獨立於 UI 主題
+- `MapModal.tsx` 的 `FACTION_SKY` — 勢力關係圖的星圖天幕配色，同屬地圖類獨立調色盤
 - `Faction.color` — 由調色盤自動指派、存於存檔資料的勢力色
 - Google 登入按鈕 SVG 的品牌色（Google 規範要求）
 
@@ -516,7 +517,11 @@ FACTION_NEW|name=黑牙氏族|type=criminal|desc=盤據東境的盜賊團
 
 18. **NPC 的勢力歸屬唯一來源是 `Npc.factionIds`**。`Faction.npcIds` 已於 schema v5 廢除（`migrateV4toV5` 摺進 `factionIds` 後移除欄位），不要再讀寫它。先前兩邊各寫各的：`FACTION_JOIN` 寫 `factionIds`、勢力分頁勾選寫 `npcIds`，而 `promptBuilder` 只讀 `factionIds`——玩家手動勾的成員 AI 根本看不到。UI 端一律走 `onSetNpcFactions`（故事集勾選與 NPC 卡下拉選單共用）
 
-19. **NPC 匯出入的勢力欄位存「名稱」不是 id**。`factionIds` 是各存檔自己編的流水號，跨檔必然對不上；匯入時以名稱比對現有勢力，查無的收集進 `unknownFactions` 回報，不靜默丟棄。這個功能**不會**建立新勢力
+19. **NPC 匯出入一律以「名稱」跨檔，不存 id**。`Npc.factionIds`、`Faction.homeId`、`FactionRelation.targetFactionId` 都是各存檔自己編的流水號，跨檔必然對不上，匯出時全部轉成名稱（勢力名／地點標題）。
+
+    **勢力與角色必須一起匯出**（`buildNpcExport` 的 `factions` 區塊）。只帶角色的話，角色身上的勢力名稱在目標存檔找不到對應，歸屬會整段掉——這正是先前的行為。匯入端 `mergeImportedFactions` 依檔案帶的定義建立缺少的勢力（連同 `homeLocation` 與關係），再把結果當成 `existingFactions` 傳給 `mergeImportedNpcs`，**順序不可顛倒**，否則角色仍會被判成查無勢力。
+
+    只有名稱、沒有定義的勢力（舊檔案）維持原行為：收集進 `unknownFactions` 回報，不靜默丟棄、也不建立。既有同名勢力一律先寫先贏，連 `description`／`color`／`relations` 都不覆蓋——玩家調過的關係圖不該被一次匯入洗掉。地點查無時 `homeId` 留空，**不會**順手建立地點條目
 
 20. **「把 NPC 加進遊戲」一律要建兩份資料**：`npcs[]`（好感度／記憶庫／釘選／足跡）＋ `lorebookEntries` 的 NPC 條目（注入 prompt 的靜態設定）。`NPC_NEW`、`handleAddNpc`、`mergeImportedNpcs` 三個入口都是這樣做的。只建設定集條目的話，角色進得了 prompt 但沒有好感度、開不了記憶庫；只建 `npcs[]` 的話則不會出現在 Phase 1 的地點候選名單裡
 
@@ -546,5 +551,5 @@ FACTION_NEW|name=黑牙氏族|type=criminal|desc=盤據東境的盜賊團
 | `utils/affectionLabel.ts` `affectionLabel / relationText` | 好感度語意標籤（衍生值，不存檔）；`relationText` 為顯示與 prompt 注入的共用入口 |
 | `utils/itemCatalog.ts` `registerItemDef / touchItemDef / pruneItemCatalog / selectKnownItemNames` | 道具圖鑑：先寫先贏登錄、更新使用時間、LOD 淘汰、prompt 名稱切片 |
 | `utils/memoryStore.ts` `pruneMemories / touchMemories` | memories[] 儲存層：LOD 淘汰、LRU 時間戳（無變更時回傳原 reference） |
-| `utils/npcImport.ts` `parseNpcImport / mergeImportedNpcs / buildNpcExport / NPC_IMPORT_TEMPLATE` | NPC 批次匯入匯出：解析 JSON、同名先寫先贏合併、匯出（勢力以名稱來回）、範本 |
+| `utils/npcImport.ts` `parseNpcImport / mergeImportedFactions / mergeImportedNpcs / buildNpcExport / NPC_IMPORT_TEMPLATE` | 角色＋勢力批次匯入匯出：解析 JSON、勢力先合再合角色（同名先寫先贏）、匯出（勢力／地點／關係全以名稱來回）、範本 |
 | `useCommandParser` `consumeItem(name, qty?)` | 使用道具（原名 useItem，因 hook 命名慣例改名） |

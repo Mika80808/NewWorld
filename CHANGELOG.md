@@ -5,6 +5,34 @@
 
 ---
 
+### 功能｜角色匯出改為「角色＋勢力」一起帶，範本補上完整欄位 2026-08-10 [Claude Code]
+
+角色身上的勢力歸屬存的是**名稱**（`factionIds` 是各存檔的流水號，跨檔對不上），
+但匯入端只做「比對現有勢力」，目標存檔沒有同名勢力時就只回報「查無勢力」——
+整段歸屬靜默消失。匯出檔等於帶了一份對不到的引用。
+
+**改法**：`buildNpcExport` 增加 `factions` 區塊，`mergeImportedFactions` 依定義補建缺少的勢力。
+
+- 勢力**整份**帶走，不只帶「有成員」的那幾個——關係是勢力之間互指的，
+  篩掉沒人歸屬的會讓指向它們的關係在匯入端全部解不開
+- 三個 id 欄位全部轉名稱來回：`Npc.factionIds` → 勢力名、`Faction.homeId` → 地點標題、
+  `FactionRelation.targetFactionId` → 對象勢力名
+- 匯入順序**先勢力後角色**：角色的勢力是用名稱解析的，勢力得先存在才對得上
+- 關係解析分兩輪：第一輪只建勢力本身，第二輪才解關係。
+  檔案裡「A 與 B 為敵」可能寫在 B 之前，一輪做完會解析失敗
+- 既有同名勢力先寫先贏，`description`／`color`／`relations` 都不覆蓋；
+  地點查無時 `homeId` 留空，不順手建立地圖點位
+- 只有名稱、沒有定義的舊檔案維持原行為（`unknownFactions` 回報，不建立）
+
+順帶修掉兩件事：
+
+1. **範本補上 `factions` 區塊**。匯出檔有、範本沒有，照著範本填的人根本不知道有這個欄位，
+   兩份檔案看起來像兩種格式
+2. **匯入後主動觸發雲端存檔**（`requestPersist`）。先前只寫進 React state，
+   要等下一次 AI 回應的自動存檔才上雲，中間關掉分頁就整批白匯
+
+---
+
 ### Bug 修正｜「重置遊戲」只刪存檔槽，進度沒被重置 2026-08-09 [Claude Code]
 
 `handleResetGame` 做的是 `deleteCloudSave(currentSlotName)` + `window.location.reload()`，
