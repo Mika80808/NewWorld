@@ -5,6 +5,46 @@
 
 ---
 
+### 專案整理｜清掉根目錄的整棵「影子副本」，順帶救回兩份沒進 build 的工作 2026-08-10 [Claude Code]
+
+根目錄躺著 31 個 `src/` 的重複檔（`App.tsx`、`components/`、`hooks/`，還有一個
+`useGameStore.ts` 連 `hooks/` 都沒進就擺在最外層）。成因是上傳時傳錯層級——
+該進 `src/` 的檔案落在根目錄。
+
+**它不是無害的死碼。** build 確實只吃 `src/`（`index.html` → `/src/main.tsx`），
+但 `tsc --noEmit` 與 vitest 是掃全專案的：
+
+| 指令 | 清理前 | 清理後 |
+|---|---|---|
+| `npm run lint` | 100 個 TS 錯誤（全來自根目錄那棵，`src/` 是 0） | 0 |
+| `npm test` | 19 檔中 5 檔 FAIL | 15 檔全過，267 條測試 |
+
+錯誤來自 `types.ts` / `constants.ts` / `lib/` / `utils/` 早就只剩 `src/` 版，
+根目錄的 `App.tsx` 還在 `import './types'`、`'./utils/promptBuilder'`；
+測試則掛在解析不到的 `../../test/setupDom`。
+
+**31 個裡有 29 個與 `src/` 版位元組相同，但兩個不是，刪掉會掉東西：**
+
+1. **`MapModal.tsx` 的勢力星圖版本**——根目錄那份比 `src/` 的新 113 行，且
+   CLAUDE.md 的顏色明文例外早就寫著「`MapModal.tsx` 的 `FACTION_SKY` — 勢力關係圖的
+   星圖天幕配色」，而實際被 build 的 `src/components/MapModal.tsx` **一次都沒出現
+   `FACTION_SKY`**。文件描述的是一份沒進 build 的檔案。內容含星圖天幕
+   `FACTION_SKY`、固定種子星塵 `STAR_FIELD`（不可在 render 期間 `Math.random`，
+   否則每次重繪星星跳位）、hover 態，以及一個真的 bug 修正：同據點勢力標籤原本
+   固定錯開 28px，但節點半徑就有 22、「獵人公會(和平派)」這種標籤動輒 110px，
+   兩個同據點勢力會整團疊死；改成依最長名稱估算間距（`FACTION_LABEL_CHAR_W`）
+2. **`useGameStore.resetGame.test.tsx`**——`src/` 底下完全沒有這支。本檔 2026-08-09
+   那條「重置遊戲只刪存檔槽」的紀錄寫著「12 條測試釘住清單與保留清單」，
+   而那 12 條測試從頭到尾沒被跑過。移進 `src/hooks/__tests__/` 後全過
+
+反向的一個：`components/panels/SceneMemoryWidget.tsx` 是**舊版**（還留著已刻意移除的
+NPC 段落），`src/` 那份才是新的，直接丟棄。
+
+> ⚠️ 之後上傳檔案請確認層級。`tsconfig.json` 刻意**不加** `include: ["src"]`——
+> 加了之後錯位的檔案會被 lint 靜默忽略，反而更難發現。現在的行為是吵，但吵得對。
+
+---
+
 ### Bug 修正｜AI 把路過的過渡點建成常駐地點，座標還全疊在月湖鎮 2026-08-10 [Claude Code]
 
 玩家實際存檔裡長出這些條目：
