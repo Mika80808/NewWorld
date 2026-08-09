@@ -5,6 +5,48 @@
 
 ---
 
+### Bug 修正｜手機版對話泡泡的編輯／刪除完全點不到 2026-08-10 [Claude Code]
+
+玩家回報手機上對話泡泡少了編輯／刪除。兩個獨立的成因，缺一個修都沒用。
+
+**1. 工具列在觸控裝置永遠隱形**
+
+`MessageCard` 的操作列寫成 `opacity-0 group-hover:opacity-100`。
+**Tailwind v4 預設把 `hover:` 包進 `@media (hover: hover)`**——編譯後長這樣：
+
+```css
+@media(hover:hover){ .group-hover\:opacity-100:is(:where(.group):hover *){opacity:1} }
+```
+
+觸控裝置是 `hover: none`，這條規則**永遠不會套用**，操作列固定停在 `opacity: 0`。
+按鈕其實還在 DOM 裡、也還能點（opacity 不擋 pointer events），但玩家完全看不見。
+
+修法：顯示邏輯移到 `index.css` 的 `.msg-actions`，以 **hover 能力**而非螢幕寬度判斷。
+沒用既有的 `isMobile`（`window.innerWidth <= 640`）是因為這跟寬度無關——
+觸控筆電與平板在寬螢幕下一樣壞。選單展開時另以 `[data-open='true']` 保持可見
+（特異性 0,2,0 壓過 hover 隱藏的 0,1,0，滑鼠移開後選單仍在，與原行為一致）。
+
+**2. 選單往上開，捲到頂端時被裁掉**
+
+修好第一點後才看得到第二個問題：選單寫死 `bottom-full`（一律往上開），
+最上面那則訊息的選單會被 `overflow-y-auto` 的對話串容器整個裁掉——
+按鈕看得到、選項點不到，編輯／刪除還是不能用。
+
+改成量測後翻轉：上方空間不足就 `top-full` 往下開。
+量測基準是**捲動祖先**而非視窗（`scrollClipRect`）——手機版頂部有 `pt-36` 的 HUD，
+用 `window` 判斷會誤以為上面還有空間。
+
+**順帶**：觸控的點擊區從 22px 放大到 40px（選單項目 44px）。
+⚠️ 用固定 px 不用 `rem`／`padding`——手機的 `:root` 是 14px（見 `index.css` 的
+`max-width: 640px`），用 rem 會被一起縮掉，實測只長到 26px。
+
+驗證方式：`@media (hover: hover)` 這類東西 jsdom 不會套用，所以用 Chromium 搭 CDP
+`Emulation.setEmulatedMedia` 分別模擬 `hover:none/pointer:coarse` 與
+`hover:hover/pointer:fine` 實測。`MessageCard.test.tsx` 5 條測試釘住 class 契約
+（改回 group-hover 就會紅）、`data-open`、選單項目與翻轉方向。
+
+---
+
 ### 專案整理｜清掉根目錄的整棵「影子副本」，順帶救回兩份沒進 build 的工作 2026-08-10 [Claude Code]
 
 根目錄躺著 31 個 `src/` 的重複檔（`App.tsx`、`components/`、`hooks/`，還有一個
