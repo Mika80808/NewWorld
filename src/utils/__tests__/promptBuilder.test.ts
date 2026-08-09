@@ -129,6 +129,52 @@ describe('buildPrompt — 靜態前綴排序', () => {
   });
 });
 
+// AI 先前把新地點全建在原點附近（±10），整批疊在月湖鎮(0,0)：
+// 靜態的 COMMAND FORMAT 只給得起「月湖鎮=0,0」一個參考點，模型沒有尺度概念。
+describe('buildPrompt — 地圖尺規', () => {
+  const locs: LorebookEntry[] = [
+    { id: 1, title: '月湖鎮', content: '', category: '地點', isActive: true, mapX: 0, mapY: 0 },
+    { id: 2, title: '迷霧森林', content: '', category: '地點', isActive: true, mapX: 100, mapY: 50 },
+    { id: 3, title: '沒座標的地方', content: '', category: '地點', isActive: true },
+    { id: 4, title: '芬里爾', content: '', category: 'NPC', isActive: true },
+  ];
+  const build = (entries: LorebookEntry[]) =>
+    buildPrompt({ ...deps([], () => false), lorebookEntries: entries }, '測試輸入', messages).prompt;
+
+  // 指令規格那段會提到「下方 [已知地點座標]」指路，比對時要用完整標題才不會抓到它
+  const HEADER = '[已知地點座標（世界地圖尺規';
+
+  it('注入已知地點的實際座標當尺規', () => {
+    const p = build(locs);
+    expect(p).toContain(HEADER);
+    expect(p).toContain('月湖鎮(0,0)');
+    expect(p).toContain('迷霧森林(100,50)');
+  });
+
+  it('沒有座標的地點與非地點條目不列入', () => {
+    const p = build(locs);
+    expect(p).not.toContain('沒座標的地方');
+    expect(p).not.toContain('芬里爾(');
+  });
+
+  it('一個有座標的地點都沒有時整段省略', () => {
+    expect(build([locs[2], locs[3]])).not.toContain(HEADER);
+  });
+
+  // 尺規會隨新地點變動，放進靜態前綴會讓每次探索都打掉 context caching
+  it('尺規排在靜態前綴之後', () => {
+    const p = build(locs);
+    expect(p.indexOf('[Current State]')).toBeLessThan(p.indexOf(HEADER));
+  });
+
+  it('指令規格要求 type 並警告座標尺度', () => {
+    const p = build(locs);
+    expect(p).toContain('LOCATION_DISCOVER|name=地點名稱|x=110|y=70|type=wilderness');
+    expect(p).toContain('只有常駐地點');
+    expect(p).toMatch(/不要輸出 -10~10 的小數字/);
+  });
+});
+
 // B-5：空區塊整段省略，不留「（無）」佔位（Minimal Viable Context）
 describe('buildPrompt — 空區塊省略', () => {
   it('全空時不出現任何「（無）」佔位', () => {

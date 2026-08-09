@@ -70,6 +70,13 @@ function parseTimeDelta(raw: string): number | null {
 /** STAT 支援的欄位。parser 原本照單全收 field，未知欄位會變成幽靈 type 死在 reducer */
 const STAT_FIELDS = new Set(['HP', 'MP', 'GOLD']);
 
+/**
+ * LOCATION_DISCOVER 的地點分類。缺漏或認不得時退回 wilderness——
+ * 不給值的話 Phase 1 的候選上限會落在「未設定」分支（等同野外的 3 人），
+ * 地圖也少了分類圖示，而且從 UI 上完全看不出是 AI 沒輸出還是刻意留白。
+ */
+const LOCATION_TYPES = new Set(['town', 'wilderness', 'building']);
+
 function parseKV(parts: string[]): Record<string, string> {
   const kv: Record<string, string> = {};
   for (const part of parts) {
@@ -281,16 +288,27 @@ function parseSingleCommand(line: string): CommandAST | null {
       return { type: 'NPC_RELATIONSHIP', raw: trimmed, parsed: { npcName, relationship: rel } };
     }
 
-    // LOCATION_DISCOVER|name=地點名稱|x=0|y=0
+    // LOCATION_DISCOVER|name=地點名稱|x=110|y=70|type=wilderness
     case 'LOCATION_DISCOVER': {
       const name = kv.name || kv.loc || '';
       if (!name) return null;
+      const rawType = (kv.type || kv.locationType || '').toLowerCase();
+      if (kv.type && !LOCATION_TYPES.has(rawType)) {
+        console.warn(`[LOCATION_DISCOVER] 未知的 type=${kv.type}，退回 wilderness（僅支援 town / wilderness / building）`);
+      }
+      // parseInt('abc') 是 NaN，而 NaN 存進 mapX 會讓地圖標記整個消失（座標算不出來），
+      // 比座標錯更難查。認不得時退回 0，至少看得到點位不對
+      const num = (v: string | undefined) => {
+        const n = parseInt(v ?? '');
+        return Number.isFinite(n) ? n : 0;
+      };
       return {
         type: 'LOCATION_DISCOVER', raw: trimmed,
         parsed: {
           name,
-          x: kv.x ? parseInt(kv.x) : 0,
-          y: kv.y ? parseInt(kv.y) : 0,
+          x: num(kv.x),
+          y: num(kv.y),
+          locationType: LOCATION_TYPES.has(rawType) ? rawType : 'wilderness',
         },
       };
     }

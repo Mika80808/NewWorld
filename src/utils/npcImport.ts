@@ -10,7 +10,7 @@
  * 同名衝突採「先寫先贏」，與道具圖鑑（itemCatalog）一致：既有角色原封不動，
  * 匯入的那筆整筆跳過。玩家累積的好感度與記憶不會被一次匯入洗掉。
  */
-import { Npc, NpcMemory, LorebookEntry, Faction } from '../types';
+import { Npc, NpcMemory, LorebookEntry, Faction, FactionRelation } from '../types';
 
 /** 匯入檔的單筆角色。除 name 外全部選填。 */
 export interface ImportedNpc {
@@ -39,10 +39,49 @@ export interface ImportedNpc {
   factions?: string[];
 }
 
+/**
+ * 匯入檔的單筆勢力定義。
+ *
+ * 為什麼要一起帶：NPC 的勢力歸屬存的是**名稱**，而匯入端原本只做「比對現有勢力」，
+ * 目標存檔沒有同名勢力時就只回報「查無勢力」——角色進得去，勢力關係整段掉。
+ * 帶上定義後，缺的勢力可以連同關係一起建起來。
+ *
+ * 同樣不存 id：`homeId`（設定集地點 id）與 `relations[].targetFactionId` 都是
+ * 各存檔自己編的流水號，跨檔必然對不上，一律改存名稱。
+ */
+export interface ImportedFactionRelation {
+  /** 對象勢力的**名稱** */
+  target: string;
+  type: FactionRelation['type'];
+  note?: string;
+}
+
+export interface ImportedFaction {
+  name: string;
+  type?: Faction['type'];
+  description?: string;
+  color?: string;
+  /** 大本營所在地點的**名稱**（對應設定集的地點條目標題） */
+  homeLocation?: string;
+  relations?: ImportedFactionRelation[];
+}
+
 export interface ParseResult {
   npcs: ImportedNpc[];
+  /** 檔案帶的勢力定義；舊的匯出檔沒有這一段，會是空陣列 */
+  factions: ImportedFaction[];
   /** 逐筆的格式問題；有 errors 不代表整份失敗，只有那幾筆被丟棄 */
   errors: string[];
+}
+
+export interface FactionMergeResult {
+  factions: Faction[];
+  /** 這次新建立的勢力名稱 */
+  addedNames: string[];
+  /** 已存在而沿用既有定義的勢力名稱（先寫先贏，不覆蓋玩家現有設定） */
+  skippedNames: string[];
+  /** 對象查無而丟棄的關係，格式為「A → B」 */
+  unresolvedRelations: string[];
 }
 
 export interface MergeResult {
@@ -59,6 +98,67 @@ const str = (v: unknown): string => (typeof v === 'string' ? v.trim() : '');
 const strArray = (v: unknown): string[] =>
   Array.isArray(v) ? v.map(str).filter(Boolean) : [];
 
+const FACTION_TYPES: Faction['type'][] = ['race', 'guild', 'nation', 'religion', 'criminal', 'other'];
+const RELATION_TYPES: FactionRelation['type'][] = ['ally', 'enemy', 'neutral', 'vassal', 'rival'];
+
+/**
+ * 解析檔案帶的勢力定義。缺 name 的整筆丟棄，其餘欄位比照 NPC 一律容錯：
+ * 認不得的 type 退回 'other'（丟掉整筆勢力太粗暴，type 只影響 UI 分類圖示），
+ * 但認不得的關係 type 是**丟棄那條關係**——關係圖上畫錯線比少一條線更難察覺。
+ */
+function parseFactions(raw: unknown, errors: string[]): ImportedFaction[] {
+  if (!Array.isArray(raw)) return [];
+
+  const out: ImportedFaction[] = [];
+  const seen = new Set<string>();
+
+  raw.forEach((item, i) => {
+    if (!item || typeof item !== 'object') {
+      errors.push(`勢力第 ${i + 1} 筆不是物件，已略過`);
+      return;
+    }
+    const o = item as Record<string, unknown>;
+    const name = str(o.name);
+    if (!name) {
+      errors.push(`勢力第 ${i + 1} 筆缺少 name，已略過`);
+      return;
+    }
+    if (seen.has(name)) {
+      errors.push(`勢力第 ${i + 1} 筆「${name}」在檔案內重複，已略過`);
+      return;
+    }
+    seen.add(name);
+
+    const type = FACTION_TYPES.find(t => t === o.type) ?? 'other';
+
+    const relations: ImportedFactionRelation[] = [];
+    if (Array.isArray(o.relations)) {
+      for (const r of o.relations) {
+        if (!r || typeof r !== 'object') continue;
+        const rel = r as Record<string, unknown>;
+        const target = str(rel.target);
+        const relType = RELATION_TYPES.find(t => t === rel.type);
+        if (!target || !relType) {
+          errors.push(`勢力「${name}」有一條關係缺少 target 或 type 無效，已略過`);
+          continue;
+        }
+        relations.push({ target, type: relType, ...(str(rel.note) ? { note: str(rel.note) } : {}) });
+      }
+    }
+
+    out.push({
+      name,
+      type,
+      description: str(o.description),
+      color: str(o.color),
+      homeLocation: str(o.homeLocation),
+      relations,
+    });
+  });
+
+  return out;
+}
+
 /**
  * 解析匯入檔。容忍三種外層形狀：
  *   1. { "npcs": [...] }   ← 匯出範本的格式
@@ -69,6 +169,11 @@ const strArray = (v: unknown): string[] =>
 export function parseNpcImport(raw: unknown): ParseResult {
   const errors: string[] = [];
 
+  // 勢力定義只可能出現在物件外層；裸陣列與單一角色物件沒有這一段
+  const factions = raw && typeof raw === 'object' && !Array.isArray(raw)
+    ? parseFactions((raw as Record<string, unknown>).factions, errors)
+    : [];
+
   let list: unknown[];
   if (Array.isArray(raw)) {
     list = raw;
@@ -76,9 +181,9 @@ export function parseNpcImport(raw: unknown): ParseResult {
     const maybe = (raw as Record<string, unknown>).npcs;
     if (Array.isArray(maybe)) list = maybe;
     else if ('name' in (raw as object)) list = [raw];
-    else return { npcs: [], errors: ['找不到角色資料：需要 { "npcs": [...] } 或直接一個陣列'] };
+    else return { npcs: [], factions, errors: ['找不到角色資料：需要 { "npcs": [...] } 或直接一個陣列'] };
   } else {
-    return { npcs: [], errors: ['檔案不是有效的 JSON 物件或陣列'] };
+    return { npcs: [], factions: [], errors: ['檔案不是有效的 JSON 物件或陣列'] };
   }
 
   const npcs: ImportedNpc[] = [];
@@ -128,7 +233,89 @@ export function parseNpcImport(raw: unknown): ParseResult {
     });
   });
 
-  return { npcs, errors };
+  return { npcs, factions, errors };
+}
+
+/**
+ * 把檔案帶的勢力定義併進現有勢力，回傳合併後的清單。
+ *
+ * 呼叫順序是「先合勢力、再合角色」：把這裡的結果當成 `mergeImportedNpcs` 的
+ * `existingFactions` 傳進去，角色的 `factions: ["名稱"]` 才對得到這次新建的勢力。
+ *
+ * 同名先寫先贏，與角色一致——既有勢力原封不動，連 description／color／關係都不覆蓋。
+ * 玩家自己調過的顏色與關係圖不該被一次匯入洗掉。
+ *
+ * 無任何新增時回傳原本的 reference，讓呼叫端能跳過 setState 與雲端上傳。
+ */
+export function mergeImportedFactions(
+  imported: ImportedFaction[],
+  existingFactions: Faction[],
+  lorebookEntries: LorebookEntry[] = [],
+): FactionMergeResult {
+  const byName = new Map(existingFactions.map(f => [f.name, f]));
+  const addedNames: string[] = [];
+  const skippedNames: string[] = [];
+  const unresolvedRelations: string[] = [];
+  const created: Faction[] = [];
+
+  let nextId = Math.max(0, ...existingFactions.map(f => f.id)) + 1;
+
+  // 大本營以地點名稱比對設定集；查無時留空，不順手建立地點條目
+  //（匯入角色不該偷偷長出新地圖點位）
+  const locationIdByTitle = new Map(
+    lorebookEntries.filter(e => e.category === '地點').map(e => [e.title, e.id])
+  );
+
+  // 第一輪只建立勢力本身：關係要等所有名字都有 id 之後才解得開，
+  // 否則檔案裡「A 與 B 為敵」寫在 B 之前時就會解析失敗
+  for (const src of imported) {
+    if (byName.has(src.name)) {
+      skippedNames.push(src.name);
+      continue;
+    }
+    const homeId = src.homeLocation ? locationIdByTitle.get(src.homeLocation) : undefined;
+    const f: Faction = {
+      id: nextId++,
+      name: src.name,
+      type: src.type ?? 'other',
+      description: src.description ?? '',
+      isActive: true,
+      // color 留空是安全的：UI 兩處（設定集卡片、地圖關係圖）都會退回調色盤自動指派
+      ...(src.color ? { color: src.color } : {}),
+      ...(homeId != null ? { homeId } : {}),
+    };
+    byName.set(f.name, f);
+    created.push(f);
+    addedNames.push(f.name);
+  }
+
+  // 第二輪解析關係。只寫進這次新建的勢力——既有勢力比照先寫先贏不動它，
+  // 否則匯入會偷改玩家已經畫好的關係圖
+  for (const src of imported) {
+    const self = byName.get(src.name);
+    if (!self || !created.includes(self)) continue;
+
+    const relations: FactionRelation[] = [];
+    for (const rel of src.relations ?? []) {
+      const target = byName.get(rel.target);
+      if (!target) {
+        unresolvedRelations.push(`${src.name} → ${rel.target}`);
+        continue;
+      }
+      if (target.id === self.id) continue; // 自己對自己，無意義
+      relations.push({
+        targetFactionId: target.id,
+        type: rel.type,
+        ...(rel.note ? { note: rel.note } : {}),
+      });
+    }
+    if (relations.length > 0) self.relations = relations;
+  }
+
+  if (created.length === 0) {
+    return { factions: existingFactions, addedNames, skippedNames, unresolvedRelations };
+  }
+  return { factions: [...existingFactions, ...created], addedNames, skippedNames, unresolvedRelations };
 }
 
 /**
@@ -253,13 +440,36 @@ export function buildNpcExport(
   npcs: Npc[],
   lorebookEntries: LorebookEntry[],
   factions: Faction[] = [],
-): { npcs: ImportedNpc[] } {
+): { factions?: ImportedFaction[]; npcs: ImportedNpc[] } {
   const loreByTitle = new Map(
     lorebookEntries.filter(e => e.category === 'NPC').map(e => [e.title, e])
   );
   const factionById = new Map(factions.map(f => [f.id, f.name]));
+  const locationTitleById = new Map(
+    lorebookEntries.filter(e => e.category === '地點').map(e => [e.id, e.title])
+  );
+
+  // 勢力整份帶走，不只帶「這批角色有歸屬的那幾個」——關係是勢力之間互指的，
+  // 篩掉沒人歸屬的那些會讓指向它們的關係在匯入端全部解不開
+  const exportedFactions: ImportedFaction[] = factions.map(f => {
+    const out: ImportedFaction = { name: f.name, type: f.type };
+    if (f.description) out.description = f.description;
+    if (f.color) out.color = f.color;
+    const home = f.homeId != null ? locationTitleById.get(f.homeId) : undefined;
+    if (home) out.homeLocation = home;
+    const rels = (f.relations ?? [])
+      .map(r => {
+        const target = factionById.get(r.targetFactionId);
+        return target ? { target, type: r.type, ...(r.note ? { note: r.note } : {}) } : null;
+      })
+      .filter((r): r is ImportedFactionRelation => r !== null);
+    if (rels.length > 0) out.relations = rels;
+    return out;
+  });
 
   return {
+    // 沒有勢力時整個欄位省略，維持舊檔案的樣子
+    ...(exportedFactions.length > 0 ? { factions: exportedFactions } : {}),
     npcs: npcs.map(n => {
       const lore = loreByTitle.get(n.name);
       const pick = (a?: string, b?: string) => (a ?? b ?? '').trim();
@@ -301,8 +511,29 @@ export function buildNpcExport(
   };
 }
 
-/** 匯出範本：讓玩家（或請 AI）照著填 */
-export const NPC_IMPORT_TEMPLATE: { npcs: ImportedNpc[] } = {
+/**
+ * 匯出範本：讓玩家（或請 AI）照著填。
+ *
+ * 刻意示範**完整**欄位（含 factions 區塊），與 buildNpcExport 的輸出同一份格式。
+ * 範本少了哪個欄位，照著填的人就不會知道那個欄位存在——`factions` 過去就是這樣，
+ * 匯出檔有、範本沒有，看起來像兩種格式。
+ */
+export const NPC_IMPORT_TEMPLATE: { factions: ImportedFaction[]; npcs: ImportedNpc[] } = {
+  factions: [
+    {
+      name: '黑牙氏族',
+      type: 'race',
+      description: '盤據東境森林的狼族氏族，重視武力與榮譽。',
+      homeLocation: '黑牙氏族',
+      relations: [{ target: '獵人公會', type: 'rival', note: '每年一次的切磋決鬥' }],
+    },
+    {
+      name: '獵人公會',
+      type: 'guild',
+      description: '月湖鎮最大的公會，負責發派討伐與護衛任務。',
+      homeLocation: '月湖鎮',
+    },
+  ],
   npcs: [
     {
       name: '芬里爾',
@@ -319,7 +550,8 @@ export const NPC_IMPORT_TEMPLATE: { npcs: ImportedNpc[] } = {
       homeLocation: '迷霧森林',
       roamLocations: ['月湖鎮'],
       isPinned: false,
-      memories: [],
+      memories: ['第一次見面時借給你一支箭'],
+      factions: ['黑牙氏族'],
     },
     {
       name: '萊尼',

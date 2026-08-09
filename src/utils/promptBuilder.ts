@@ -262,6 +262,15 @@ Personality: ${profile.personality}${profile.other ? `\nOther: ${profile.other}`
     // 道具圖鑑切片：只注入名稱（定義存於圖鑑），引導 AI 沿用既有名稱避免同義新名
     section('[已知物品（僅列名稱，介紹已登錄於圖鑑）]', selectKnownItemNames(itemCatalog).join('、')),
 
+    // 地圖尺度基準：COMMAND FORMAT 只給得起「月湖鎮=0,0」一個參考點（那段是靜態的，
+    // 不能塞會變動的座標），模型於是照範例輸出 (2,-1) 這種小數字，新地點全疊在原點的月湖鎮上。
+    // 這裡把實際座標攤開當尺規。放在動態區而非靜態前綴，否則每新增一個地點就讓 caching 整段失效。
+    section('[已知地點座標（世界地圖尺規，新地點請落在同一量級且與既有地點相距 20 以上）]',
+      lorebookEntries
+        .filter(e => e.category === '地點' && e.mapX != null && e.mapY != null)
+        .map(e => `${e.title}(${e.mapX},${e.mapY})`)
+        .join('、')),
+
     section('[進行中任務]', (() => {
       const active = quests.filter(q => q.status === 'active')
       if (active.length === 0) return ''
@@ -416,7 +425,7 @@ NPC_HOME|name=姓名|loc=地點
 NPC_LOCATION|npc=姓名|loc=地點
 NPC_THOUGHT|npc=角色名|text=第一人稱內心想法
 NPC_RELATIONSHIP|npc=角色名|rel=關係描述
-LOCATION_DISCOVER|name=地點名稱|x=0|y=0
+LOCATION_DISCOVER|name=地點名稱|x=110|y=70|type=wilderness
 MEMORY_ADD|type=region|importance=normal|content=迷霧森林昨日大火|locations=迷霧森林|factions=黑牙氏族|keywords=大火,火災|sticky=3
 MEMORY_ADD|type=scene|importance=normal|content=酒館因打架暫時關閉|locations=酒館
 MEMORY_ADD|type=npc|importance=normal|content=芬里爾透露停火協議內容|npcs=芬里爾|keywords=停火,協議
@@ -445,7 +454,11 @@ NPC_RELATION|npc=NPC名|type=family/ally/rival/enemy/acquaintance/romantic|targe
 - NPC_LOCATION：NPC 出現於非主場地點時記錄足跡。
 - NPC_THOUGHT：NPC 有明顯情緒變化、做出重要決定、或對玩家產生新看法時，第一人稱。
 - NPC_RELATIONSHIP：玩家與 NPC 初次確立明確關係，或關係發生重大轉變時輸出。
-- LOCATION_DISCOVER：玩家路過/聽說未知地點時（heard 狀態加入地圖）。x/y 為整數，月湖鎮=0,0。
+- LOCATION_DISCOVER：**只有常駐地點**才登錄——有正式名稱、玩家日後可再訪、在世界地圖上佔一個位置的（城鎮、村落、據點、地標、獨立建築）。
+  路線上的過渡點、行進描述、某地的「外圍／邊緣／路上／附近」、建築內的個別房間，一律**不要**輸出這個指令，直接寫進敘事即可。
+- LOCATION_DISCOVER 的 x/y 是**世界地圖絕對座標**，整數，月湖鎮=0,0，全圖範圍約 -150~150。
+  下方 [已知地點座標] 列出現有地點的實際座標，請以它們為尺度基準，並與最接近的既有地點保持至少 20 的距離；不要輸出 -10~10 的小數字，那會全部疊在月湖鎮上。
+- LOCATION_DISCOVER 的 type 必填，三選一：town（城鎮／聚落，可容納較多角色）、wilderness（野外）、building（單一建築）。
 - STATUS_ADD：玩家獲得狀態異常（中毒、詛咒、祝福等）時。duration=-1 為永久。
 - STATUS_REMOVE：玩家解除特定狀態異常時。
 - STATUS_CLEAR：所有狀態異常一次清除時（例如神聖淨化）。

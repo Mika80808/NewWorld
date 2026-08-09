@@ -117,6 +117,57 @@ describe('reduceCommands — LOCATION 解鎖地圖標記', () => {
   });
 });
 
+// AI 先前把新地點全建在 (2,-1)、(5,-2) 這種原點附近的座標上，整批疊在月湖鎮(0,0)；
+// 而且新建的條目沒有 locationType，Phase 1 的候選上限會落在「未設定」＝野外 3 人
+describe('reduceCommands — LOCATION_DISCOVER 座標與分類', () => {
+  const loc = (over: Partial<LorebookEntry> = {}): LorebookEntry => ({
+    id: 1, title: '迷霧森林', content: '', category: '地點', isActive: true,
+    mapX: 100, mapY: 50, mapStatus: 'heard',
+    ...over,
+  });
+
+  it('新地點帶入座標與分類', () => {
+    const { stateChanges } = run('LOCATION_DISCOVER|name=黑牙聚落|x=120|y=80|type=town', state({ lorebookEntries: [loc()] }));
+    expect(stateChanges.lorebookEntries?.[1]).toMatchObject({
+      title: '黑牙聚落', category: '地點', mapX: 120, mapY: 80, mapStatus: 'heard', locationType: 'town',
+    });
+  });
+
+  it('沒給 type 時退回 wilderness，不留 undefined', () => {
+    const { stateChanges } = run('LOCATION_DISCOVER|name=無名谷|x=50|y=60');
+    expect(stateChanges.lorebookEntries?.[0].locationType).toBe('wilderness');
+  });
+
+  it('認不得的 type 退回 wilderness', () => {
+    const { stateChanges } = run('LOCATION_DISCOVER|name=無名谷|x=50|y=60|type=城鎮');
+    expect(stateChanges.lorebookEntries?.[0].locationType).toBe('wilderness');
+  });
+
+  // NaN 存進 mapX 會讓地圖標記整個消失，比座標錯更難查
+  it('座標不是數字時退回 0，不寫入 NaN', () => {
+    const { stateChanges } = run('LOCATION_DISCOVER|name=無名谷|x=東邊|y=遠方');
+    expect(stateChanges.lorebookEntries?.[0].mapX).toBe(0);
+    expect(stateChanges.lorebookEntries?.[0].mapY).toBe(0);
+  });
+
+  // 玩家可能在設定集裡調過座標或分類，AI 再次 DISCOVER 不該蓋掉
+  it('地點已存在時不覆蓋既有座標與分類', () => {
+    const { stateChanges } = run(
+      'LOCATION_DISCOVER|name=迷霧森林|x=1|y=1|type=town',
+      state({ lorebookEntries: [loc({ locationType: 'wilderness' })] }),
+    );
+    expect(stateChanges.lorebookEntries?.[0]).toMatchObject({ mapX: 100, mapY: 50, locationType: 'wilderness' });
+  });
+
+  it('既有條目缺分類時才補上', () => {
+    const { stateChanges } = run(
+      'LOCATION_DISCOVER|name=迷霧森林|x=1|y=1|type=building',
+      state({ lorebookEntries: [loc({ locationType: undefined })] }),
+    );
+    expect(stateChanges.lorebookEntries?.[0].locationType).toBe('building');
+  });
+});
+
 describe('reduceCommands — 道具', () => {
   it('ITEM_ADD 新增道具', () => {
     const { stateChanges } = run('ITEM_ADD|name=草藥|qty=2|desc=回復 20 HP');

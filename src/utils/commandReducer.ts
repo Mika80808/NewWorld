@@ -541,12 +541,14 @@ export function reduceCommands(
         const name = cmd.parsed.name as string;
         const x = cmd.parsed.x as number;
         const y = cmd.parsed.y as number;
+        const locationType = cmd.parsed.locationType as LorebookEntry['locationType'];
         // 地點已存在則更新 mapStatus，不存在則新增
         const existing = workingLorebookEntries.find(e => e.category === '地點' && e.title === name);
         if (existing) {
           workingLorebookEntries = workingLorebookEntries.map(e =>
             e.category === '地點' && e.title === name
-              ? { ...e, mapStatus: 'heard' as const, mapX: e.mapX ?? x, mapY: e.mapY ?? y }
+              // 既有值一律不覆蓋：玩家可能在設定集裡調過座標或分類
+              ? { ...e, mapStatus: 'heard' as const, mapX: e.mapX ?? x, mapY: e.mapY ?? y, locationType: e.locationType ?? locationType }
               : e
           );
         } else {
@@ -559,6 +561,9 @@ export function reduceCommands(
             mapX: x,
             mapY: y,
             mapStatus: 'heard',
+            // 不寫的話 Phase 1 會落在「未設定」＝野外上限 3 人，
+            // 而 AI 新建的聚落十之八九是 town
+            locationType,
           };
           workingLorebookEntries = [...workingLorebookEntries, newEntry];
         }
