@@ -2,6 +2,7 @@ import React, { useMemo } from 'react';
 import { Users, Heart } from 'lucide-react';
 import { Npc, LorebookEntry } from '../../types';
 import { affectionColor } from '../../utils/affectionColor';
+import { resolveNpcProfile } from '../../utils/npcProfile';
 
 const MAX_DISPLAYED = 8;
 
@@ -60,8 +61,8 @@ export const SceneNpcsWidget: React.FC<SceneNpcsWidgetProps> = ({
           <>
             {displayedNpcs.map(npc => {
               const lore = npcLoreByTitle.get(npc.name);
-              const displayJob = lore?.job ?? npc.job ?? '';
-              const displayGender = lore?.gender ?? '';
+              // 走共用入口：設定集條目沒填時退回 Npc 那份（與角色卡、prompt 一致）
+              const { job: displayJob, gender: displayGender } = resolveNpcProfile(npc, lore);
               return (
                 <div
                   key={npc.id}

@@ -3,6 +3,7 @@ import { Users, BookPlus, Pin, Star, Trash2, Lock, ChevronDown, ChevronUp, Edit2
 import { Npc, NpcMemory, LorebookEntry, Faction } from '../types';
 import { affectionColor } from '../utils/affectionColor';
 import { relationText } from '../utils/affectionLabel';
+import { resolveNpcProfile } from '../utils/npcProfile';
 
 const SOURCE_LABEL: Record<NpcMemory['source'], string> = {
   manual:    '手動',
@@ -102,14 +103,17 @@ export const NpcModal: React.FC<NpcModalProps> = ({
   if (!selectedNpc) return null;
 
   const lore = lorebookEntries.find(e => e.category === 'NPC' && e.title === selectedNpc.name);
-  const displayGender      = lore?.gender      ?? selectedNpc.gender      ?? '';
-  const displayRace        = lore?.race        ?? lore?.other             ?? selectedNpc.race ?? selectedNpc.other ?? '';
-  const displayAge         = lore?.age         ?? selectedNpc.age         ?? '';
-  const displayJob         = lore?.job         ?? selectedNpc.job         ?? '';
-  const displayAppearance  = lore?.appearance  ?? selectedNpc.appearance  ?? '';
-  const displayPersonality = lore?.personality ?? selectedNpc.personality ?? '';
-  const displayBackstory   = lore?.backstory   ?? selectedNpc.backstory   ?? '';
-  const displayOther       = lore?.race ? (lore?.other ?? '') : '';
+  // 與 promptBuilder 共用同一個解析入口，確保「玩家看到的」等於「AI 讀到的」。
+  // 先前兩邊各寫各的：這裡會 fallback 到 Npc、promptBuilder 只讀設定集條目
+  const profile = resolveNpcProfile(selectedNpc, lore);
+  const displayGender      = profile.gender;
+  const displayRace        = profile.race;
+  const displayAge         = profile.age;
+  const displayJob         = profile.job;
+  const displayAppearance  = profile.appearance;
+  const displayPersonality = profile.personality;
+  const displayBackstory   = profile.backstory;
+  const displayOther       = profile.other;
 
   const memoryUnlocked    = selectedNpc.affection >= 60;
   const backstoryUnlocked = selectedNpc.affection >= 20;
@@ -142,6 +146,10 @@ export const NpcModal: React.FC<NpcModalProps> = ({
     const trimmedName = editName.trim() || selectedNpc.name;
     if (lore) {
       onUpdateLorebook(lore.id, { ...editFields, title: trimmedName });
+    } else {
+      // 沒有設定集條目時先前整段 if 直接跳過——玩家填的性別／外貌按下儲存後
+      // 靜默消失，什麼都沒寫進去。改成補建一筆條目（設定集條目才是注入 prompt 的那份）
+      onRecordNpc({ ...selectedNpc, ...editFields, name: trimmedName } as Npc);
     }
     if (trimmedName !== selectedNpc.name) {
       onUpdateNpcName?.(selectedNpc.id, trimmedName);
