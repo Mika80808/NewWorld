@@ -2,13 +2,14 @@ import React, { useMemo } from 'react';
 import { Users, Heart } from 'lucide-react';
 import { Npc, LorebookEntry } from '../../types';
 import { affectionColor } from '../../utils/affectionColor';
+import { resolveNpcProfile } from '../../utils/npcProfile';
+import { isNpcOnStage } from '../../utils/npcPresence';
 
 const MAX_DISPLAYED = 8;
 
 interface SceneNpcsWidgetProps {
   npcs: Npc[];
   appearingNpcs: string[];
-  currentLocation: string;
   lorebookEntries: LorebookEntry[];
   onSelectNpc: (npc: Npc) => void;
 }
@@ -20,15 +21,14 @@ interface SceneNpcsWidgetProps {
 export const SceneNpcsWidget: React.FC<SceneNpcsWidgetProps> = ({
   npcs,
   appearingNpcs,
-  currentLocation,
   lorebookEntries,
   onSelectNpc,
 }) => {
-  const sceneNpcs = npcs.filter(n =>
-    appearingNpcs.includes(n.name) ||
-    n.location === currentLocation ||
-    n.isPinned
-  );
+  // 在場與否只認 appearingNpcs（`[出場:]` 標記）。
+  // 先前還 or 了 `n.location === currentLocation` 與 `n.isPinned`：
+  // 前者是退場時從不清除的足跡，後者不管人在哪個城鎮都成立——
+  // 兩條都會讓已經下台的角色賴在「當前場景人物」裡。詳見 utils/npcPresence.ts
+  const sceneNpcs = npcs.filter(n => isNpcOnStage(n.name, appearingNpcs));
   const hiddenCount = Math.max(0, sceneNpcs.length - MAX_DISPLAYED);
   const displayedNpcs = sceneNpcs.slice(0, MAX_DISPLAYED);
 
@@ -60,8 +60,8 @@ export const SceneNpcsWidget: React.FC<SceneNpcsWidgetProps> = ({
           <>
             {displayedNpcs.map(npc => {
               const lore = npcLoreByTitle.get(npc.name);
-              const displayJob = lore?.job ?? npc.job ?? '';
-              const displayGender = lore?.gender ?? '';
+              // 走共用入口：設定集條目沒填時退回 Npc 那份（與角色卡、prompt 一致）
+              const { job: displayJob, gender: displayGender } = resolveNpcProfile(npc, lore);
               return (
                 <div
                   key={npc.id}

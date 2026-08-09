@@ -5,6 +5,83 @@
 
 ---
 
+### Bug 修正｜已退場的 NPC 還留在「當前場景人物」 2026-08-10 [Claude Code]
+
+右欄 Widget 的篩選條件是：
+
+```js
+appearingNpcs.includes(n.name) || n.location === currentLocation || n.isPinned
+```
+
+後面兩條都會讓已經下台的角色賴著不走：
+
+- **`n.location`** 是**足跡**——NPC 出場時寫入（`handleSendMessage` 的 `[出場:]`
+  處理），退場時**從不清除**。所以角色只要在月湖鎮出現過一次，之後玩家只要
+  還在月湖鎮，他就永遠留在清單裡，即使 `[出場:]` 空標記已經把他請下台
+- **`n.isPinned`** 不管人在哪個城鎮都成立。而釘選角色本來就有獨立的
+  `PinnedNpcsWidget` 在顯示，這裡再列一次既重複又錯
+
+**修法**：在場與否只認 `appearingNpcs`——那是 `[出場:]` 標記定義的唯一真相
+（三種語意見上方 NPC 章節）。新增 `utils/npcPresence.ts` 的 `isNpcOnStage()`
+作為唯一判定入口，`promptBuilder` 的 `inScene` 也改走它。
+
+比對維持**前後包含**而非嚴格相等：AI 可能只寫「凱爾」而角色全名是「凱爾·溫德」。
+兩邊若各寫一套，就會出現「prompt 當他在場、UI 說他不在」的分歧——這正是
+上一條性別 bug 的同一種病。
+
+順帶移除 `SceneNpcsWidget` 已不再使用的 `currentLocation` prop（含兩處呼叫端）。
+
+測試：`SceneNpcsWidget.test.tsx` 5 條，其中「足跡仍指向當前地點但已退場」與
+「釘選但不在場」兩條在修正前的邏輯上實測會紅。
+
+---
+
+### Bug 修正｜NPC 設定寫「女」，故事裡卻寫成男的 2026-08-10 [Claude Code]
+
+玩家回報「AI 好像讀不到 NPC 資料」。**兩個獨立成因，各自都足以造成性別跑掉。**
+
+**1. 候選名單不帶性別，角色首次登場那一回合模型只能用猜的**
+
+NPC 走兩階段注入：Phase 1 依地點給一份輕量候選名單，完整資料要等 AI 輸出
+`[出場:姓名]` 之後的**下一輪**才注入（Phase 2）。而 Phase 1 的名單長這樣：
+
+```
+npcCandidates.map(e => `${e.title}（${e.job || ''}）`)   // 只有名字與職業
+```
+
+所以角色**首次登場的那一回合，模型手上根本沒有性別**，只能自己編。
+編錯就寫進對話歷史——之後即使 Phase 2 把正確性別送進去，模型為了前後一致
+仍會繼續沿用錯的。玩家看到的就是「設定寫女的，故事裡是男的」。
+
+修法：名單改帶 `性別・種族・職業`（`npcIdentityBrief`）。多幾個字，遠比事後救回便宜。
+沒有任何身分資訊時只印名字，不留下空括號。
+
+**2. prompt 只讀設定集條目，UI 卻會退回 `Npc` 那份**
+
+同一份資料存在兩個地方：`Npc`（好感度／記憶庫那份）與設定集的 NPC 條目。
+`NpcModal` 顯示時是 `lore?.gender ?? selectedNpc.gender`，**有 fallback**；
+但 `promptBuilder` 的 `[Scene Lorebook]` 與 `[Pinned NPCs]` 只讀 `e.gender`，
+**沒有 fallback**。於是角色卡上寫著「女」，AI 拿到的是空字串。
+
+修法：新增 `utils/npcProfile.ts` 的 `resolveNpcProfile()` 作為唯一解析入口，
+`promptBuilder`、`NpcModal`、`SceneNpcsWidget` 三邊一起走它——
+「玩家看到的」與「AI 讀到的」不會再各算各的。
+
+⚠️ 內部用 `||` 而非 `??`：**空字串必須視為「沒填」往下退**。`handleAddNpc`
+建立的設定集條目每個欄位都是 `''`，用 `??` 會停在空字串、永遠退不到 `Npc` 那份。
+
+**順帶修掉一個靜默資料遺失**
+
+`NpcModal` 的 `handleSaveEdit` 是 `if (lore) { onUpdateLorebook(...) }`——
+沒有設定集條目時整段跳過，玩家填的性別／外貌按下儲存後**什麼都沒寫進去、也沒有提示**。
+改成沒有條目就補建一筆（設定集條目才是注入 prompt 的那份，見注意事項 20）。
+
+測試：`npcProfile.test.ts` 10 條釘住 fallback 與空字串語意，
+`promptBuilder.test.ts` 4 條釘住候選名單帶性別與兩條注入路徑的 fallback。
+這 4 條在修正前的程式碼上實測全部會紅。
+
+---
+
 ### Bug 修正｜手機版對話泡泡的編輯／刪除完全點不到 2026-08-10 [Claude Code]
 
 玩家回報手機上對話泡泡少了編輯／刪除。兩個獨立的成因，缺一個修都沒用。

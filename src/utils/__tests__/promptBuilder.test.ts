@@ -316,3 +316,63 @@ describe('buildPrompt — NPC 對玩家的態度', () => {
     expect(prompt).toContain('對玩家：友好（好感度 55）');
   });
 });
+
+// ─── NPC 性別注入 ─────────────────────────────────────────────────────────────
+// 玩家回報「人物設定寫女的，故事裡變成男的」。兩個獨立成因，各釘一條。
+describe('buildPrompt NPC 性別注入', () => {
+  const npc = (over: Partial<Npc> = {}): Npc => ({
+    id: 1, name: '凱爾', job: '嚮導', affection: 10,
+    appearance: '', personality: '', category: 'NPC', isActive: true, memories: [], ...over,
+  });
+  const loreNpc = (over: Partial<LorebookEntry> = {}): LorebookEntry => ({
+    id: 1, title: '凱爾', content: '', category: 'NPC', isActive: true,
+    homeLocation: '月湖鎮', ...over,
+  });
+  const build = (over: Partial<BuildPromptDeps>) =>
+    buildPrompt({ ...deps([], () => false), ...over }, '測試輸入', messages).prompt;
+
+  /**
+   * Phase 1 的候選名單先前只給「名字（職業）」。完整設定要等 AI 輸出
+   * `[出場:名字]` 之後的下一輪才注入，所以角色**首次登場那一回合**模型
+   * 手上沒有性別，只能自己猜——猜錯就寫進對話歷史，後面全歪。
+   */
+  it('候選名單帶上性別（角色首次登場那回合唯一的性別來源）', () => {
+    const prompt = build({
+      npcs: [npc()],
+      lorebookEntries: [loreNpc({ gender: '女', race: '人類' })],
+    });
+    expect(prompt).toContain('[當前場景可能出現的角色]');
+    expect(prompt).toContain('凱爾（女・人類・嚮導）');
+  });
+
+  it('候選名單在完全沒有身分資訊時只印名字，不留空括號', () => {
+    const prompt = build({
+      npcs: [npc({ job: '' })],
+      lorebookEntries: [loreNpc()],
+    });
+    expect(prompt).toContain('凱爾\n以上為可能在場的角色');
+    expect(prompt).not.toContain('凱爾（）');
+  });
+
+  /**
+   * 第二個成因：[Scene Lorebook] 先前只讀設定集條目的 gender，
+   * 而角色卡顯示時會退回 Npc.gender——玩家看到「女」，AI 拿到空字串。
+   */
+  it('[Scene Lorebook] 在設定集沒填性別時退回 Npc.gender', () => {
+    const prompt = build({
+      npcs: [npc({ gender: '女' })],
+      appearingNpcs: ['凱爾'],
+      lorebookEntries: [loreNpc({ gender: '' })],
+    });
+    expect(prompt).toContain('[NPC] 凱爾｜性別：女');
+  });
+
+  it('[Pinned NPCs] 同樣會退回 Npc.gender', () => {
+    const prompt = build({
+      npcs: [npc({ gender: '女', isPinned: true })],
+      lorebookEntries: [],
+    });
+    expect(prompt).toContain('[Pinned NPCs]');
+    expect(prompt).toContain('凱爾（女・嚮導）');
+  });
+});

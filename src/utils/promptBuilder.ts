@@ -6,6 +6,8 @@ import {
 import { getTotalDaysFromTimeState, getQuestRemainingDays } from './timeUtils'
 import { selectKnownItemNames } from './itemCatalog'
 import { relationText } from './affectionLabel'
+import { resolveNpcProfile, npcIdentityBrief } from './npcProfile'
+import { isNpcOnStage } from './npcPresence'
 import { COMMANDS_VERSION } from './commandParser'
 
 export interface BuildPromptDeps {
@@ -127,7 +129,7 @@ export function buildPrompt(
         const isHighAffectionCandidate = isInCandidates && (npcData?.affection ?? 0) >= 60
 
         const inScene =
-          appearingNpcs.some(n => e.title.includes(n) || n.includes(e.title)) ||
+          isNpcOnStage(e.title, appearingNpcs) ||
           npcs.some(n => n.isPinned && n.name === e.title) ||
           isHighAffectionCandidate
         if (!inScene) return false
@@ -291,8 +293,17 @@ Personality: ${profile.personality}${profile.other ? `\nOther: ${profile.other}`
     section('[👤 NPC Memory]', memLines(finalNpcMems, 'npcs')),
 
     // 不套 section()：沒有候選角色時那句話是給 AI 的指示，不是佔位符
+    //
+    // ⚠️ 名單必須帶性別。先前只給「名字（職業）」，而完整設定要等 AI 輸出
+    // `[出場:名字]` 之後的下一輪才注入（Phase 2）——角色首次登場的那一回合，
+    // 模型手上根本沒有性別，只能自己編。編錯就寫進對話歷史，之後即使拿到
+    // 正確設定也會為了前後一致繼續錯下去，玩家看到的就是「設定寫女的，
+    // 故事裡是男的」。性別與種族只多幾個字，遠比事後救回便宜。
     `[當前場景可能出現的角色]\n${npcCandidates.length > 0
-      ? npcCandidates.map(e => `${e.title}（${e.job || ''}）`).join('、') + '\n以上為可能在場的角色，非必須出場。若故事需要新角色請自由創造。'
+      ? npcCandidates.map(e => {
+          const brief = npcIdentityBrief(npcs.find(n => n.name === e.title), e)
+          return brief ? `${e.title}（${brief}）` : e.title
+        }).join('、') + '\n以上為可能在場的角色，非必須出場。若故事需要新角色請自由創造。'
       : '無已知角色在附近。若故事需要新角色請自由創造。'}`,
 
     section(
@@ -315,9 +326,13 @@ Personality: ${profile.personality}${profile.other ? `\nOther: ${profile.other}`
         memoriesText = `｜[記憶庫] ${toInject.map(m => `(${m.createdAt})${m.text}`).join(' / ')}`
       }
     }
-    const raceText = e.race ? `｜種族：${e.race}` : (e.other ? `｜備註：${e.other}` : '')
-    const ageText = e.age ? `｜年齡：${e.age}` : ''
-    const backstoryText = (npcData?.affection ?? 0) >= 20 && e.backstory ? `｜背景：${e.backstory}` : ''
+    // 欄位一律走 resolveNpcProfile：設定集條目沒填時退回 Npc 那份。
+    // 先前只讀 e.*，但角色卡顯示時是有 fallback 的——玩家看到「女」，
+    // AI 拿到空字串，於是自己編一個性別出來
+    const prof = resolveNpcProfile(npcData, e)
+    const raceText = prof.race ? `｜種族：${prof.race}` : ''
+    const ageText = prof.age ? `｜年齡：${prof.age}` : ''
+    const backstoryText = (npcData?.affection ?? 0) >= 20 && prof.backstory ? `｜背景：${prof.backstory}` : ''
     const factionText = getNpcFactionText(npcData?.factionIds)
     // 對玩家的態度：這是 NPC 決定「怎麼對待玩家」的直接依據，先前整條漏掉——
     // 出場 NPC 只拿得到外貌／個性／背景／記憶，卻不知道自己對玩家是友好還是敵對。
@@ -325,7 +340,7 @@ Personality: ${profile.personality}${profile.other ? `\nOther: ${profile.other}`
     const affectionText = npcData
       ? `｜對玩家：${relationText(npcData.relationship, npcData.affection)}（好感度 ${npcData.affection}）`
       : ''
-    return `[NPC] ${e.title}｜性別：${e.gender || ''}${raceText}${ageText}｜職業：${e.job || ''}｜外貌：${e.appearance || ''}｜個性：${e.personality || ''}${backstoryText}${factionText}${affectionText}${thoughtsText}${memoriesText}`
+    return `[NPC] ${e.title}｜性別：${prof.gender}${raceText}${ageText}｜職業：${prof.job}｜外貌：${prof.appearance}｜個性：${prof.personality}${backstoryText}${factionText}${affectionText}${thoughtsText}${memoriesText}`
   }
   return `[${e.category}] ${e.title}：${e.content}`
 }).join('\n'),
@@ -337,11 +352,13 @@ Personality: ${profile.personality}${profile.other ? `\nOther: ${profile.other}`
     : ''
   return (() => {
     const lorePinned = lorebookEntries.find(e => e.category === 'NPC' && e.title === n.name)
-    const genderPinned = lorePinned?.gender ? `${lorePinned.gender}・` : ''
-    const racePinned = lorePinned?.race ? `種族：${lorePinned.race}｜` : ''
-    const agePinned = lorePinned?.age ? `年齡：${lorePinned.age}｜` : ''
-    const jobPinned = lorePinned?.job ?? n.job ?? ''
-    const backstoryPinned = n.affection >= 20 && lorePinned?.backstory ? `｜背景：${lorePinned.backstory}` : ''
+    // 同 [Scene Lorebook]：設定集沒填時退回 Npc 那份，避免與角色卡顯示的不一致
+    const profPinned = resolveNpcProfile(n, lorePinned)
+    const genderPinned = profPinned.gender ? `${profPinned.gender}・` : ''
+    const racePinned = profPinned.race ? `種族：${profPinned.race}｜` : ''
+    const agePinned = profPinned.age ? `年齡：${profPinned.age}｜` : ''
+    const jobPinned = profPinned.job
+    const backstoryPinned = n.affection >= 20 && profPinned.backstory ? `｜背景：${profPinned.backstory}` : ''
     const factionPinned = getNpcFactionText(n.factionIds)
     // 原本只給裸數字，模型得自己猜 37 分算friendly還是冷淡；補上語意標籤與明確關係
     const relPinned = relationText(n.relationship, n.affection)
