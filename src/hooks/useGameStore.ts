@@ -331,6 +331,68 @@ export function useGameStore() {
     setFactions(d.factions);
   };
 
+  // ── resetGame ─────────────────────────────────────────────────────────────────
+  //
+  // 「重置遊戲」＝把這一槽的**進度**清回全新遊戲，不是刪存檔。
+  // 先前 App.tsx 的實作是「刪掉雲端槽 + reload」，而 reload 後的初始化會去讀
+  // 「最新的那一槽」——只要玩家還有別的存檔槽，就會直接被載入，畫面上看到的是
+  // 另一份舊進度，等於只刪了一個檔、遊戲根本沒重置。
+  //
+  // 保留玩家自己寫的設定（systemPrompt／設定集／手寫記憶／勢力／角色設定欄位），
+  // 清掉所有由遊玩產生的東西（對話、道具、任務、日記、好感度、時間地點…）。
+  //
+  // ⚠️ 回傳「剛寫進 state 的那一份」給呼叫端上傳。呼叫端若改用 buildSaveSnapshot()
+  // 會踩到與 handleImportSave 同一個坑：下面的 setState 要到次一次 render 才生效，
+  // 當場組出來的快照仍是「重置前」的舊狀態，上傳等於把舊進度又寫回雲端。
+  const resetGame = (): GameSaveData => {
+    // 重新呼叫 saveDataMapper({}) 而不是用模組層的 DEFAULTS：DEFAULTS 是在模組載入時
+    // 就把隨機開局算死的同一份，沿用它會讓每次重置都回到跟本次開場一模一樣的
+    // 地點與時間。
+    const fresh = saveDataMapper({});
+
+    const data: GameSaveData = {
+      ...fresh,
+      // ── 保留：玩家自訂的世界設定 ──
+      systemPrompt,
+      lorebookEntries,
+      factions,
+      // 角色設定欄位是玩家自己捏的角色，屬於設定；HP／MP／金幣等數值才是進度，
+      // 一律沿用 fresh 的初始值
+      profile: {
+        ...fresh.profile,
+        name:        profile.name,
+        job:         profile.job,
+        appearance:  profile.appearance,
+        personality: profile.personality,
+        other:       profile.other,
+      },
+      // 手寫記憶等同玩家自己補的設定，保留；AI 在遊玩中生成的記憶是進度，清掉
+      memories: memories.filter(m => m.source === 'manual'),
+      // NPC 只清進度、不刪人。設定集的 NPC 條目被保留下來，若這裡把 npcs[] 清空，
+      // 角色會進得了 prompt 卻沒有好感度紀錄，AFFINITY 指令也會靜默失效
+      //（見 CLAUDE.md 注意事項 20：NPC 一定要兩份資料同時存在）
+      npcs: npcs.map((n): Npc => ({
+        ...n,
+        affection: 0,
+        memories: [],
+        thoughts: [],
+        relationship:     undefined,
+        location:         undefined,
+        lastSeenLocation: undefined,
+        lastSeenDate:     undefined,
+        isPinned: false,
+      })),
+    };
+
+    loadFromData(data as unknown as Record<string, unknown>);
+    // loadFromData 不管這兩個計數器（它們不進存檔），重置時得另外清，
+    // 否則上一輪的 sticky／cooldown 會殘留到新遊戲的前幾回合
+    setStickyCounters({});
+    setCooldownCounters({});
+
+    return data;
+  };
+
   // ── buildSaveSnapshot ─────────────────────────────────────────────────────────
   const buildSaveSnapshot = (snapshot?: Partial<GameSaveData>): GameSaveData => {
     return {
@@ -386,5 +448,6 @@ export function useGameStore() {
     factions, setFactions, addFaction, updateFaction,
     buildSaveSnapshot,
     loadFromData,
+    resetGame,
   };
 }
