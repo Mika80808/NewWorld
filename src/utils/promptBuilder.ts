@@ -7,6 +7,7 @@ import { getTotalDaysFromTimeState, getQuestRemainingDays } from './timeUtils'
 import { selectKnownItemNames } from './itemCatalog'
 import { relationText } from './affectionLabel'
 import { resolveNpcProfile, npcIdentityBrief } from './npcProfile'
+import { isNpcOnStage } from './npcPresence'
 import { COMMANDS_VERSION } from './commandParser'
 
 export interface BuildPromptDeps {
@@ -128,7 +129,7 @@ export function buildPrompt(
         const isHighAffectionCandidate = isInCandidates && (npcData?.affection ?? 0) >= 60
 
         const inScene =
-          appearingNpcs.some(n => e.title.includes(n) || n.includes(e.title)) ||
+          isNpcOnStage(e.title, appearingNpcs) ||
           npcs.some(n => n.isPinned && n.name === e.title) ||
           isHighAffectionCandidate
         if (!inScene) return false

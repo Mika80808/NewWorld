@@ -2227,7 +2227,6 @@ ${recentContext}
           <SceneNpcsWidget
             npcs={npcs}
             appearingNpcs={appearingNpcs}
-            currentLocation={currentLocation}
             lorebookEntries={lorebookEntries}
             onSelectNpc={setSelectedNpc}
           />
@@ -2695,7 +2694,6 @@ ${recentContext}
                 <SceneNpcsWidget
                   npcs={npcs}
                   appearingNpcs={appearingNpcs}
-                  currentLocation={currentLocation}
                   lorebookEntries={lorebookEntries}
                   onSelectNpc={setSelectedNpc}
                 />

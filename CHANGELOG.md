@@ -5,6 +5,37 @@
 
 ---
 
+### Bug 修正｜已退場的 NPC 還留在「當前場景人物」 2026-08-10 [Claude Code]
+
+右欄 Widget 的篩選條件是：
+
+```js
+appearingNpcs.includes(n.name) || n.location === currentLocation || n.isPinned
+```
+
+後面兩條都會讓已經下台的角色賴著不走：
+
+- **`n.location`** 是**足跡**——NPC 出場時寫入（`handleSendMessage` 的 `[出場:]`
+  處理），退場時**從不清除**。所以角色只要在月湖鎮出現過一次，之後玩家只要
+  還在月湖鎮，他就永遠留在清單裡，即使 `[出場:]` 空標記已經把他請下台
+- **`n.isPinned`** 不管人在哪個城鎮都成立。而釘選角色本來就有獨立的
+  `PinnedNpcsWidget` 在顯示，這裡再列一次既重複又錯
+
+**修法**：在場與否只認 `appearingNpcs`——那是 `[出場:]` 標記定義的唯一真相
+（三種語意見上方 NPC 章節）。新增 `utils/npcPresence.ts` 的 `isNpcOnStage()`
+作為唯一判定入口，`promptBuilder` 的 `inScene` 也改走它。
+
+比對維持**前後包含**而非嚴格相等：AI 可能只寫「凱爾」而角色全名是「凱爾·溫德」。
+兩邊若各寫一套，就會出現「prompt 當他在場、UI 說他不在」的分歧——這正是
+上一條性別 bug 的同一種病。
+
+順帶移除 `SceneNpcsWidget` 已不再使用的 `currentLocation` prop（含兩處呼叫端）。
+
+測試：`SceneNpcsWidget.test.tsx` 5 條，其中「足跡仍指向當前地點但已退場」與
+「釘選但不在場」兩條在修正前的邏輯上實測會紅。
+
+---
+
 ### Bug 修正｜NPC 設定寫「女」，故事裡卻寫成男的 2026-08-10 [Claude Code]
 
 玩家回報「AI 好像讀不到 NPC 資料」。**兩個獨立成因，各自都足以造成性別跑掉。**
