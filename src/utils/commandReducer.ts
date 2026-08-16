@@ -7,6 +7,7 @@ import { CommandAST } from './commandParser';
 import { advanceTimeAndResolveQuestDeadlines } from './timeUtils';
 import { normalizeItemName, registerItemDef, touchItemDef, pruneItemCatalog } from './itemCatalog';
 import { pruneMemories } from './memoryStore';
+import { findQuestByTitle } from './questMatch';
 import {
   TimeState, Profile, Quest, MemoryEntry, Npc, ItemEntry, ItemCatalog,
   LorebookEntry, Message, StatusEffect, Faction, NpcRelation, NpcMemory,
@@ -222,7 +223,10 @@ export function reduceCommands(
 
       case 'QUEST_ADD': {
         const title = cmd.parsed.title as string;
-        if (!workingQuests.some(q => q.title === title)) {
+        // 去重走 findQuestByTitle 而非字串相等：模型重發同一個委託時常常
+        // 多一組引號或句尾標點，字串比對抓不到就會長出第二筆同樣的任務。
+        // 涵蓋所有狀態（不只 active），否則剛完成的任務會被再發一次而復活
+        if (!findQuestByTitle(workingQuests, title)) {
           const createdAtTotalDays =
             currentState.timeState.year * 360 +
             (currentState.timeState.month - 1) * 30 +
@@ -249,17 +253,33 @@ export function reduceCommands(
 
       case 'QUEST_GOAL_MET': {
         const title = cmd.parsed.title as string;
+        const goalQuest = findQuestByTitle(workingQuests, title, true);
+        if (!goalQuest) {
+          // 先前不論有沒有比中都無條件推 `✅ 目標達成`，玩家看到成功訊息、
+          // 任務卻沒有任何變化。比不到就要說比不到
+          console.warn(`[QUEST_GOAL_MET] 找不到進行中的任務「${title}」，指令已忽略。原始指令：${cmd.raw}`);
+          feedback.cmdResults.push(`⚠️ 找不到進行中的任務「${title}」`);
+          break;
+        }
         workingQuests = workingQuests.map(q =>
-          q.title === title && q.status === 'active' ? { ...q, isGoalMet: true } : q
+          q.id === goalQuest.id ? { ...q, isGoalMet: true } : q
         );
-        feedback.cmdResults.push(`✅ ${title}（目標達成，待玩家回報）`);
+        feedback.cmdResults.push(`✅ ${goalQuest.title}（目標達成，待玩家回報）`);
         break;
       }
 
       case 'QUEST_COMPLETE': {
         const title = cmd.parsed.title as string;
-        const quest = workingQuests.find(q => q.title === title && q.status === 'active');
-        if (quest) {
+        const quest = findQuestByTitle(workingQuests, title, true);
+        if (!quest) {
+          // 先前是 `if (quest) { ... }` 沒有 else：比不到就整段靜默跳過，
+          // 沒有 log 也沒有提示，玩家只看到任務還掛在「進行中」、獎勵也沒發。
+          // 這正是「完成任務後有機率沒偵測到」的來源
+          console.warn(`[QUEST_COMPLETE] 找不到進行中的任務「${title}」，獎勵未發放。原始指令：${cmd.raw}`);
+          feedback.cmdResults.push(`⚠️ 找不到進行中的任務「${title}」，未結案`);
+          break;
+        }
+        {
           if (quest.reward?.gold && quest.reward.gold > 0) {
             goldDelta += quest.reward.gold;
             feedback.cmdResults.push(`💰 完成獎勵：+${quest.reward.gold} 金幣`);
@@ -282,11 +302,11 @@ export function reduceCommands(
             feedback.cmdResults.push(`📦 獎勵物品：${quest.reward.items.join('、')}`);
           }
           workingQuests = workingQuests.map(q =>
-            q.title === title && q.status === 'active'
+            q.id === quest.id
               ? { ...q, status: 'completed' as const, completedAt: `${currentState.timeState.month}/${currentState.timeState.day}` }
               : q
           );
-          feedback.cmdResults.push(`✅ 任務完成：${title}`);
+          feedback.cmdResults.push(`✅ 任務完成：${quest.title}`);
         }
         break;
       }
@@ -530,6 +550,12 @@ export function reduceCommands(
             personality: cmd.parsed.personality as string || '',
             backstory: cmd.parsed.backstory as string || '',
             other: cmd.parsed.other as string || '',
+            // 主場地點預設為建檔當下的地點。先前這裡不寫 homeLocation，完全指望
+            // AI 另外補一條 NPC_HOME——它一旦忘記，這個角色就永遠進不了 Phase 1
+            // 候選名單，設定集條目也就永遠不會注入 prompt（見 promptBuilder 的說明）。
+            // 角色是因為「在這裡登場」才被建檔的，用當下地點當預設最合理；
+            // AI 之後補 NPC_HOME 會覆蓋掉它
+            homeLocation: stateChanges.currentLocation ?? currentState.currentLocation,
           };
           workingLorebookEntries = [...workingLorebookEntries, newEntry];
         }

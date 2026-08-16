@@ -111,3 +111,44 @@ describe('NpcModal — 切換 NPC 時的重置（render 期間比對 prevNpcId�
     expect(screen.getByPlaceholderText('角色姓名⋯')).toHaveValue('改名中');
   });
 });
+
+// ─── 主場地點 ────────────────────────────────────────────────────────────────
+// homeLocation 決定角色能否進入 Phase 1 候選名單，也就決定 GM 讀不讀得到他的設定。
+// 先前這個欄位在整個 UI 裡都沒有編輯入口，只有 AI 的 NPC_HOME 指令寫得到。
+describe('NpcModal 主場地點', () => {
+  const npcWithLore = (home?: string) => ({
+    npc: makeNpc({ name: '凱爾' }),
+    entries: [
+      { id: 1, title: '凱爾', category: 'NPC', content: '', isActive: true,
+        ...(home !== undefined ? { homeLocation: home } : {}) } as LorebookEntry,
+      { id: 2, title: '月湖鎮', category: '地點', content: '', isActive: true } as LorebookEntry,
+      { id: 3, title: '迷霧森林', category: '地點', content: '', isActive: true } as LorebookEntry,
+    ],
+  });
+
+  it('未設定時明白告知不會主動出場', () => {
+    const { npc, entries } = npcWithLore();
+    render(
+      <NpcModal
+        selectedNpc={npc} lorebookEntries={entries} onClose={vi.fn()} onRecordNpc={vi.fn()}
+        onTogglePinNpc={vi.fn()} onAddNpcMemory={vi.fn()} onRemoveNpcMemory={vi.fn()}
+        onUpdateNpcMemory={vi.fn()} onUpdateLorebook={vi.fn()} onDeleteNpc={vi.fn()}
+        onClearNewMemories={vi.fn()}
+      />
+    );
+    expect(screen.getByText(/未設定（不會主動出場）/)).toBeInTheDocument();
+  });
+
+  it('已設定時顯示地點名稱', () => {
+    const { npc, entries } = npcWithLore('月湖鎮');
+    render(
+      <NpcModal
+        selectedNpc={npc} lorebookEntries={entries} onClose={vi.fn()} onRecordNpc={vi.fn()}
+        onTogglePinNpc={vi.fn()} onAddNpcMemory={vi.fn()} onRemoveNpcMemory={vi.fn()}
+        onUpdateNpcMemory={vi.fn()} onUpdateLorebook={vi.fn()} onDeleteNpc={vi.fn()}
+        onClearNewMemories={vi.fn()}
+      />
+    );
+    expect(screen.getByText('主場地點：').parentElement?.textContent).toContain('月湖鎮');
+  });
+});

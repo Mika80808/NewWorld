@@ -874,7 +874,10 @@ ${poolText}
       id: newId + 1, title: '新角色', category: 'NPC', content: '',
       isActive: true, insertionOrder: 100, selective: false, secondaryKeys: [], keywords: [],
       gender: '', race: '', age: '', job: '', appearance: '', personality: '', backstory: '', other: '',
-      homeLocation: '', roamLocations: [],
+      // 主場地點預設為玩家當前所在地。留空的話這個角色永遠進不了 Phase 1 候選名單，
+      // 而 homeLocation 在 UI 裡沒有任何編輯入口（只有 AI 的 NPC_HOME 寫得到），
+      // 玩家等於做出一個 GM 永遠讀不到設定的角色
+      homeLocation: currentLocation, roamLocations: [],
     };
     setNpcs(prev => [newNpc, ...prev]);
     setLorebookEntries(prev => [newLore, ...prev]);

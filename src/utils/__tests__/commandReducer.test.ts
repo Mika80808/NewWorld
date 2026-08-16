@@ -409,3 +409,66 @@ describe('isMergeable', () => {
     expect(isMergeable(npcMem('e', { source: 'manual', importance: 'core' }))).toBe(false);
   });
 });
+
+// ─── 任務比對 ─────────────────────────────────────────────────────────────────
+// 玩家回報「任務有可能重複發放，或完成後沒被偵測到」。
+// 兩者同源：整條任務系統以標題字串完全相等在比對，而標題是 AI 每次重打的。
+describe('reduceCommands — 任務標題比對', () => {
+  const quest = (over: Partial<Quest> = {}): Quest => ({
+    id: 'q1', title: '護送商隊', giver: '商會會長', description: '',
+    reward: { gold: 100 }, status: 'active', isGoalMet: false,
+    createdAt: '4/15', createdAtTotalDays: 368654, ...over,
+  });
+
+  it('標題多了引號時不會重複發放', () => {
+    const s = state({ quests: [quest()] });
+    const { stateChanges } = run('QUEST_ADD|title=「護送商隊」|giver=商會會長', s);
+    // 沒有長出第二筆
+    expect(stateChanges.quests).toHaveLength(1);
+  });
+
+  it('標題多了句尾標點時不會重複發放', () => {
+    const s = state({ quests: [quest()] });
+    const { stateChanges } = run('QUEST_ADD|title=護送商隊。|giver=商會會長', s);
+    expect(stateChanges.quests).toHaveLength(1);
+  });
+
+  it('真的是新任務時照常發放', () => {
+    const s = state({ quests: [quest()] });
+    const { stateChanges } = run('QUEST_ADD|title=討伐哥布林|giver=村長', s);
+    expect(stateChanges.quests).toHaveLength(2);
+  });
+
+  it('標題有出入時仍能結案並發獎勵', () => {
+    const s = state({ quests: [quest({ title: '護送商隊到南門' })] });
+    const { stateChanges } = run('QUEST_COMPLETE|title=護送商隊', s);
+    expect(stateChanges.quests?.[0].status).toBe('completed');
+    expect(stateChanges.profile?.gold).toBe(200);   // 100 + 獎勵 100
+  });
+
+  /**
+   * 先前是 `if (quest) { ... }` 沒有 else：比不到就整段靜默跳過，
+   * 玩家只看到任務還掛在進行中、獎勵也沒發，而且沒有任何 log 可查。
+   */
+  it('完全比不到任務時不再靜默失敗，會回報⚠️', () => {
+    const s = state({ quests: [quest()] });
+    const { stateChanges, feedback } = run('QUEST_COMPLETE|title=某個不存在的任務', s);
+    expect(stateChanges.quests).toHaveLength(1);
+    expect(stateChanges.quests?.[0].status).toBe('active');   // 沒有被誤結案
+    expect(stateChanges.profile).toBeUndefined();             // 沒有亂發獎勵
+    expect(feedback.cmdResults.some(r => r.includes('⚠️') && r.includes('某個不存在的任務'))).toBe(true);
+  });
+
+  it('QUEST_GOAL_MET 比不到時不再謊報成功', () => {
+    const s = state({ quests: [quest()] });
+    const { feedback } = run('QUEST_GOAL_MET|title=某個不存在的任務', s);
+    expect(feedback.cmdResults.some(r => r.includes('⚠️'))).toBe(true);
+    expect(feedback.cmdResults.some(r => r.startsWith('✅'))).toBe(false);
+  });
+
+  it('QUEST_GOAL_MET 標題有出入時仍標記待回報', () => {
+    const s = state({ quests: [quest({ title: '護送商隊到南門' })] });
+    const { stateChanges } = run('QUEST_GOAL_MET|title=「護送商隊到南門」', s);
+    expect(stateChanges.quests?.[0].isGoalMet) .toBe(true);
+  });
+})

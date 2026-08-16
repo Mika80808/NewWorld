@@ -100,10 +100,23 @@ export function buildPrompt(
   )
   const candidateLimit = currentLocEntry?.locationType === 'town' ? 8 : 3
 
+  // ⚠️ 第三個來源（足跡）不可省略。`homeLocation` / `roamLocations` **在整個 UI 裡
+  // 都沒有編輯入口**，只有 AI 的 NPC_HOME / NPC_LOCATION 指令寫得到；而 NPC_NEW
+  // 建立設定集條目時也不寫 homeLocation。於是兩種角色永遠進不了候選名單：
+  // 玩家自己在角色卡建立的、以及 AI 建檔後忘了補 NPC_HOME 的。
+  //
+  // 進不了候選名單 → 不出現在「當前場景可能出現的角色」→ AI 不知道有這個人 →
+  // 不會輸出 [出場:名字] → 不在 appearingNpcs → 設定集條目過不了 inScene →
+  // **GM 永遠讀不到這個角色的設定**。除非玩家剛好把他釘選了。
+  //
+  // 這裡用 `Npc.location`（出場時寫入的足跡）當第三個來源把鏈接回去。
+  // 足跡對「候選名單＝誰可能在這裡」正是恰當語意——它不等於「誰現在在台上」，
+  // 後者一律以 appearingNpcs 為準（見 utils/npcPresence.ts）
   const npcCandidates = lorebookEntries
     .filter(e => e.category === 'NPC' && e.isActive && (
       e.homeLocation === loc ||
-      (e.roamLocations || []).includes(loc)
+      (e.roamLocations || []).includes(loc) ||
+      npcs.some(n => n.name === e.title && n.location === loc)
     ))
     .sort((a, b) => {
       const score = (e: LorebookEntry) => {
