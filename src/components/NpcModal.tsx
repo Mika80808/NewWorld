@@ -82,7 +82,12 @@ export const NpcModal: React.FC<NpcModalProps> = ({
     if (selectedNpc?.name === '新角色' && !selectedNpc.job && !selectedNpc.appearance) {
       setIsEditing(true);
       setEditName('新角色');
-      setEditFields({ gender: '', race: '', age: '', job: '', appearance: '', personality: '', backstory: '', other: '' });
+      // homeLocation 帶入既有值（handleAddNpc 會預設為當前所在地），
+      // 不像其他欄位清成空字串——清掉等於把新角色變成 GM 讀不到的狀態
+      setEditFields({
+        gender: '', race: '', age: '', job: '', appearance: '', personality: '', backstory: '', other: '',
+        homeLocation: lorebookEntries.find(e => e.category === 'NPC' && e.title === selectedNpc.name)?.homeLocation ?? '',
+      });
     } else {
       setIsEditing(false);
       setEditFields({});
@@ -106,6 +111,12 @@ export const NpcModal: React.FC<NpcModalProps> = ({
   // 與 promptBuilder 共用同一個解析入口，確保「玩家看到的」等於「AI 讀到的」。
   // 先前兩邊各寫各的：這裡會 fallback 到 Npc、promptBuilder 只讀設定集條目
   const profile = resolveNpcProfile(selectedNpc, lore);
+  // 設定集裡已建立的地點，供「主場地點」下拉選單使用
+  const knownLocations = lorebookEntries
+    .filter(e => e.category === '地點')
+    .map(e => e.title)
+    .sort((a, b) => a.localeCompare(b, 'zh-Hant'));
+  const displayHome = lore?.homeLocation ?? '';
   const displayGender      = profile.gender;
   const displayRace        = profile.race;
   const displayAge         = profile.age;
@@ -137,6 +148,7 @@ export const NpcModal: React.FC<NpcModalProps> = ({
       personality: displayPersonality,
       backstory:   displayBackstory,
       other:       displayOther,
+      homeLocation: displayHome,
     });
     setIsEditing(true);
     setActiveTab('info');
@@ -292,6 +304,15 @@ export const NpcModal: React.FC<NpcModalProps> = ({
               {selectedNpc.lastSeenDate && <span className="ml-1">{selectedNpc.lastSeenDate}</span>}
             </div>
           )}
+
+          {/* Row 4: 主場地點。未設定時明講後果——這個欄位空著，GM 就不會讓他主動出場，
+              而玩家先前完全無從得知，只會覺得「這個角色怎麼都不出現」 */}
+          <div className="text-sm flex items-center gap-1" style={{ color: 'var(--text-body)' }}>
+            <span>主場地點：</span>
+            {displayHome
+              ? <span>{displayHome}</span>
+              : <span style={{ color: 'var(--color-amber)' }}>未設定（不會主動出場）</span>}
+          </div>
         </div>
 
         {/* ── Tabs ──────────────────────────────────────────────────────────── */}
@@ -389,6 +410,31 @@ export const NpcModal: React.FC<NpcModalProps> = ({
                         />
                       </div>
                     ))}
+                  </div>
+
+                  {/* 主場地點：這是角色能否進入 prompt 的關鍵欄位。
+                      空著的話這個角色永遠不會出現在「當前場景可能出現的角色」，
+                      AI 不知道他在附近就不會讓他出場，設定集條目也就永遠不注入
+                      ——GM 等於讀不到這個角色。先前完全沒有編輯入口，只有 AI 的
+                      NPC_HOME 指令寫得到。
+
+                      用 select 而非自由輸入：地點比對是字串相等，打錯一個字
+                      就等於沒設定，而玩家看不出差別。 */}
+                  <div>
+                    <p className="text-sm ml-3 uppercase tracking-wider mb-0.5" style={{ color: 'var(--text-body)' }}>
+                      主場地點
+                    </p>
+                    <select
+                      value={(editFields.homeLocation as string) ?? ''}
+                      onChange={e => setEditFields(prev => ({ ...prev, homeLocation: e.target.value }))}
+                      className="w-full border border-white/10 rounded-[8px] px-3 py-2 text-sm outline-none transition"
+                      style={inputStyle}
+                    >
+                      <option value="">未設定（GM 不會讓他主動出場）</option>
+                      {knownLocations.map(title => (
+                        <option key={title} value={title}>{title}</option>
+                      ))}
+                    </select>
                   </div>
 
                   {/* 所屬勢力：只能從已建立的勢力挑，這裡不新建。
