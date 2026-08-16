@@ -550,6 +550,12 @@ export function reduceCommands(
             personality: cmd.parsed.personality as string || '',
             backstory: cmd.parsed.backstory as string || '',
             other: cmd.parsed.other as string || '',
+            // 主場地點預設為建檔當下的地點。先前這裡不寫 homeLocation，完全指望
+            // AI 另外補一條 NPC_HOME——它一旦忘記，這個角色就永遠進不了 Phase 1
+            // 候選名單，設定集條目也就永遠不會注入 prompt（見 promptBuilder 的說明）。
+            // 角色是因為「在這裡登場」才被建檔的，用當下地點當預設最合理；
+            // AI 之後補 NPC_HOME 會覆蓋掉它
+            homeLocation: stateChanges.currentLocation ?? currentState.currentLocation,
           };
           workingLorebookEntries = [...workingLorebookEntries, newEntry];
         }

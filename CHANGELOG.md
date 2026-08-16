@@ -5,6 +5,54 @@
 
 ---
 
+### Bug 修正｜GM 讀不到 NPC 的故事集設定（homeLocation 斷鏈） 2026-08-10 [Claude Code]
+
+玩家回報「GM AI 讀不到故事集」。**先釐清一件事：助理 GM 不在這條路徑上。**
+`updateAdventureState` 只產生摘要／短期目標／道具分類，完全不碰設定集；
+設定集是前端在 `buildPrompt` 裡直接組進主 GM 的 prompt，中間沒有 AI 參與。
+
+真正的成因是 `homeLocation` 的**結構性斷鏈**：
+
+```
+沒有 homeLocation
+  → 不在 Phase 1 候選名單
+  → 不出現在「當前場景可能出現的角色」
+  → AI 不知道有這個人，不會輸出 [出場:名字]
+  → 不在 appearingNpcs
+  → 設定集條目過不了 relevantLorebook 的 inScene 判定
+  → GM 永遠讀不到這個角色的外貌／個性／背景
+```
+
+**而 `homeLocation` / `roamLocations` 在整個 UI 裡都沒有編輯入口**——
+`LorebookModal` 與 `NpcModal` 都沒有這兩個欄位，只有 AI 的 `NPC_HOME` /
+`NPC_LOCATION` 指令寫得到。於是兩種角色必然中招：
+
+1. **玩家自己在角色卡建立的**（`handleAddNpc` 寫死 `homeLocation: ''`，
+   之後也無從修改）
+2. **AI 建檔後忘了補 `NPC_HOME` 的**（`NPC_NEW` 建立設定集條目時不寫
+   `homeLocation`，完全指望 AI 另外輸出一條）
+
+唯一的逃生口是手動釘選——`inScene` 的第二個條件是 `isPinned`。
+
+**三處修法**
+
+- `promptBuilder`：候選名單增加第三個來源——`Npc.location`（出場時寫入的足跡）
+  指向當前地點者。足跡對「誰**可能**在這裡」正是恰當語意；它不等於「誰現在在台上」，
+  後者一律以 `appearingNpcs` 為準（見 `npcPresence.ts`）。這條讓**既有存檔**裡
+  已經壞掉的角色自動恢復
+- `commandReducer` 的 `NPC_NEW`：建立設定集條目時把當下地點寫進 `homeLocation`。
+  角色是因為「在這裡登場」才被建檔的，用當下地點當預設最合理；AI 之後補
+  `NPC_HOME` 會覆蓋
+- `App.handleAddNpc`：玩家手動建立的角色，`homeLocation` 預設為當前所在地
+
+測試：`promptBuilder.test.ts` 新增 4 條，其中「沒有 homeLocation 但足跡在當前地點」
+一條在修正前實測會紅。
+
+> ⚠️ 仍未解決：`homeLocation` 依舊沒有玩家可編輯的 UI。角色一旦被指派錯地點，
+> 玩家只能等 AI 用 `NPC_HOME` 改。這是獨立的一件事，另外處理。
+
+---
+
 ### Bug 修正｜任務重複發放、完成後沒被偵測到 2026-08-10 [Claude Code]
 
 兩個症狀同源：**整條任務系統以「標題字串完全相等」在比對**，而標題是

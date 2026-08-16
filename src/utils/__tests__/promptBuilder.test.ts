@@ -376,3 +376,67 @@ describe('buildPrompt NPC 性別注入', () => {
     expect(prompt).toContain('凱爾（女・嚮導）');
   });
 });
+
+// ─── NPC 設定集注入的斷鏈 ────────────────────────────────────────────────────
+// 玩家回報「GM AI 讀不到故事集」（NPC 類）。
+//
+// homeLocation / roamLocations 在整個 UI 裡都沒有編輯入口，只有 AI 的
+// NPC_HOME 寫得到，而 NPC_NEW 建檔時也不寫。缺了它，角色就永遠進不了
+// Phase 1 候選名單 → AI 不知道有這個人 → 不輸出 [出場:] → 設定集條目
+// 永遠過不了 inScene → GM 讀不到那個角色的任何設定。
+describe('buildPrompt NPC 候選名單的來源', () => {
+  const npc = (over: Partial<Npc> = {}): Npc => ({
+    id: 1, name: '凱爾', job: '嚮導', affection: 10,
+    appearance: '', personality: '', category: 'NPC', isActive: true, memories: [], ...over,
+  });
+  const loreNpc = (over: Partial<LorebookEntry> = {}): LorebookEntry => ({
+    id: 1, title: '凱爾', content: '', category: 'NPC', isActive: true, ...over,
+  });
+  const build = (over: Partial<BuildPromptDeps>) =>
+    buildPrompt({ ...deps([], () => false), ...over }, '測試輸入', messages).prompt;
+
+  it('有 homeLocation 時進候選名單', () => {
+    const prompt = build({
+      npcs: [npc()],
+      lorebookEntries: [loreNpc({ homeLocation: '月湖鎮' })],
+    });
+    expect(prompt).toContain('凱爾');
+  });
+
+  /**
+   * 這條釘住斷鏈的修復：設定集條目沒有 homeLocation（玩家手動建立的角色、
+   * 或 AI 忘了補 NPC_HOME），但 Npc.location 的足跡指向當前地點時，
+   * 仍應列入候選名單。
+   */
+  it('沒有 homeLocation 但足跡在當前地點時仍進候選名單', () => {
+    const prompt = build({
+      npcs: [npc({ location: '月湖鎮' })],
+      lorebookEntries: [loreNpc()],
+    });
+    expect(prompt).toContain('[當前場景可能出現的角色]');
+    expect(prompt).toContain('凱爾');
+    expect(prompt).not.toContain('無已知角色在附近');
+  });
+
+  it('足跡在別的地點時不進候選名單', () => {
+    const prompt = build({
+      npcs: [npc({ location: '迷霧森林' })],
+      lorebookEntries: [loreNpc()],
+    });
+    expect(prompt).toContain('無已知角色在附近');
+  });
+
+  /**
+   * 修復後的完整鏈路：角色進了候選名單，AI 輸出 [出場:] 之後，
+   * 設定集條目要真的把外貌／個性帶進 [Scene Lorebook]。
+   */
+  it('出場後設定集的外貌與個性確實注入', () => {
+    const prompt = build({
+      npcs: [npc({ location: '月湖鎮' })],
+      appearingNpcs: ['凱爾'],
+      lorebookEntries: [loreNpc({ appearance: '淺棕色短髮', personality: '活潑好動' })],
+    });
+    expect(prompt).toContain('淺棕色短髮');
+    expect(prompt).toContain('活潑好動');
+  });
+});
