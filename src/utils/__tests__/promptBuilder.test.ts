@@ -440,3 +440,56 @@ describe('buildPrompt NPC 候選名單的來源', () => {
     expect(prompt).toContain('活潑好動');
   });
 });
+
+// ─── 助理 GM 的設定集提示 ────────────────────────────────────────────────────
+// 規則比對（homeLocation === loc、標題相等、關鍵字 includes）只要字串差一個字
+// 就整條漏掉。助理 GM 做語意判斷補這個洞，結果與規則取聯集。
+describe('buildPrompt 助理 GM 設定集提示（loreHints）', () => {
+  const entry = (id: number, over: Partial<LorebookEntry> = {}): LorebookEntry => ({
+    id, title: `條目${id}`, content: `內容${id}`, category: '歷史',
+    isActive: true, keywords: ['不會命中的關鍵字'], ...over,
+  });
+  const build = (over: Partial<BuildPromptDeps>) =>
+    buildPrompt({ ...deps([], () => false), ...over }, '測試輸入', messages).prompt;
+
+  it('助理挑中的條目即使規則沒命中也會注入', () => {
+    const e = entry(7);
+    expect(build({ lorebookEntries: [e] })).not.toContain('內容7');
+    expect(build({ lorebookEntries: [e], loreHints: [7] })).toContain('內容7');
+  });
+
+  it('規則命中的條目不受影響（聯集，不是取代）', () => {
+    const ruled = entry(1, { keywords: [] });          // 無關鍵字 → 規則本來就會過
+    const hinted = entry(2);
+    const prompt = build({ lorebookEntries: [ruled, hinted], loreHints: [2] });
+    expect(prompt).toContain('內容1');
+    expect(prompt).toContain('內容2');
+  });
+
+  /**
+   * isActive 是玩家明確關掉的意思，助理提示不得凌駕——否則玩家停用的設定
+   * 會被 AI 自己撿回來，而且玩家完全無從得知。
+   */
+  it('停用的條目即使被助理挑中也不注入', () => {
+    const e = entry(3, { isActive: false });
+    expect(build({ lorebookEntries: [e], loreHints: [3] })).not.toContain('內容3');
+  });
+
+  it('NPC 類被助理挑中時可繞過出場判定', () => {
+    const npcEntry = entry(4, { category: 'NPC', title: '凱爾', appearance: '淺棕色短髮', keywords: [] });
+    expect(build({ lorebookEntries: [npcEntry] })).not.toContain('淺棕色短髮');
+    expect(build({ lorebookEntries: [npcEntry], loreHints: [4] })).toContain('淺棕色短髮');
+  });
+
+  it('提示數量超過上限時只取前 10 筆，不會把整本設定集倒進來', () => {
+    const many = Array.from({ length: 20 }, (_, i) => entry(100 + i));
+    const prompt = build({ lorebookEntries: many, loreHints: many.map(e => e.id) });
+    const hit = many.filter(e => prompt.includes(e.content)).length;
+    expect(hit).toBe(10);
+  });
+
+  it('沒有提示時行為與先前完全一致', () => {
+    const e = entry(5, { keywords: [] });
+    expect(build({ lorebookEntries: [e] })).toBe(build({ lorebookEntries: [e], loreHints: [] }));
+  });
+});

@@ -31,6 +31,22 @@ export interface BuildPromptDeps {
    * 那期間發生的事只要 AI 當時沒輸出 MEMORY_ADD，對它就等於沒發生過。
    */
   summaryPool: string[]
+  /**
+   * 助理 GM 上一輪挑出的「本輪可能相關」設定集條目 id。
+   *
+   * 為什麼需要這個：設定集的挑選原本純靠規則比對——`homeLocation === loc`、
+   * `e.title === loc`、關鍵字 `includes`——只要字串差一個字就整條漏掉，
+   * 而玩家完全看不出差別。助理 GM 做的是語意判斷，補得到規則漏掉的東西。
+   *
+   * ⚠️ 這是**聯集**，不是取代。規則仍是地板：助理沒回、回錯、或整趟呼叫失敗時，
+   * 最壞情況只是回到純規則的行為，絕不會比原本少給資料。
+   *
+   * ⚠️ 慢一輪是刻意的。助理併在既有的 `updateAdventureState`（回應後才跑、
+   * 不 await）裡順便挑，因此**不增加任何 API 呼叫、也不讓玩家多等**。
+   * NPC 的兩階段注入本來就是慢一輪（`[出場:]` 出現後下一輪才注入完整資料），
+   * 這與既有架構一致，不是新引入的行為。
+   */
+  loreHints?: number[]
   diaryEntries: DiaryEntry[]
   statusEffects: StatusEffect[]
   factions: Faction[]
@@ -61,7 +77,7 @@ export function buildPrompt(
   const {
     profile, systemPrompt, npcs, appearingNpcs, lorebookEntries,
     memories, equipment, items, itemCatalog, quests, timeState, diaryEntries,
-    statusEffects, factions, summaryPool,
+    statusEffects, factions, summaryPool, loreHints,
     scanKeywords, isMemoryTriggered,
   } = deps
 
@@ -131,9 +147,18 @@ export function buildPrompt(
   // 相鄰地點清單（讓 AI 知道玩家可以去哪裡）
   const adjacentLocTitles = new Set(currentLocEntry?.adjacentTo ?? [])
 
+  // 助理 GM 的挑選結果。設上限避免它一次把整本設定集倒進來把 prompt 撐爆；
+  // 超出的部分丟棄，規則命中的條目不受影響（下方是聯集）
+  const MAX_LORE_HINTS = 10
+  const hintedLoreIds = new Set((loreHints ?? []).slice(0, MAX_LORE_HINTS))
+
   const relevantLorebook = lorebookEntries
     .filter(e => {
+      // isActive 是玩家明確關掉的意思，助理提示不得凌駕
       if (!e.isActive) return false
+      // 助理 GM 挑中的直接放行，繞過下方所有規則比對。
+      // 這條是規則的**補集**——規則命中的照樣進來，見 BuildPromptDeps.loreHints
+      if (hintedLoreIds.has(e.id)) return true
       if (e.category === 'NPC') {
         // Phase 2：出場 NPC、釘選 NPC、或「候選名單內」好感度 ≥ 60 的核心 NPC → 完整注入
         // 注意：高好感條件限定在 npcCandidates（當前場景）內，避免全體 NPC 掃描造成 prompt 膨脹

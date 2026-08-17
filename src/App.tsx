@@ -58,6 +58,10 @@ export default function App() {
   const [inventoryPanelPos, setInventoryPanelPos] = useState({ top: 0, left: 0 });
   const [consumablesPanelPos, setConsumablesPanelPos] = useState({ top: 0, left: 0 });
   const [isUpdatingLog, setIsUpdatingLog] = useState(false);
+  // 助理 GM 在上一輪順便挑出的「可能相關」設定集條目 id，與規則比對取聯集後注入。
+  // 刻意不進存檔：這是每輪重算的暫時提示，存起來只會在載入後沿用過期的場景判斷。
+  // 載入後的第一輪退回純規則行為，助理跑完一輪就會補上。
+  const [loreHints, setLoreHints] = useState<number[]>([]);
   const [hasNewDiary, setHasNewDiary] = useState(false);
   const [summaryCollapsed, setSummaryCollapsed] = useState(true);
   const [isQuestPanelOpen, setIsQuestPanelOpen] = useState(false);
@@ -110,6 +114,43 @@ export default function App() {
 新增道具：${newItems.join('、')}`
         : '';
 
+      // ── 設定集挑選：讓助理 GM 順便標出「下一輪可能用得到」的條目 ──────────
+      //
+      // 設定集原本純靠規則比對挑選（homeLocation === loc、標題相等、關鍵字
+      // includes），字串差一個字就整條漏掉，而玩家看不出差別。助理做語意判斷，
+      // 補得到規則漏掉的。結果與規則取**聯集**，規則仍是地板。
+      //
+      // ⚠️ 併進這趟既有的呼叫，不另外發請求——所以不增加 API 次數，
+      // 也不讓玩家多等（updateAdventureState 在回應後才跑且沒有 await）。
+      //
+      // ⚠️ 只送 id／類別／標題，不送內容：內容動輒上千字，全塞進來等於每輪
+      // 重傳整本設定集。助理靠標題就足以判斷相關性。
+      // 場景沒變就不重送索引：同一個地點跟同一批人繼續對話時，助理挑出來的
+      // 答案不會變，那 120 行索引等於白送。沿用上一輪的提示即可。
+      // 指紋刻意只取「地點＋在場的人」——設定集本身變動時也要重算，
+      // 故一併納入條目數量（新增／刪除條目會改變它）。
+      const sceneKey = [
+        currentLocationRef.current,
+        [...appearingNpcsRef.current].sort().join(','),
+        lorebookEntriesRef.current.length,
+      ].join('#');
+      const sceneUnchanged = sceneKey === loreHintSceneRef.current;
+
+      const loreIndex = sceneUnchanged
+        ? ''
+        : lorebookEntriesRef.current
+            .filter(e => e.isActive)
+            .slice(0, 120)
+            .map(e => `${e.id}|${e.category}|${e.title}`)
+            .join('\n');
+      const loreSection = loreIndex
+        ? `\n\n另外，以下是這個世界的設定集索引（格式 id|類別|標題）。
+請判斷接下來的劇情**可能需要哪些條目**，在 JSON 中加入 "lore_ids" 欄位，
+值為 id 的陣列（最多 8 個，寧缺勿濫，沒有就給空陣列）。只回 id，不要回標題。
+設定集索引：
+${loreIndex}`
+        : '';
+
       // ── 階段一：生成本輪摘要 ──────────────────────────────────────────────
       // ⚠️ 玩家角色一律以名字稱呼。這裡的產物會進 summaryPool → 壓縮 → 日記，
       // 一旦寫成「主角」就會沿著整條鏈路擴散，之後每篇日記都跟著錯。
@@ -118,9 +159,9 @@ export default function App() {
 根據以下最新一則對話，輸出固定 JSON，只輸出 JSON，不要任何說明：
 {
   "summary": "以第三人稱過去式精簡記錄：${playerName}做了什麼、結果如何、實質影響。若本輪純屬日常閒聊或無實質進展，輸出 null",
-  "goals": ["短期目標1", "短期目標2"]${newItems.length > 0 ? `,\n  "item_types": { "道具名": "equipment 或 item" }` : ''}
+  "goals": ["短期目標1", "短期目標2"]${newItems.length > 0 ? `,\n  "item_types": { "道具名": "equipment 或 item" }` : ''}${loreIndex ? `,\n  "lore_ids": [1, 5]` : ''}
 }
-${itemClassifySection}
+${itemClassifySection}${loreSection}
 
 對話內容：
 ${lastMessages}`;
@@ -139,6 +180,23 @@ ${lastMessages}`;
         setCurrentGoals(data.goals.filter((g: unknown): g is string => typeof g === 'string'));
       } else if (typeof data.goals === 'string' && data.goals.trim()) {
         setCurrentGoals([data.goals.trim()]);
+      }
+
+      // 設定集提示：只收數字 id，且必須對得上實際存在的條目。
+      // 型別防衛比照 goals——助理偶爾會回標題字串或物件，直接寫進 state
+      // 會讓 promptBuilder 的 Set 比對整組失效（而且是靜默失效）。
+      // 比不到任何 id 時寫入空陣列，讓下一輪乾淨地退回純規則行為，
+      // 不要沿用上一輪的舊提示（場景已經換了）。
+      // 只在這輪真的有送索引時才更新（沒送索引就沒問，助理回的任何 lore_ids
+      // 都是幻覺）。同時記下算這份提示時的場景指紋，供下一輪比對
+      if (loreIndex && Array.isArray(data.lore_ids)) {
+        const validIds = new Set(lorebookEntriesRef.current.map(e => e.id));
+        setLoreHints(
+          data.lore_ids
+            .map((v: unknown) => typeof v === 'number' ? v : parseInt(String(v), 10))
+            .filter((n: number) => Number.isFinite(n) && validIds.has(n))
+        );
+        loreHintSceneRef.current = sceneKey;
       }
 
       // 道具分類（讀 itemsRef 取最新道具清單，寫入一律 functional update）
@@ -342,6 +400,11 @@ ${newPool.map((s, i) => `${i + 1}. ${s}`).join('\n')}`;
   const npcsRef = useRef(npcs);
   const lorebookEntriesRef = useRef(lorebookEntries);
   const factionsRef = useRef(factions);
+  // 助理 GM 的設定集索引要在場景沒變時跳過重送，需要這兩個最新值
+  const currentLocationRef = useRef(currentLocation);
+  const appearingNpcsRef = useRef(appearingNpcs);
+  /** 上次真的向助理要提示時的場景指紋；與本輪相同就不重送索引 */
+  const loreHintSceneRef = useRef('');
 
   // 同步一律在 commit 後做，不在 render 期間寫 ref（render 必須是純函數：
   // React 可能捨棄或重跑一次 render，render 期間寫入會留下不屬於任何已提交畫面的值）。
@@ -358,6 +421,8 @@ ${newPool.map((s, i) => `${i + 1}. ${s}`).join('\n')}`;
     npcsRef.current = npcs;
     lorebookEntriesRef.current = lorebookEntries;
     factionsRef.current = factions;
+    currentLocationRef.current = currentLocation;
+    appearingNpcsRef.current = appearingNpcs;
   });
 
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -1290,7 +1355,7 @@ ${poolText}
     const deps: BuildPromptDeps = {
       profile, systemPrompt, npcs, appearingNpcs, lorebookEntries,
       memories, equipment, items, itemCatalog, quests, timeState, currentLocation,
-      summaryPool, diaryEntries, statusEffects, factions, scanKeywords, isMemoryTriggered,
+      summaryPool, diaryEntries, statusEffects, factions, loreHints, scanKeywords, isMemoryTriggered,
     };
     return buildPrompt(deps, userInput, currentMessages, locationOverride, isPriority);
   };
