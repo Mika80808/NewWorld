@@ -2,7 +2,7 @@
 import { RefreshCw, MoreVertical, Book, BookOpen, Package, Beaker, Heart, MapPin, Zap, Coins, Calendar, Shield, CheckSquare, ChevronDown, ChevronRight, Map as MapIcon, Cloud, Sun, CloudRain, Snowflake, Moon, Wind, Brain, X, Pin } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useAIRequest } from './hooks/useAIRequest';
-import { Npc, LorebookEntry, Message, NpcMemory, EquipmentItem, ItemEntry, GMConfig, SubGMConfig } from './types';
+import { Npc, LorebookEntry, Message, NpcMemory, EquipmentItem, ItemEntry, GMConfig, SubGMConfig, FactionRelation } from './types';
 import { QuestModal } from './components/QuestModal';
 import { ProfileModal } from './components/ProfileModal';
 import { SystemPromptModal } from './components/SystemPromptModal';
@@ -36,6 +36,7 @@ import { debounce } from './utils/debounce';
 import { renderMarkdown, cleanNarrative, APPEAR_TAG_PATTERN, APPEAR_TAG_CAPTURE_PATTERN } from './utils/markdownParser';
 import { buildPrompt, BuildPromptDeps, BuildPromptResult } from './utils/promptBuilder';
 import { parseNpcImport, mergeImportedNpcs, mergeImportedFactions } from './utils/npcImport';
+import { setFactionRelation, removeFactionRelation } from './utils/factionRelation';
 import { SaveSlotsModal } from './components/SaveSlotsModal';
 
 export default function App() {
@@ -955,6 +956,20 @@ ${poolText}
     setNpcs(prev => prev.map(n =>
       n.id === npcId ? { ...n, factionIds: [...new Set(factionIds)] } : n
     ));
+  };
+
+  // 勢力關係的唯一寫入點。與 AI 的 FACTION_RELATION 指令共用 utils/factionRelation，
+  // 兩邊才不會出現「AI 設的是雙向、玩家設的是單向」這種分歧。
+  // 傳 null 代表解除關係（兩邊一起清，不留單向殘骸）。
+  const handleSetFactionRelation = (
+    aId: number,
+    bId: number,
+    type: FactionRelation['type'] | null,
+    note?: string,
+  ) => {
+    setFactions(prev => type === null
+      ? removeFactionRelation(prev, aId, bId)
+      : setFactionRelation(prev, aId, bId, type, note));
   };
 
   // ─── NPC 批次匯入 ────────────────────────────────────────────────────────────
@@ -2362,6 +2377,7 @@ ${recentContext}
         factions={factions}
         onAddFaction={addFaction}
         onUpdateFaction={updateFaction}
+        onSetFactionRelation={handleSetFactionRelation}
         onSave={requestPersist}
       />
       </Suspense>}

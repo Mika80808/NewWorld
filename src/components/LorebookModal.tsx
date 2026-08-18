@@ -1,11 +1,11 @@
 import React, { useState, useMemo } from 'react';
 import { BookOpen, Plus, Search, CheckSquare, Square, Trash2, Heart, MoreHorizontal, Upload, Download, FileJson } from 'lucide-react';
-import { LorebookEntry, Npc, Faction } from '../types';
+import { LorebookEntry, Npc, Faction, FactionRelation } from '../types';
 import { debounce } from '../utils/debounce';
 import { NPC_IMPORT_TEMPLATE, buildNpcExport } from '../utils/npcImport';
 import { affectionColor } from '../utils/affectionColor';
 import { relationText } from '../utils/affectionLabel';
-import { factionTypeLabel } from '../utils/factionLabel';
+import { factionTypeLabel, factionRelationLabel } from '../utils/factionLabel';
 
 interface LorebookModalProps {
   isOpen: boolean;
@@ -27,6 +27,8 @@ interface LorebookModalProps {
   factions?: Faction[];
   onAddFaction?: (faction: Faction) => void;
   onUpdateFaction?: (id: number, updates: Partial<Faction>) => void;
+  /** 設定勢力間的敵友關係（唯一寫入點，type 傳 null 代表解除） */
+  onSetFactionRelation?: (aId: number, bId: number, type: FactionRelation['type'] | null, note?: string) => void;
   /** 條目／勢力編輯完成時提交至雲端（設定集的編輯是即時寫回 state 的） */
   onSave?: () => void;
 }
@@ -46,6 +48,7 @@ export const LorebookModal: React.FC<LorebookModalProps> = ({
   onAddNpc,
   onImportNpcs,
   onSetNpcFactions,
+  onSetFactionRelation,
   onUpdateLorebook,
   onDeleteLorebook,
   onLorebookKeywordAdd,
@@ -65,6 +68,10 @@ export const LorebookModal: React.FC<LorebookModalProps> = ({
   const [factionAction, setFactionAction] = useState<'add' | number | null>(null); // 'add' or faction.id for edit
   const [factionForm, setFactionForm] = useState<FactionFormData>(EMPTY_FACTION_FORM);
   const [factionMenuId, setFactionMenuId] = useState<number | null>(null); // three-dot menu
+  // 關係編輯草稿，依勢力 id 分開存——多張卡片同時開著時彼此不互相干擾
+  const [relationDraft, setRelationDraft] = useState<
+    Record<number, { targetId: string; type: FactionRelation['type']; note: string }>
+  >({});
 
   // ─── Phase 3: Debounced search (300ms delay) ─────────────────────────────────
   const debouncedSetSearch = useMemo(
@@ -728,6 +735,109 @@ export const LorebookModal: React.FC<LorebookModalProps> = ({
   };
 
   // ── 勢力 Tab ──────────────────────────────────────────────────────────────────
+  /**
+   * 勢力的敵友關係編輯。
+   *
+   * ⚠️ 寫入一律走 `onSetFactionRelation`（App 端接 `utils/factionRelation`），
+   * 與 AI 的 `FACTION_RELATION` 指令**共用同一套規則**：對稱關係雙向寫入、
+   * `vassal`（附庸）單向。這裡若自己直接改 `faction.relations`，就會出現
+   * 「AI 設的是雙向、玩家設的是單向」這種只在特定劇情才浮現的分歧。
+   */
+  const renderFactionRelations = (faction: Faction) => {
+    const others = factions.filter(f => f.isActive && f.id !== faction.id);
+    const rels = (faction.relations ?? [])
+      .map(r => ({ rel: r, target: factions.find(f => f.id === r.targetFactionId) }))
+      .filter((x): x is { rel: FactionRelation; target: Faction } => !!x.target);
+    const draft = relationDraft[faction.id] ?? { targetId: '', type: 'ally' as FactionRelation['type'], note: '' };
+    const setDraft = (patch: Partial<typeof draft>) =>
+      setRelationDraft(prev => ({ ...prev, [faction.id]: { ...draft, ...patch } }));
+
+    return (
+      <div className="mt-2 pt-2 border-t" style={{ borderColor: 'var(--border-default)' }}>
+        <div className="flex flex-wrap items-center gap-1.5 mb-1.5">
+          <span className="text-[11px]" style={{ color: 'var(--text-muted)' }}>關係：</span>
+          {rels.length === 0 && (
+            <span className="text-[11px]" style={{ color: 'var(--text-muted)' }}>尚未設定</span>
+          )}
+          {rels.map(({ rel, target }) => (
+            <span key={target.id}
+              className="text-[11px] px-1.5 py-0.5 rounded-full inline-flex items-center gap-1"
+              style={{
+                background: 'color-mix(in srgb, var(--bg-sys-tag) 80%, transparent)',
+                color: 'var(--text-body)', border: '1px solid var(--border-default)',
+              }}>
+              {factionRelationLabel(rel.type)}：{target.name}
+              {rel.note ? `（${rel.note}）` : ''}
+              <button
+                onClick={() => { onSetFactionRelation?.(faction.id, target.id, null); onSave?.(); }}
+                title="解除關係"
+                aria-label={`解除與 ${target.name} 的關係`}
+                style={{ color: 'var(--text-danger)' }}
+              >×</button>
+            </span>
+          ))}
+        </div>
+
+        {others.length === 0 ? (
+          <p className="text-[11px]" style={{ color: 'var(--text-muted)' }}>
+            至少要有兩個勢力才能建立關係
+          </p>
+        ) : (
+          <div className="flex flex-wrap items-center gap-1.5">
+            <select
+              value={draft.targetId}
+              onChange={e => setDraft({ targetId: e.target.value })}
+              className="text-[11px] px-1.5 py-1 rounded-[6px] border outline-none"
+              style={{ background: 'var(--bg-sys-field)', color: 'var(--text-body)', borderColor: 'var(--border-default)' }}
+              aria-label="關係對象"
+            >
+              <option value="">選擇對象⋯</option>
+              {others.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
+            </select>
+            <select
+              value={draft.type}
+              onChange={e => setDraft({ type: e.target.value as FactionRelation['type'] })}
+              className="text-[11px] px-1.5 py-1 rounded-[6px] border outline-none"
+              style={{ background: 'var(--bg-sys-field)', color: 'var(--text-body)', borderColor: 'var(--border-default)' }}
+              aria-label="關係類型"
+            >
+              {(['ally', 'enemy', 'rival', 'vassal', 'neutral'] as const).map(t => (
+                <option key={t} value={t}>{factionRelationLabel(t)}</option>
+              ))}
+            </select>
+            <input
+              type="text"
+              value={draft.note}
+              onChange={e => setDraft({ note: e.target.value })}
+              placeholder="備註（選填）"
+              className="text-[11px] px-1.5 py-1 rounded-[6px] border outline-none flex-1 min-w-[80px]"
+              style={{ background: 'var(--bg-sys-field)', color: 'var(--text-body)', borderColor: 'var(--border-default)' }}
+            />
+            <button
+              disabled={!draft.targetId}
+              onClick={() => {
+                if (!draft.targetId) return;
+                onSetFactionRelation?.(faction.id, Number(draft.targetId), draft.type, draft.note.trim() || undefined);
+                setRelationDraft(prev => ({ ...prev, [faction.id]: { targetId: '', type: 'ally', note: '' } }));
+                onSave?.();
+              }}
+              className="text-[11px] px-2 py-1 rounded-[6px] transition"
+              style={{
+                background: 'var(--btn-primary)', color: 'var(--btn--text)',
+                opacity: draft.targetId ? 1 : 0.5,
+              }}
+            >加入</button>
+          </div>
+        )}
+        {draft.type === 'vassal' && (
+          <p className="text-[10px] mt-1" style={{ color: 'var(--text-muted)' }}>
+            附庸是單向的：{faction.name} 臣屬於對方，對方不會反過來臣屬。
+          </p>
+        )}
+      </div>
+    );
+  };
+
   const renderFactionTab = () => {
     const locationEntries = lorebookEntries.filter(e => e.category === '地點');
     const factionInputStyle: React.CSSProperties = {
@@ -894,9 +1004,10 @@ export const LorebookModal: React.FC<LorebookModalProps> = ({
 
           return (
             <div key={faction.id}
-              className="rounded-[8px] p-3 border flex items-center gap-3 relative"
+              className="rounded-[8px] p-3 border relative"
               style={{ background: 'color-mix(in srgb, var(--bg-elevated) 50%, transparent)', borderColor: 'var(--border-default)' }}
             >
+             <div className="flex items-center gap-3">
               {/* Color bar */}
               <div style={{ width: 4, minHeight: 40, borderRadius: 2, background: fc, flexShrink: 0 }} />
               {/* Info */}
@@ -948,6 +1059,13 @@ export const LorebookModal: React.FC<LorebookModalProps> = ({
                   </div>
                 )}
               </div>
+             </div>
+
+              {/* ── 敵友關係 ──────────────────────────────────────────────────
+                  先前完全沒有編輯入口：關係只能靠 AI 的 FACTION_RELATION 指令
+                  或批次匯入寫入，玩家想手動設定「黑牙氏族與狼族敵對」無處可去。
+                  MapModal 那個彩色線條方框是**圖例**，不是編輯器。 */}
+              {renderFactionRelations(faction)}
             </div>
           );
         })}
