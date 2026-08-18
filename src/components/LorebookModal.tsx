@@ -5,6 +5,7 @@ import { debounce } from '../utils/debounce';
 import { NPC_IMPORT_TEMPLATE, buildNpcExport } from '../utils/npcImport';
 import { affectionColor } from '../utils/affectionColor';
 import { relationText } from '../utils/affectionLabel';
+import { factionTypeLabel } from '../utils/factionLabel';
 
 interface LorebookModalProps {
   isOpen: boolean;
@@ -904,9 +905,7 @@ export const LorebookModal: React.FC<LorebookModalProps> = ({
                   <span className="font-bold text-sm" style={{ color: 'var(--text-primary)' }}>{faction.name}</span>
                   <span className="text-[11px] px-1.5 py-0.5 rounded-full"
                     style={{ background: fc + '33', color: fc, border: `1px solid ${fc}66` }}>
-                    {faction.type === 'race' ? '種族' : faction.type === 'guild' ? '公會' :
-                     faction.type === 'nation' ? '國家' : faction.type === 'religion' ? '宗教' :
-                     faction.type === 'criminal' ? '犯罪' : '其他'}
+                    {factionTypeLabel(faction.type)}
                   </span>
                 </div>
                 <div className="text-xs mt-0.5" style={{ color: 'var(--text-muted)' }}>

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { buildPrompt, BuildPromptDeps } from '../promptBuilder';
-import { MemoryEntry, Message, Npc, LorebookEntry } from '../../types';
+import { MemoryEntry, Message, Npc, LorebookEntry, Faction } from '../../types';
 
 const mem = (id: string, content: string, over: Partial<MemoryEntry> = {}): MemoryEntry => ({
   id,
@@ -633,5 +633,90 @@ describe('buildPrompt 標題提及即可查詢', () => {
   it('停用的條目即使被提到也不注入', () => {
     const e = entry({ title: '大災變', content: '百年前的浩劫', isActive: false });
     expect(build('大災變是什麼？', [e])).not.toContain('百年前的浩劫');
+  });
+});
+
+// ─── 勢力與關係鏈 ────────────────────────────────────────────────────────────
+// factions 先前在整個 prompt 裡只用於把「名稱」接在 NPC 行尾，沒有任何 [勢力]
+// 區塊。AI 只拿得到一個名字，不知道那是什麼組織、據點在哪、跟誰敵對。
+// FactionRelation 的資料結構與地圖星圖都做好了，卻從未送給模型。
+describe('buildPrompt 勢力與關係鏈', () => {
+  const faction = (over: Partial<Faction>): Faction => ({
+    id: 1, name: '黑牙氏族', type: 'criminal', description: '盤據東境的盜賊團',
+    isActive: true, ...over,
+  });
+  const npc = (over: Partial<Npc> = {}): Npc => ({
+    id: 1, name: '芬里爾', job: '獵人', affection: 10,
+    appearance: '', personality: '', category: 'NPC', isActive: true, memories: [], ...over,
+  });
+  const build = (input: string, over: Partial<BuildPromptDeps>) =>
+    buildPrompt({ ...deps([], () => false), ...over }, input, messages).prompt;
+
+  it('在場 NPC 的所屬勢力會帶出完整描述，不再只有名字', () => {
+    const prompt = build('你好', {
+      factions: [faction({})],
+      npcs: [npc({ factionIds: [1] })],
+      appearingNpcs: ['芬里爾'],
+      lorebookEntries: [{ id: 1, title: '芬里爾', category: 'NPC', content: '', isActive: true } as LorebookEntry],
+    });
+    expect(prompt).toContain('[勢力]');
+    expect(prompt).toContain('盤據東境的盜賊團');
+    expect(prompt).toContain('（犯罪）');
+  });
+
+  it('名稱被提到的勢力查得到（同 Lorebook 契約）', () => {
+    const prompt = build('黑牙氏族最近在做什麼？', { factions: [faction({})] });
+    expect(prompt).toContain('盤據東境的盜賊團');
+  });
+
+  /**
+   * 關係鏈：種子勢力的關係對象也要一起注入，否則 AI 看得到「敵對：狼族」
+   * 卻不知道狼族是誰。只擴一跳——兩跳會把整張關係圖拖進來。
+   */
+  it('關係對象會一起注入（擴一跳）', () => {
+    const prompt = build('黑牙氏族最近在做什麼？', {
+      factions: [
+        faction({ id: 1, relations: [{ targetFactionId: 2, type: 'enemy' }] }),
+        faction({ id: 2, name: '狼族部落', type: 'race', description: '北境的獸人部族' }),
+      ],
+    });
+    expect(prompt).toContain('敵對：狼族部落');
+    expect(prompt).toContain('北境的獸人部族');
+  });
+
+  it('關係備註會一起帶上', () => {
+    const prompt = build('黑牙氏族', {
+      factions: [
+        faction({ id: 1, relations: [{ targetFactionId: 2, type: 'vassal', note: '每年進貢' }] }),
+        faction({ id: 2, name: '月湖領主' }),
+      ],
+    });
+    expect(prompt).toContain('附庸：月湖領主（每年進貢）');
+  });
+
+  it('據點在當前地點的勢力會注入', () => {
+    const prompt = build('我看看四周', {
+      factions: [faction({ homeId: 7 })],
+      lorebookEntries: [{ id: 7, title: '月湖鎮', category: '地點', content: '', isActive: true } as LorebookEntry],
+    });
+    expect(prompt).toContain('據點：月湖鎮');
+  });
+
+  it('停用的勢力不注入', () => {
+    const prompt = build('黑牙氏族', { factions: [faction({ isActive: false })] });
+    expect(prompt).not.toContain('盤據東境的盜賊團');
+  });
+
+  it('沒有相關勢力時整段省略，不留空標題', () => {
+    const prompt = build('我看看四周', { factions: [faction({})] });
+    expect(prompt).not.toContain('[勢力]');
+  });
+
+  it('相關勢力過多時截斷，種子優先於延伸的關係對象', () => {
+    const many: Faction[] = Array.from({ length: 10 }, (_, i) =>
+      faction({ id: i + 1, name: `勢力${i + 1}`, description: `描述${i + 1}` }));
+    const prompt = build(many.map(f => f.name).join('、'), { factions: many });
+    const hit = many.filter(f => prompt.includes(f.description)).length;
+    expect(hit).toBe(6);
   });
 });

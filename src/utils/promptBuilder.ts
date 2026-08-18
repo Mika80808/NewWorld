@@ -8,6 +8,7 @@ import { selectKnownItemNames } from './itemCatalog'
 import { relationText } from './affectionLabel'
 import { resolveNpcProfile, npcIdentityBrief } from './npcProfile'
 import { isNpcOnStage } from './npcPresence'
+import { factionTypeLabel, factionRelationLabel } from './factionLabel'
 import { COMMANDS_VERSION } from './commandParser'
 
 export interface BuildPromptDeps {
@@ -247,6 +248,55 @@ export function buildPrompt(
     return !relevantLorebookNpcTitles.has(e.title)
       && !npcs.some(n => n.isPinned && n.name === e.title)
   }).slice(0, MAX_MENTIONED)
+
+  /**
+   * 相關勢力（含關係鏈）。
+   *
+   * 先前 `factions` 在整個 prompt 裡只用在一個地方——把勢力**名稱**接在 NPC
+   * 行尾（`｜勢力：黑牙氏族`）。沒有任何 `[勢力]` 區塊，所以 AI 只拿得到一個
+   * 名字：不知道那是什麼組織、據點在哪、跟誰敵對。關係鏈（`FactionRelation`）
+   * 的資料結構與地圖星圖都做好了，卻**從來沒有送給模型**，在遊戲裡等於不存在。
+   *
+   * 挑選來源（取聯集後再擴一跳）：
+   *   1. 已注入 prompt 的 NPC 所屬勢力——AI 正在寫這些人，得知道他們效忠誰
+   *   2. 據點在當前地點的勢力——玩家人就站在他們的地盤上
+   *   3. 名稱被提到的勢力（同 Lorebook 的「標題提及即可查詢」契約）
+   *   4. **上述勢力的關係對象**：這就是「關係鏈」。只擴**一跳**——
+   *      兩跳會把整張關係圖拖進來，而且對當下劇情幾乎沒有幫助
+   */
+  const MAX_FACTIONS = 6
+  const activeFactions = factions.filter(f => f.isActive)
+  const seedFactionIds = new Set<number>()
+
+  // 1. 已注入的 NPC 所屬勢力
+  for (const title of [...relevantLorebookNpcTitles, ...mentionedAbsent.map(e => e.title)]) {
+    const npcData = npcs.find(n => n.name === title)
+    for (const fid of npcData?.factionIds ?? []) seedFactionIds.add(fid)
+  }
+  for (const n of npcs) {
+    if (n.isPinned) for (const fid of n.factionIds ?? []) seedFactionIds.add(fid)
+  }
+  // 2. 據點在當前地點
+  for (const f of activeFactions) {
+    if (f.homeId != null && f.homeId === currentLocEntry?.id) seedFactionIds.add(f.id)
+  }
+  // 3. 名稱被提到
+  for (const f of activeFactions) {
+    if (f.name.length >= 2 && lorebookScanText.includes(f.name)) seedFactionIds.add(f.id)
+  }
+  // 4. 關係鏈：再擴一跳
+  const chainedFactionIds = new Set(seedFactionIds)
+  for (const id of seedFactionIds) {
+    const f = activeFactions.find(x => x.id === id)
+    for (const rel of f?.relations ?? []) chainedFactionIds.add(rel.targetFactionId)
+  }
+
+  const relevantFactions = activeFactions
+    .filter(f => chainedFactionIds.has(f.id))
+    // 種子勢力排在延伸出來的關係對象之前
+    .sort((a, b) => Number(seedFactionIds.has(b.id)) - Number(seedFactionIds.has(a.id)))
+    .slice(0, MAX_FACTIONS)
+
   const pinnedNpcs = npcs.filter(
     n => n.isPinned && !relevantLorebookNpcTitles.has(n.name)
   )
@@ -443,6 +493,24 @@ Personality: ${profile.personality}${profile.other ? `\nOther: ${profile.other}`
           : ''
         const brief = [prof.gender, prof.race, prof.job].filter(Boolean).join('・')
         return `[NPC] ${e.title}${brief ? `（${brief}）` : ''}｜外貌：${prof.appearance}｜個性：${prof.personality}${rel}${where}`
+      }).join('\n'),
+    ),
+
+    section('[勢力]（關係決定它們如何看待彼此與玩家；敵對勢力的成員不會替對方說話）',
+      relevantFactions.map(f => {
+        const home = f.homeId != null
+          ? lorebookEntries.find(e => e.id === f.homeId)?.title
+          : undefined
+        const homeText = home ? `｜據點：${home}` : ''
+        const rels = (f.relations ?? [])
+          .map(r => {
+            const target = activeFactions.find(x => x.id === r.targetFactionId)
+            if (!target) return ''
+            return `${factionRelationLabel(r.type)}：${target.name}${r.note ? `（${r.note}）` : ''}`
+          })
+          .filter(Boolean)
+        const relText = rels.length > 0 ? `｜關係：${rels.join('、')}` : ''
+        return `- ${f.name}（${factionTypeLabel(f.type)}）${f.description ? `：${f.description}` : ''}${homeText}${relText}`
       }).join('\n'),
     ),
 
