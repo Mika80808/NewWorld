@@ -20,7 +20,7 @@ import {
 } from '../constants';
 
 // ─── Schema 版本 ──────────────────────────────────────────────────────────────
-export const CURRENT_SCHEMA = 5;
+export const CURRENT_SCHEMA = 6;
 
 // ─── 型別：儲存快照 ───────────────────────────────────────────────────────────
 export interface GameSaveData {
@@ -169,12 +169,65 @@ export function migrateV4toV5(data: Record<string, unknown>): Record<string, unk
   return out;
 }
 
+/**
+ * v5 → v6：替只有設定集條目、沒有 `npcs[]` 紀錄的 NPC 補建紀錄。
+ *
+ * 「把 NPC 加進遊戲」本來就規定要建兩份資料（見 CLAUDE.md 注意事項 20），
+ * 但舊存檔裡有一批角色只有設定集條目。這些角色是二等公民：
+ *
+ * - 「當前場景人物」讀的是 `npcs[]`，所以他們**永遠顯示不出來**，
+ *   即使 AI 已經用 `[出場:]` 讓他們登場、prompt 也注入了他們
+ * - 好感度永遠是 0、記憶庫存不進去
+ * - 釘選沒有作用——`LorebookModal` 點卡片時會臨時捏一個 id 為**負數**的
+ *   假 Npc 給角色卡用，那個 id 對不到 `npcs[]` 裡的任何人
+ * - `promptBuilder` 候選名單的「足跡」來源也救不到他們，足跡存在 `npcs[]` 上
+ *
+ * 補建的紀錄一律 `affection: 0`、空記憶庫——這是新建角色的正常起點，
+ * 而不是資料遺失（他們本來就從來沒有過好感度可言）。
+ */
+export function migrateV5toV6(data: Record<string, unknown>): Record<string, unknown> {
+  const out = { ...data };
+  const entries = Array.isArray(out.lorebookEntries) ? (out.lorebookEntries as LorebookEntry[]) : [];
+  const npcs = Array.isArray(out.npcs) ? (out.npcs as Npc[]) : [];
+  if (entries.length === 0) return out;
+
+  const existing = new Set(npcs.map(n => n.name));
+  const missing = entries.filter(e => e.category === 'NPC' && e.title && !existing.has(e.title));
+  if (missing.length === 0) return out;
+
+  // id 從既有最大值往上長，避免與現有 NPC 撞號
+  let nextId = Math.max(0, ...npcs.map(n => n.id)) + 1;
+  out.npcs = [
+    ...npcs,
+    ...missing.map((e): Npc => ({
+      id: nextId++,
+      name: e.title,
+      job: e.job ?? '',
+      affection: 0,
+      appearance: e.appearance ?? '',
+      personality: e.personality ?? '',
+      gender: e.gender ?? '',
+      race: e.race ?? '',
+      age: e.age ?? '',
+      backstory: e.backstory ?? '',
+      other: e.other ?? '',
+      category: 'NPC',
+      isActive: true,
+      isPinned: false,
+      memories: [],
+      thoughts: [],
+    })),
+  ];
+  return out;
+}
+
 const MIGRATIONS: Record<number, (d: Record<string, unknown>) => Record<string, unknown>> = {
   0: migrateV0toV1,
   1: migrateV1toV2,
   2: migrateV2toV3,
   3: migrateV3toV4,
   4: migrateV4toV5,
+  5: migrateV5toV6,
 };
 
 function runMigrations(raw: Record<string, unknown>): Record<string, unknown> {
