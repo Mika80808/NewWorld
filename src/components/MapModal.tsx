@@ -1,6 +1,7 @@
 import React, { useState, useRef, useCallback } from 'react';
 import { X, Search } from 'lucide-react';
 import { LorebookEntry, Profile, MemoryEntry, Faction, Npc } from '../types';
+import { factionTypeLabel, factionRelationLabel } from '../utils/factionLabel';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 /** 勢力名稱標籤的估算字寬（fontSize 11 的中日韓全形字約等寬），用於錯開同據點的節點 */
@@ -267,12 +268,10 @@ export const MapModal: React.FC<MapModalProps> = ({
       default:       return { color: '#888780', width: 1.5, dash: '5,3' };
     }
   };
-  const typeLabel = (t: string) =>
-    t === 'race' ? '種族' : t === 'guild' ? '公會' : t === 'nation' ? '國家' :
-    t === 'religion' ? '宗教' : t === 'criminal' ? '犯罪' : '其他';
-  const relLabel = (t: string) =>
-    t === 'ally' ? '盟友' : t === 'enemy' ? '敵對' : t === 'rival' ? '競爭' :
-    t === 'vassal' ? '附庸' : '中立';
+  // 標籤走 utils/factionLabel 的共用入口。先前這裡與勢力卡片、編輯面板各寫一份，
+  // 同一個 ally 在星圖是「盟友」、在編輯面板是「同盟」，玩家看到兩種說法
+  const typeLabel = factionTypeLabel;
+  const relLabel = factionRelationLabel;
 
   // ── Handlers ─────────────────────────────────────────────────────────────
   const handleClusterClick = (cluster: Cluster, e: React.MouseEvent) => {
