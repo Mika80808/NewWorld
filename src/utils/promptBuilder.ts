@@ -204,6 +204,31 @@ export function buildPrompt(
   const relevantLorebookNpcTitles = new Set(
     relevantLorebook.filter(e => e.category === 'NPC').map(e => e.title)
   )
+
+  /**
+   * 被玩家（或最近對話）點名、但**不在場**的 NPC。
+   *
+   * NPC 條目的注入判定是 `if (!inScene) return false` 擋在關鍵字比對之前，
+   * 所以「玩家講了那個名字」對 NPC 類完全不生效——其他類條目（歷史／物品／
+   * 怪物）都靠關鍵字掃最近對話觸發，只有 NPC 拿不到這個待遇。玩家問
+   * 「凱爾最近怎麼樣」時，GM 手上是零資料，只能現編一個出來。
+   *
+   * 助理 GM 的語意挑選補不了這個洞——它慢一輪，玩家問的當下它還沒挑到。
+   *
+   * ⚠️ 這批人**另開一段注入，絕不能併進 `[Scene Lorebook]`**。那段的語意是
+   * 「現在在場的人」，把不在場的塞進去，AI 會直接讓他走進場景。
+   */
+  const MAX_MENTIONED_NPCS = 3
+  const mentionedAbsentNpcs = lorebookEntries.filter(e => {
+    if (!e.isActive || e.category !== 'NPC') return false
+    // 單字名容易誤中（例如姓「王」），要求至少兩字
+    if (!e.title || e.title.length < 2) return false
+    if (!lorebookScanText.includes(e.title)) return false
+    // 已經由 [Scene Lorebook]（在場／釘選／高好感／助理挑中）或 [Pinned NPCs]
+    // 注入的不重複列一次
+    return !relevantLorebookNpcTitles.has(e.title)
+      && !npcs.some(n => n.isPinned && n.name === e.title)
+  }).slice(0, MAX_MENTIONED_NPCS)
   const pinnedNpcs = npcs.filter(
     n => n.isPinned && !relevantLorebookNpcTitles.has(n.name)
   )
@@ -382,6 +407,22 @@ Personality: ${profile.personality}${profile.other ? `\nOther: ${profile.other}`
   }
   return `[${e.category}] ${e.title}：${e.content}`
 }).join('\n'),
+    ),
+
+    // ⚠️ 段落標題與那句「不在場」是給 AI 的**指示**，不是裝飾。少了它，
+    // 模型會把這些人當成在場角色直接寫進場景——玩家只是提到名字，人並沒有來。
+    section(
+      '[提及的角色（不在場，僅供查詢參考；除非玩家前往找他，否則不要讓他出現在本場景）]',
+      mentionedAbsentNpcs.map(e => {
+        const npcData = npcs.find(n => n.name === e.title)
+        const prof = resolveNpcProfile(npcData, e)
+        const where = npcData?.lastSeenLocation ? `｜最後出現於：${npcData.lastSeenLocation}` : ''
+        const rel = npcData
+          ? `｜對玩家：${relationText(npcData.relationship, npcData.affection)}（好感度 ${npcData.affection}）`
+          : ''
+        const brief = [prof.gender, prof.race, prof.job].filter(Boolean).join('・')
+        return `[NPC] ${e.title}${brief ? `（${brief}）` : ''}｜外貌：${prof.appearance}｜個性：${prof.personality}${rel}${where}`
+      }).join('\n'),
     ),
 
     section('[Pinned NPCs]', pinnedNpcs.map(n => {

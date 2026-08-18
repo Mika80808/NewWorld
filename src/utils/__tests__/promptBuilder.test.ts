@@ -493,3 +493,86 @@ describe('buildPrompt 助理 GM 設定集提示（loreHints）', () => {
     expect(build({ lorebookEntries: [e] })).toBe(build({ lorebookEntries: [e], loreHints: [] }));
   });
 });
+
+// ─── 提及不在場的角色 ────────────────────────────────────────────────────────
+// 玩家說出不在場 NPC 的名字時，GM 讀不到那個角色的任何資料——因為 NPC 條目的
+// 注入判定是 `if (!inScene) return false`，擋在關鍵字比對之前。其他類條目
+// （歷史／物品／怪物）都靠關鍵字掃最近對話觸發，只有 NPC 拿不到這個待遇。
+describe('buildPrompt 提及不在場的角色', () => {
+  const npc = (over: Partial<Npc> = {}): Npc => ({
+    id: 1, name: '凱爾', job: '嚮導', affection: 30,
+    appearance: '淺棕色短髮', personality: '活潑', category: 'NPC', isActive: true, memories: [], ...over,
+  });
+  const loreNpc = (over: Partial<LorebookEntry> = {}): LorebookEntry => ({
+    id: 1, title: '凱爾', content: '', category: 'NPC', isActive: true,
+    appearance: '淺棕色短髮', personality: '活潑', ...over,
+  });
+  const build = (input: string, over: Partial<BuildPromptDeps> = {}) =>
+    buildPrompt({ ...deps([], () => false), ...over }, input, messages).prompt;
+
+  it('玩家講出名字時注入該角色的資料', () => {
+    const over = { npcs: [npc()], lorebookEntries: [loreNpc()] };
+    expect(build('我看看四周', over)).not.toContain('淺棕色短髮');
+    expect(build('凱爾最近怎麼樣？', over)).toContain('淺棕色短髮');
+  });
+
+  /**
+   * 這條最重要：不能塞進 [Scene Lorebook]。那段的語意是「現在在場的人」，
+   * 把不在場的塞進去，AI 會直接讓他走進場景。
+   */
+  it('放在獨立區塊，且明講不在場', () => {
+    const prompt = build('凱爾最近怎麼樣？', { npcs: [npc()], lorebookEntries: [loreNpc()] });
+    expect(prompt).toContain('[提及的角色（不在場');
+    const mentioned = prompt.indexOf('[提及的角色（不在場');
+    const scene = prompt.indexOf('[Scene Lorebook]');
+    // Scene Lorebook 沒有內容時整段省略；有的話兩段必須是分開的
+    if (scene !== -1) expect(mentioned).not.toBe(scene);
+  });
+
+  it('已在場的角色不會重複出現在提及區', () => {
+    const prompt = build('凱爾你好', {
+      npcs: [npc()], appearingNpcs: ['凱爾'], lorebookEntries: [loreNpc()],
+    });
+    expect(prompt).toContain('[Scene Lorebook]');
+    expect(prompt).not.toContain('[提及的角色（不在場');
+  });
+
+  it('釘選的角色不會重複出現在提及區', () => {
+    const prompt = build('凱爾在哪', {
+      npcs: [npc({ isPinned: true })], lorebookEntries: [loreNpc()],
+    });
+    expect(prompt).not.toContain('[提及的角色（不在場');
+  });
+
+  it('帶上最後出現地點與對玩家的態度，讓 GM 答得出「他在哪」', () => {
+    const prompt = build('凱爾去哪了？', {
+      npcs: [npc({ lastSeenLocation: '迷霧森林' })],
+      lorebookEntries: [loreNpc()],
+    });
+    expect(prompt).toContain('最後出現於：迷霧森林');
+    expect(prompt).toContain('對玩家：');
+  });
+
+  it('沒提到名字就不注入，不會平白撐大 prompt', () => {
+    const prompt = build('我去買東西', { npcs: [npc()], lorebookEntries: [loreNpc()] });
+    expect(prompt).not.toContain('[提及的角色（不在場');
+  });
+
+  it('單字名不觸發，避免誤中', () => {
+    const prompt = build('我看看王國的地圖', {
+      npcs: [npc({ name: '王' })],
+      lorebookEntries: [loreNpc({ title: '王' })],
+    });
+    expect(prompt).not.toContain('[提及的角色（不在場');
+  });
+
+  it('提及過多角色時只取前 3 個', () => {
+    const names = ['凱爾', '芬里爾', '萊尼', '米拉', '索恩'];
+    const prompt = build(names.join('、'), {
+      npcs: names.map((n, i) => npc({ id: i + 1, name: n })),
+      lorebookEntries: names.map((n, i) => loreNpc({ id: i + 1, title: n })),
+    });
+    const hit = names.filter(n => prompt.includes(`[NPC] ${n}`)).length;
+    expect(hit).toBe(3);
+  });
+});
