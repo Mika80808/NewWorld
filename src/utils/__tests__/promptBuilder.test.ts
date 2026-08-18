@@ -493,3 +493,145 @@ describe('buildPrompt 助理 GM 設定集提示（loreHints）', () => {
     expect(build({ lorebookEntries: [e] })).toBe(build({ lorebookEntries: [e], loreHints: [] }));
   });
 });
+
+// ─── 提及不在場的角色 ────────────────────────────────────────────────────────
+// 玩家說出不在場 NPC 的名字時，GM 讀不到那個角色的任何資料——因為 NPC 條目的
+// 注入判定是 `if (!inScene) return false`，擋在關鍵字比對之前。其他類條目
+// （歷史／物品／怪物）都靠關鍵字掃最近對話觸發，只有 NPC 拿不到這個待遇。
+describe('buildPrompt 提及不在場的角色', () => {
+  const npc = (over: Partial<Npc> = {}): Npc => ({
+    id: 1, name: '凱爾', job: '嚮導', affection: 30,
+    appearance: '淺棕色短髮', personality: '活潑', category: 'NPC', isActive: true, memories: [], ...over,
+  });
+  const loreNpc = (over: Partial<LorebookEntry> = {}): LorebookEntry => ({
+    id: 1, title: '凱爾', content: '', category: 'NPC', isActive: true,
+    appearance: '淺棕色短髮', personality: '活潑', ...over,
+  });
+  const build = (input: string, over: Partial<BuildPromptDeps> = {}) =>
+    buildPrompt({ ...deps([], () => false), ...over }, input, messages).prompt;
+
+  it('玩家講出名字時注入該角色的資料', () => {
+    const over = { npcs: [npc()], lorebookEntries: [loreNpc()] };
+    expect(build('我看看四周', over)).not.toContain('淺棕色短髮');
+    expect(build('凱爾最近怎麼樣？', over)).toContain('淺棕色短髮');
+  });
+
+  /**
+   * 這條最重要：不能塞進 [Scene Lorebook]。那段的語意是「現在在場的人」，
+   * 把不在場的塞進去，AI 會直接讓他走進場景。
+   */
+  it('放在獨立區塊，且明講不在場', () => {
+    const prompt = build('凱爾最近怎麼樣？', { npcs: [npc()], lorebookEntries: [loreNpc()] });
+    expect(prompt).toContain('[提及的設定（不在當前場景');
+    const mentioned = prompt.indexOf('[提及的設定（不在當前場景');
+    const scene = prompt.indexOf('[Scene Lorebook]');
+    // Scene Lorebook 沒有內容時整段省略；有的話兩段必須是分開的
+    if (scene !== -1) expect(mentioned).not.toBe(scene);
+  });
+
+  it('已在場的角色不會重複出現在提及區', () => {
+    const prompt = build('凱爾你好', {
+      npcs: [npc()], appearingNpcs: ['凱爾'], lorebookEntries: [loreNpc()],
+    });
+    expect(prompt).toContain('[Scene Lorebook]');
+    expect(prompt).not.toContain('[提及的設定（不在當前場景');
+  });
+
+  it('釘選的角色不會重複出現在提及區', () => {
+    const prompt = build('凱爾在哪', {
+      npcs: [npc({ isPinned: true })], lorebookEntries: [loreNpc()],
+    });
+    expect(prompt).not.toContain('[提及的設定（不在當前場景');
+  });
+
+  it('帶上最後出現地點與對玩家的態度，讓 GM 答得出「他在哪」', () => {
+    const prompt = build('凱爾去哪了？', {
+      npcs: [npc({ lastSeenLocation: '迷霧森林' })],
+      lorebookEntries: [loreNpc()],
+    });
+    expect(prompt).toContain('最後出現於：迷霧森林');
+    expect(prompt).toContain('對玩家：');
+  });
+
+  it('沒提到名字就不注入，不會平白撐大 prompt', () => {
+    const prompt = build('我去買東西', { npcs: [npc()], lorebookEntries: [loreNpc()] });
+    expect(prompt).not.toContain('[提及的設定（不在當前場景');
+  });
+
+  it('單字名不觸發，避免誤中', () => {
+    const prompt = build('我看看王國的地圖', {
+      npcs: [npc({ name: '王' })],
+      lorebookEntries: [loreNpc({ title: '王' })],
+    });
+    expect(prompt).not.toContain('[提及的設定（不在當前場景');
+  });
+
+  it('提及過多條目時只取前 5 個', () => {
+    const names = ['凱爾', '芬里爾', '萊尼', '米拉', '索恩', '葛倫', '希爾妲'];
+    const prompt = build(names.join('、'), {
+      npcs: names.map((n, i) => npc({ id: i + 1, name: n })),
+      lorebookEntries: names.map((n, i) => loreNpc({ id: i + 1, title: n })),
+    });
+    const hit = names.filter(n => prompt.includes(`[NPC] ${n}`)).length;
+    expect(hit).toBe(5);
+  });
+});
+
+// ─── Lorebook 的基本契約：標題被提到就查得到 ─────────────────────────────────
+// 先前只有關鍵字能觸發，於是「設了關鍵字但沒命中」的條目，即使玩家指名道姓
+// 講出標題也拿不到資料；地點類更是只有當前與相鄰會注入，講出別的地名等於沒有。
+describe('buildPrompt 標題提及即可查詢', () => {
+  const entry = (over: Partial<LorebookEntry>): LorebookEntry => ({
+    id: Math.floor(Math.random() * 1e6), title: '', content: '',
+    category: '歷史', isActive: true, ...over,
+  });
+  const build = (input: string, entries: LorebookEntry[], over: Partial<BuildPromptDeps> = {}) =>
+    buildPrompt({ ...deps([], () => false), lorebookEntries: entries, ...over }, input, messages).prompt;
+
+  it('設了關鍵字但沒命中時，講出標題仍查得到', () => {
+    const e = entry({ title: '大災變', content: '百年前的浩劫', keywords: ['不會命中的詞'] });
+    expect(build('我看看四周', [e])).not.toContain('百年前的浩劫');
+    expect(build('大災變是什麼？', [e])).toContain('百年前的浩劫');
+  });
+
+  it('selective 次要關鍵字沒命中時，講出標題仍查得到', () => {
+    const e = entry({
+      title: '聖劍', content: '傳說武器', category: '物品',
+      keywords: ['聖劍'], selective: true, secondaryKeys: ['不會命中的詞'],
+    });
+    expect(build('聖劍長什麼樣子？', [e])).toContain('傳說武器');
+  });
+
+  /**
+   * 地點類先前只有「當前地點」與「相鄰地點」會注入，其他一律 return false。
+   * 玩家問「迷霧森林是什麼地方」時 GM 手上是零資料。
+   */
+  it('講出非當前、非相鄰的地名時查得到', () => {
+    const e = entry({ title: '迷霧森林', content: '終年濃霧的古老森林', category: '地點' });
+    expect(build('我看看四周', [e])).not.toContain('終年濃霧');
+    expect(build('迷霧森林是什麼地方？', [e])).toContain('終年濃霧');
+  });
+
+  /**
+   * 但不能讓 AI 以為玩家人在那裡——遠方地點要進「提及的設定」而非 [Scene Lorebook]。
+   */
+  it('遠方地點放在「提及的設定」而非當前場景', () => {
+    const e = entry({ title: '迷霧森林', content: '終年濃霧的古老森林', category: '地點' });
+    const prompt = build('迷霧森林是什麼地方？', [e]);
+    expect(prompt).toContain('[提及的設定（不在當前場景');
+    const mentioned = prompt.indexOf('[提及的設定（不在當前場景');
+    expect(prompt.indexOf('終年濃霧')).toBeGreaterThan(mentioned);
+  });
+
+  it('當前地點照舊進 [Scene Lorebook]，不會被降級成「提及」', () => {
+    const e = entry({ title: '月湖鎮', content: '寧靜的湖畔小鎮', category: '地點' });
+    const prompt = build('我看看四周', [e]);
+    expect(prompt).toContain('寧靜的湖畔小鎮');
+    expect(prompt).not.toContain('[提及的設定（不在當前場景');
+  });
+
+  it('停用的條目即使被提到也不注入', () => {
+    const e = entry({ title: '大災變', content: '百年前的浩劫', isActive: false });
+    expect(build('大災變是什麼？', [e])).not.toContain('百年前的浩劫');
+  });
+});
