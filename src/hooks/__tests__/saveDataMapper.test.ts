@@ -213,3 +213,68 @@ describe('saveDataMapper — 陣列欄位型別防衛', () => {
     expect(d.diaryEntries).toEqual([]);
   });
 });
+
+// v5 → v6：只有設定集條目、沒有 npcs[] 紀錄的 NPC 是二等公民——
+// 「當前場景人物」只讀 npcs[]，所以他們永遠顯示不出來；好感度存不住、
+// 釘選也沒作用（LorebookModal 點卡片時捏的假 Npc 是負數 id）。
+describe('migrateV5toV6 — 補建缺少的 npcs[] 紀錄', () => {
+  const run = (entries: Record<string, unknown>[], npcs: Partial<Npc>[] = []) =>
+    saveDataMapper({ schemaVersion: 5, lorebookEntries: entries, npcs });
+
+  it('只有設定集條目的 NPC 會補出 npcs[] 紀錄', () => {
+    const d = run([{ id: 1, title: '凱爾', category: 'NPC', content: '', isActive: true, job: '嚮導' }]);
+    const kyle = d.npcs.find(n => n.name === '凱爾');
+    expect(kyle).toBeDefined();
+    expect(kyle!.job).toBe('嚮導');
+    expect(kyle!.affection).toBe(0);
+    expect(kyle!.memories).toEqual([]);
+  });
+
+  it('已有紀錄的不會被重複補建，也不覆蓋既有好感度', () => {
+    const d = run(
+      [{ id: 1, title: '芬里爾', category: 'NPC', content: '', isActive: true }],
+      [{ id: 9, name: '芬里爾', affection: 75, memories: [] }],
+    );
+    expect(d.npcs.filter(n => n.name === '芬里爾')).toHaveLength(1);
+    expect(d.npcs[0].affection).toBe(75);
+  });
+
+  it('補建的 id 不與既有 NPC 相撞', () => {
+    const d = run(
+      [{ id: 1, title: '凱爾', category: 'NPC', content: '', isActive: true }],
+      [{ id: 42, name: '芬里爾', memories: [] }],
+    );
+    const ids = d.npcs.map(n => n.id);
+    expect(new Set(ids).size).toBe(ids.length);
+    expect(d.npcs.find(n => n.name === '凱爾')!.id).toBeGreaterThan(42);
+  });
+
+  it('非 NPC 類的條目不會被當成角色補建', () => {
+    const d = run([
+      { id: 1, title: '月湖鎮', category: '地點', content: '', isActive: true },
+      { id: 2, title: '大災變', category: '歷史', content: '', isActive: true },
+    ]);
+    expect(d.npcs).toHaveLength(0);
+  });
+
+  it('設定集的身分欄位一併帶過去（GM 讀得到的那幾個）', () => {
+    const d = run([{
+      id: 1, title: '凱爾', category: 'NPC', content: '', isActive: true,
+      gender: '女', race: '人類', appearance: '淺棕色短髮', personality: '活潑',
+    }]);
+    const kyle = d.npcs.find(n => n.name === '凱爾')!;
+    expect(kyle.gender).toBe('女');
+    expect(kyle.race).toBe('人類');
+    expect(kyle.appearance).toBe('淺棕色短髮');
+    expect(kyle.personality).toBe('活潑');
+  });
+
+  it('已是最新版的存檔不受影響', () => {
+    const d = saveDataMapper({
+      schemaVersion: CURRENT_SCHEMA,
+      lorebookEntries: [{ id: 1, title: '凱爾', category: 'NPC', content: '', isActive: true }],
+      npcs: [],
+    });
+    expect(d.npcs).toHaveLength(0);
+  });
+});
