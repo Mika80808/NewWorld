@@ -95,11 +95,26 @@ export function buildPrompt(
 
   const lorebookScanText = currentMessages.slice(-5).map(m => m.text).join(' ') + ' ' + userInput
 
+  /**
+   * 標題被提到＝一定查得到。
+   *
+   * Lorebook 的基本契約是「玩家提起時就查得到」，但先前只有關鍵字能觸發：
+   * 條目只要設了關鍵字、而那些關鍵字沒命中，即使玩家指名道姓講出**標題**
+   * 也拿不到資料。標題是最自然的觸發詞，玩家不該還要另外去把標題設成關鍵字。
+   *
+   * 單字標題不觸發——例如姓「王」會誤中「王國」「國王」。
+   */
+  const titleMentioned = (e: LorebookEntry): boolean =>
+    !!e.title && e.title.length >= 2 && lorebookScanText.includes(e.title)
+
   const lorebookHitsKeywords = (e: any): boolean => {
     const keys: string[] = e.keywords || []
     const secKeys: string[] = e.secondaryKeys || []
     const selective: boolean = e.selective ?? false
     const text = lorebookScanText.toLowerCase()
+
+    // 標題直接被提到時無條件放行，不再受關鍵字／次要關鍵字的門檻限制
+    if (titleMentioned(e)) return true
 
     const primaryHit = keys.length === 0 || keys.some(k => text.includes(k.toLowerCase()))
     if (!primaryHit) return false
@@ -218,17 +233,20 @@ export function buildPrompt(
    * ⚠️ 這批人**另開一段注入，絕不能併進 `[Scene Lorebook]`**。那段的語意是
    * 「現在在場的人」，把不在場的塞進去，AI 會直接讓他走進場景。
    */
-  const MAX_MENTIONED_NPCS = 3
-  const mentionedAbsentNpcs = lorebookEntries.filter(e => {
-    if (!e.isActive || e.category !== 'NPC') return false
-    // 單字名容易誤中（例如姓「王」），要求至少兩字
-    if (!e.title || e.title.length < 2) return false
-    if (!lorebookScanText.includes(e.title)) return false
-    // 已經由 [Scene Lorebook]（在場／釘選／高好感／助理挑中）或 [Pinned NPCs]
-    // 注入的不重複列一次
+  const MAX_MENTIONED = 5
+  const relevantLorebookIds = new Set(relevantLorebook.map(e => e.id))
+  const mentionedAbsent = lorebookEntries.filter(e => {
+    if (!e.isActive) return false
+    // 只收「有在場語意」的兩類：人與地點。歷史／物品／怪物被提到時，
+    // lorebookHitsKeywords 已經讓它們正常進 [Scene Lorebook]，那裡沒有
+    // 「在不在場」的問題
+    if (e.category !== 'NPC' && e.category !== '地點') return false
+    if (!titleMentioned(e)) return false
+    if (relevantLorebookIds.has(e.id)) return false
+    if (e.category === '地點') return e.title !== loc && !adjacentLocTitles.has(e.title)
     return !relevantLorebookNpcTitles.has(e.title)
       && !npcs.some(n => n.isPinned && n.name === e.title)
-  }).slice(0, MAX_MENTIONED_NPCS)
+  }).slice(0, MAX_MENTIONED)
   const pinnedNpcs = npcs.filter(
     n => n.isPinned && !relevantLorebookNpcTitles.has(n.name)
   )
@@ -412,8 +430,11 @@ Personality: ${profile.personality}${profile.other ? `\nOther: ${profile.other}`
     // ⚠️ 段落標題與那句「不在場」是給 AI 的**指示**，不是裝飾。少了它，
     // 模型會把這些人當成在場角色直接寫進場景——玩家只是提到名字，人並沒有來。
     section(
-      '[提及的角色（不在場，僅供查詢參考；除非玩家前往找他，否則不要讓他出現在本場景）]',
-      mentionedAbsentNpcs.map(e => {
+      '[提及的設定（不在當前場景，僅供查詢回答；除非玩家實際前往或去找，否則不要讓它出現在本場景）]',
+      mentionedAbsent.map(e => {
+        if (e.category !== 'NPC') {
+          return `[${e.category}] ${e.title}：${e.content}`
+        }
         const npcData = npcs.find(n => n.name === e.title)
         const prof = resolveNpcProfile(npcData, e)
         const where = npcData?.lastSeenLocation ? `｜最後出現於：${npcData.lastSeenLocation}` : ''
