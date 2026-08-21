@@ -19,7 +19,8 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
   children,
 }) => (
   <div
-    className={`rpg-message-card ${isAssistant ? 'rpg-message-card-assistant' : ''} p-4 text-left max-w-full relative overflow-hidden ${fullWidth ? 'w-full' : 'w-fit'}`}
+    // tactile-* 只在 [data-theme="parchment"] 底下有樣式，深色主題完全無感
+    className={`rpg-message-card tactile-raised tactile-paper ${isAssistant ? 'rpg-message-card-assistant' : ''} p-4 text-left max-w-full relative overflow-hidden ${fullWidth ? 'w-full' : 'w-fit'}`}
     style={{
       color: 'var(--text-dialog-main)',
       background: isUser ? 'var(--bg-bubble-self)' : 'var(--bg-bubble-npc)',
