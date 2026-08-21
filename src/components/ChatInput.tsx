@@ -29,8 +29,12 @@ export const ChatInput: React.FC<ChatInputProps> = ({ isLoading, onSend, onAbort
         value={text}
         onChange={(e) => setText(e.target.value)}
         disabled={isLoading}
+        // Enter 一律換行，送出只認送出鍵。
+        // ⚠️ 不要改回 Enter 送出：這是自由文字 RPG，玩家常寫多段的行動描述，
+        // 打到一半按 Enter 就被送出去是很難挽回的（AI 已經回應了）。
+        // 想要快捷鍵的話用 Ctrl/⌘+Enter，不要用裸 Enter。
         onKeyDown={(e) => {
-          if (e.key === 'Enter' && !e.shiftKey) {
+          if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
             e.preventDefault();
             handleSend();
           }

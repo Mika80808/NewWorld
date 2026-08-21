@@ -123,9 +123,17 @@
 
 }
 
-/* 手機版縮小全站字體}」之後 */
+/* ── 手機版字級 ───────────────────────────────────────────
+ * ⚠️ 這裡先前是 `font-size: 14px`——**主動把手機字級縮到比瀏覽器預設(16px)還小**，
+ * 所有 rem 尺寸（含 Tailwind 的 text-sm / text-xs）跟著縮 12.5%。
+ * 對一個以「讀故事」為主的遊戲來說這是反的：手機螢幕小、閱讀距離近，
+ * 需要的是更大的字，不是更小。玩家實際回報的第一個問題就是「字太小」。
+ *
+ * 改為 16px（與桌機一致），縮排與元件尺寸的緊湊由各自的 padding 控制，
+ * 不要再用縮小根字級這種會波及全站可讀性的做法。
+ */
 @media (max-width: 640px) {
-  :root { font-size: 14px; }
+  :root { font-size: 16px; }
 }
 
 /* ── Scrollbar ──────────────────────────────────────────── */
@@ -170,9 +178,7 @@
   transition: transform 0.15s ease;
 }
 
-@media (max-width: 640px) {
-  :root { font-size: 14px; }
-}
+/* （原本此處有一份與上方完全相同的 640px 字級規則，重複了。已移除。） */
 
 /* ── 對話泡泡的操作列（重新生成／更多操作）─────────────────
  * ⚠️ 不要改回 Tailwind 的 `opacity-0 group-hover:opacity-100`。
@@ -195,8 +201,9 @@
 
 @media (hover: none) {
   /* 觸控要有夠大的點擊區：原本 p-1 + 圖示只有 22px，遠低於可靠的觸控門檻。
-   * ⚠️ 用固定 px 而非 rem／padding——手機的 :root 是 14px（見上方 max-width: 640px），
-   * 用 rem 會被一起縮掉，實測只長到 26px。 */
+   * ⚠️ 用固定 px 而非 rem／padding：點擊區的大小是人的手指決定的，不該跟著
+   * 根字級浮動。（此處原本的理由是「手機根字級被縮成 14px」，該設定已移除，
+   * 但固定 px 的結論不變。） */
   .msg-actions .msg-action-btn {
     min-width: 40px;
     min-height: 40px;
@@ -261,4 +268,263 @@
 
 .rpg-message-card-assistant::after {
   animation: rpg-shimmer 5.6s ease-in-out infinite;
+}
+
+/* ============================================================
+   羊皮紙擬物主題（Neo-Tactile / Parchment）
+   ============================================================
+   全部收在 [data-theme="parchment"] 之下，預設深色主題完全不受影響——
+   方向不對可以整段刪掉，不會動到任何既有畫面。
+
+   做法：覆寫既有的 80 幾個顏色變數，全站 994 處 var(--*) 引用會自動跟著變，
+   不需要改任何組件的顏色。組件端只需要在需要「材質感」的容器加上
+   .tactile-* 類別。
+
+   ⚠️ 擬物與毛玻璃是相衝的視覺語言。這個主題底下一律關掉 backdrop-filter，
+   否則會變成半透明的塑膠感，兩邊的缺點都拿到。
+   ============================================================ */
+
+[data-theme="parchment"] {
+  /* ── 背景層次 ──────────────────────────────────────────
+   * ⚠️ 新擬態的前提是**元件與背景同色**，立體感完全由光影做出來。
+   * 這三層刻意只差一點點（不是傳統那種逐層拉亮的卡片階層）——
+   * 色差一拉開，對稱光影就失效，會變回普通卡片。 */
+  --bg-base:         #e6ded1;   /* 桌面／最外層 */
+  --bg-elevated:     #e9e1d5;   /* 卡片、右欄、Modal（僅微亮） */
+  --bg-ui-card:      #ece5da;   /* 卡片內的二次容器 */
+  --bg-overlay:      rgba(60, 48, 34, 0.35);
+  --bg-glass-left:   #e9e1d5;
+  --bg-glass-right:  #e9e1d5;
+  --bg-mark:         #c0776d;
+  --bg-note-paper:   #f6f0e4;
+  --text-note:       #4a3f31;
+  --text-note-muted: rgba(74, 63, 49, 0.62);
+
+  /* ── 邊框：擬物需要看得見的實體邊，不是 0.5px 的髮絲線 ── */
+  /* 新擬態不靠描邊分界，邊框設成幾乎看不見；
+     真的需要分隔的地方用 .tactile-sunken 的凹槽表現 */
+  --border-default:  rgba(160, 140, 112, 0.18);
+  --border-width:    1px;
+  --border-accent:   #a98b5b;
+
+  /* ── 文字：深棕系。閱讀是這個遊戲的主要行為，對比要夠 ──
+       （--text-body 對 --bg-elevated 的對比約 9:1，遠高於 AA 的 4.5:1） */
+  --text-primary:    #6d5638;
+  --text-title:      #7a6242;
+  --text-tab:        #6d5638;
+  --text-body:       #3f372c;
+  --text-main:       #332c23;
+  --text-muted:      #8a7a64;
+  --text-stat-label: #7a6a54;
+  --text-stat-value: #332c23;
+  --text-danger:     #a8443c;
+
+  /* ── 分頁 ── */
+  --tab-active:      #8aa891;
+  --tab-inactive:    #ded4c2;
+
+  /* ── 按鈕：參考圖的鼠尾草綠 ── */
+  --btn--text:           #23301f;
+  --btn-primary:         #a9c4ae;
+  --btn-primary-hover:   #b8d0bc;
+  --btn-primary-active:  #98b49e;
+  --btn-secondary:        #cfc3ae;
+  --btn-secondary-hover:  #ded3c0;
+  --btn-secondary-active: #bfb29b;
+
+  --shadow: 0 2px 6px rgba(92, 74, 50, 0.18);
+
+  /* ── 表單 ── */
+  --bg-sys-field:  #e6ded1;   /* 輸入框用凹陷光影表現，不靠底色差異 */
+  --bg-sys-tag:    #e3dacd;
+
+  /* ── 對話視窗 ── */
+  --bg-bubble-self:   #e6ded1;   /* 與底色同色，靠光影分層 */
+  --bg-bubble-npc:    #ebe4d8;   /* 敘事泡泡微亮一階，長文閱讀時較好定位 */
+  --bg-dialog-input:  #e3dacd;
+  --text-dialog-main:  #3a3229;   /* GM 敘事：正文墨色 */
+  --text-dialog-muted: #7d6a55;   /* *動作描述* 的專屬色，與台詞分開 */
+  --text-player-line:  #4d5a68;   /* 玩家的行：偏藍灰，像讀者的手寫註記 */
+
+  /* ── 毛玻璃：這個主題不用，一律歸零 ── */
+  --glass-sidebar-bg:   #ece4d6;
+  --glass-sidebar-blur: 0px;
+  --glass-border:       #c3b5a0;
+  --glass-bubble-self:  #e5dcc9;
+  --glass-bubble-npc:   #f4eee3;
+  --glass-bubble-blur:  0px;
+
+  /* ── RPG 視覺特效：淡色底下這些光暈會變成髒污，全部關掉 ── */
+  --fx-vignette:       transparent;
+  --fx-orb-amber:      transparent;
+  --fx-orb-violet:     transparent;
+  --fx-orb-sky:        transparent;
+  --fx-message-shadow: none;
+
+  /* ── 語意色：降低彩度以融入紙面 ── */
+  --color-rose:    #b06a62;
+  --color-emerald: #c07f8e;
+  --color-amber:   #b08948;
+  --color-blue:    #5f7f9b;
+  --color-violet:  #8b7a9e;
+  --color-success: #7f9d86;
+  --color-sky:     #7b93a6;
+  --color-taupe:   #9a8d7a;
+
+  /* ── 好感度 ── */
+  --affection-max:     #b0596b;
+  --affection-high:    #bd7286;
+  --affection-mid:     #b58a63;
+  --affection-low:     #8c8272;
+  --affection-hostile: #8f6f6a;
+
+  /* ── 任務卡 ── */
+  --bg-quest-active:      #e4ecdf;
+  --border-quest-active:  #a9c4ae;
+  --bg-quest-pending:     #f3e8d2;
+  --border-quest-pending: #d6bd8a;
+  --bg-quest-failed:      #efdedb;
+  --border-quest-failed:  #d3aba5;
+
+  /* ── 擬物專用 token（對應參考圖的 Tokens 欄）────────────
+       只在這個主題存在，深色主題不會用到 */
+  --tac-radius-sm: 4px;
+  --tac-radius-md: 8px;
+  --tac-radius-lg: 12px;
+
+  --tac-border-thin:   1px;
+  --tac-border-mid:    1.5px;
+  --tac-border-thick:  2px;
+
+  /* ── 新擬態的光影對 ──────────────────────────────────────
+   * 質感**完全靠這兩個顏色**：左上打高光、右下落陰影，成對出現，
+   * 讓元件看起來是從同色背景上「壓出來」或「凹進去」的。
+   *
+   * ⚠️ 這與一般卡片陰影是不同的做法。卡片是「不同底色 + 邊框 + 單向陰影」；
+   * 新擬態是「同底色 + 無邊框 + 對稱光影」。混用會兩邊都不像。
+   * 因此下方的 .tactile-* 一律不畫 border。
+   *
+   * 光源方向固定左上——全站必須一致，否則畫面會像被不同方向的燈打到。 */
+  --tac-light: rgba(255, 252, 244, 0.95);   /* 左上高亮 */
+  --tac-dark:  rgba(148, 128, 100, 0.42);   /* 右下陰影 */
+
+  /* Shadow Levels：對應參考圖的四階 */
+  --tac-shadow-none:  none;
+
+  /* 凹陷（按下、輸入框、圖示井） */
+  --tac-shadow-inner: inset 4px 4px 8px var(--tac-dark),
+                      inset -4px -4px 8px var(--tac-light);
+
+  /* 微凸（一般卡片） */
+  --tac-shadow-lift:  -5px -5px 10px var(--tac-light),
+                       5px  5px 10px var(--tac-dark);
+
+  /* 高凸（Modal、需要浮起來的東西） */
+  --tac-shadow-float: -8px -8px 18px var(--tac-light),
+                       8px  8px 18px var(--tac-dark);
+
+  /* 頂緣細高光：疊在對稱光影之上，補出「邊緣厚度」 */
+  --tac-highlight: inset 0 1px 0 rgba(255, 255, 252, 0.7);
+}
+
+/* ── 紙張顆粒 ────────────────────────────────────────────
+ * 用 SVG feTurbulence 產生，不需要圖片檔（玩家的世界裡本來就沒有圖片，
+ * 這也是玻璃效果一直看不出來的原因——沒有東西可以透）。
+ * 疊在容器上當背景，不影響文字。 */
+[data-theme="parchment"] .tactile-paper {
+  background-image:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3'/%3E%3C/filter%3E%3Crect width='120' height='120' filter='url(%23n)' opacity='0.05'/%3E%3C/svg%3E");
+  background-blend-mode: multiply;
+}
+
+/* ── 三種深度 ────────────────────────────────────────────
+ * ⚠️ 一律 `border: none`。新擬態的形狀是光影切出來的，加了邊框
+ * 就變回「有描邊的卡片」，對稱光影的效果會被邊框壓掉。
+ *
+ * 這三個類別**只管光影，不管圓角**——圓角由各組件自己決定（膠囊要
+ * rounded-full、卡片要 12px）。先前寫在這裡會把組件的圓角蓋掉。
+ * 但圓角要夠大光影才有地方過渡，太小會像被削掉的方塊。 */
+[data-theme="parchment"] .tactile-raised {
+  /* !important 是為了壓過組件寫在 inline style 的 border——
+     那些邊框在深色主題有用，但在新擬態下會破壞光影 */
+  border: none !important;
+  box-shadow: var(--tac-shadow-lift), var(--tac-highlight);
+}
+
+[data-theme="parchment"] .tactile-float {
+  border: none !important;
+  box-shadow: var(--tac-shadow-float), var(--tac-highlight);
+}
+
+[data-theme="parchment"] .tactile-sunken {
+  border: none !important;
+  box-shadow: var(--tac-shadow-inner);
+}
+
+/* 這個主題一律關掉毛玻璃：擬物與半透明模糊是相衝的語言 */
+[data-theme="parchment"] [style*="backdrop-filter"],
+[data-theme="parchment"] .backdrop-blur-sm,
+[data-theme="parchment"] .backdrop-blur-md,
+[data-theme="parchment"] .backdrop-blur-xl {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+/* 對話泡泡的掃光在紙面上像油漬，關掉 */
+[data-theme="parchment"] .rpg-message-card::after {
+  display: none;
+}
+
+/* ── 閱讀模式：拆掉對話框，變成連續的文字流 ────────────────
+ * 這個主題的目標是「看電子書」，不是「看聊天室」。對話框（底色＋邊框＋
+ * 陰影＋左右分邊）會把連續的故事切成一格一格的訊息，正是要去掉的東西。
+ *
+ * 泡泡的底色／邊框寫在組件的 inline style，class 壓不過去，故用 !important。
+ * ⚠️ 這些只在 [data-theme="parchment"] 生效，深色主題的泡泡完全不受影響。 */
+[data-theme="parchment"] .rpg-message-card {
+  background: none !important;
+  background-image: none !important;   /* 連紙紋也拿掉，紋理留給頁面底層 */
+  border: none !important;
+  box-shadow: none !important;
+  border-radius: 0 !important;
+  padding: 0 !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  width: 100% !important;              /* 不再貼合內容寬度，整段跨欄 */
+}
+
+/* 玩家訊息原本靠右對齊、寬度貼合內容——那是聊天室的語言。
+   閱讀模式一律靠左、整欄寬，讓玩家與 GM 的文字連成同一條敘事。 */
+[data-theme="parchment"] .rpg-message-card-wrap {
+  align-items: flex-start !important;
+  padding-left: 0 !important;
+  padding-right: 0 !important;
+}
+
+/* 名字那一行在玩家訊息是 flex-row-reverse（靠右），閱讀模式要拉回正常方向，
+   否則整段靠左之後名字會孤零零掉在右邊 */
+[data-theme="parchment"] .rpg-message-head {
+  flex-direction: row !important;
+  margin-left: 0 !important;
+  margin-right: 0 !important;
+}
+
+/* 兩邊只靠「墨色」區分：GM 是正文黑棕，玩家是偏淡的藍灰，
+   像讀者自己寫在書頁邊上的字 */
+[data-theme="parchment"] .rpg-message-card p {
+  line-height: 2.05;
+  letter-spacing: 0.02em;
+  text-align: justify;
+  text-justify: inter-character;
+}
+
+[data-theme="parchment"] .rpg-message-user p {
+  color: var(--text-player-line);
+}
+
+/* *動作描述* 走 <em>（markdownParser 已經這樣渲染），
+   閱讀模式下給它獨立的墨色與斜體，跟台詞明顯分開 */
+[data-theme="parchment"] .rpg-message-card em {
+  color: var(--text-dialog-muted);
+  font-style: italic;
 }

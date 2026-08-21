@@ -49,7 +49,7 @@ export const StreamingBubble = forwardRef<StreamingBubbleHandle, StreamingBubble
         initial={{ opacity: 0, y: 12 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.22, ease: 'easeOut' }}
-        className="flex flex-col items-start pr-5 max-w-3xl mx-auto w-full"
+        className="rpg-message-card-wrap flex flex-col items-start pr-5 max-w-3xl mx-auto w-full"
       >
         <div className="flex items-center space-x-2 mb-1 ml-2">
           <span className="text-sm text-[var(--text-muted)] font-bold">主 GM</span>

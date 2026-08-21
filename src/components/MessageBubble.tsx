@@ -19,11 +19,14 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
   children,
 }) => (
   <div
-    className={`rpg-message-card ${isAssistant ? 'rpg-message-card-assistant' : ''} p-4 text-left max-w-full relative overflow-hidden ${fullWidth ? 'w-full' : 'w-fit'}`}
+    // tactile-* 只在 [data-theme="parchment"] 底下有樣式，深色主題完全無感
+    // rpg-message-user 供閱讀模式（羊皮紙主題）分辨玩家與 GM 的行——
+    // 拆掉泡泡之後，兩者只能靠文字顏色區分
+    className={`rpg-message-card tactile-raised tactile-paper ${isAssistant ? 'rpg-message-card-assistant' : ''} ${isUser ? 'rpg-message-user' : ''} p-4 text-left max-w-full relative overflow-hidden ${fullWidth ? 'w-full' : 'w-fit'}`}
     style={{
       color: 'var(--text-dialog-main)',
       background: isUser ? 'var(--bg-bubble-self)' : 'var(--bg-bubble-npc)',
-      borderRadius: '8px',
+      borderRadius: '14px',   // 圓角要夠大，柔和光影才有過渡空間
       border: isUser
         ? '0.5px solid color-mix(in srgb, var(--color-amber) 28%, transparent)'
         : '0.5px solid var(--border-default)',

@@ -5,6 +5,7 @@ import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MessageCard } from '../MessageCard';
 import { Message } from '../../types';
+import { renderMarkdown } from '../../utils/markdownParser';
 
 const msg = (overrides: Partial<Message> = {}): Message => ({
   id: 1,
@@ -121,5 +122,26 @@ describe('MessageCard 操作列', () => {
     const menu = screen.getByRole('menu');
     expect(menu.className).toMatch(/top-full/);
     expect(menu.className).not.toMatch(/bottom-full/);
+  });
+});
+
+// ─── 玩家訊息的 markdown 渲染 ────────────────────────────────────────────────
+// 玩家要求「AI 跟玩家的 *描述動作文字* 都是特殊色」。先前玩家訊息是純文字
+// 輸出（`<p>{msg.text}</p>`），於是玩家自己寫的 *動作* 只會顯示成帶星號的原文。
+describe('MessageCard 玩家訊息', () => {
+  it('玩家的 *動作描述* 會被渲染成 em，而不是印出星號', () => {
+    const { container } = render(
+      <MessageCard
+        msg={{ id: 1, role: 'user', text: '我走近火堆，*壓低聲音問道*' } as Message}
+        playerName="陸星辰" activeMenuId={null} editingMessageId={null}
+        editMessageText="" isLoading={false}
+        onRegenerate={noop} onMenuToggle={noop} onCopy={noop} onEdit={noop}
+        onDelete={noop} onEditChange={noop} onEditCancel={noop} onEditSave={noop}
+        renderMarkdown={renderMarkdown} cleanNarrative={(t) => t}
+      />
+    );
+    const em = container.querySelector('em');
+    expect(em?.textContent).toBe('壓低聲音問道');
+    expect(container.textContent).not.toContain('*');
   });
 });

@@ -43,10 +43,10 @@ export const SceneNpcsWidget: React.FC<SceneNpcsWidgetProps> = ({
 
   return (
     <div
-      className="rounded-[8px] border border-white/10 backdrop-blur-md p-4 shadow-xl transition-all duration-300"
-      style={{ background: 'rgba(10,15,10,0.55)' }}
-      onMouseEnter={e => (e.currentTarget.style.boxShadow = '0 0 0 1px rgba(180,255,180,0.12), 0 8px 32px rgba(0,0,0,0.5)')}
-      onMouseLeave={e => (e.currentTarget.style.boxShadow = '0 10px 32px rgba(0,0,0,0.4)')}
+      // 底色走 CSS 變數而非硬編碼 rgba：先前寫死 rgba(10,15,10,0.55)，
+      // 換主題時整塊維持深灰、文字變成深底深字完全看不見（顏色規則存在的理由）
+      className="tactile-raised tactile-paper rounded-[8px] p-4 shadow-xl transition-all duration-300"
+      style={{ background: 'var(--bg-glass-right)', border: 'var(--border-width) solid var(--border-default)' }}
     >
       <div className="flex items-center gap-2 mb-4">
         <Users className="w-4 h-4 shrink-0" style={{ color: 'var(--text-title)' }} />
@@ -65,7 +65,8 @@ export const SceneNpcsWidget: React.FC<SceneNpcsWidgetProps> = ({
               return (
                 <div
                   key={npc.id}
-                  className="backdrop-blur-md border border-white/5 p-2.5 rounded-[4px] flex justify-between items-center cursor-pointer transition-all duration-300 shadow-lg group/npc overflow-hidden relative hover:border-white/15"
+                  className="tactile-raised p-2.5 rounded-[8px] flex justify-between items-center cursor-pointer transition-all duration-300 group/npc relative"
+                  style={{ background: 'var(--bg-ui-card)', border: 'var(--border-width) solid var(--border-default)' }}
                   onClick={() => onSelectNpc(npc)}
                 >
                   <div className="absolute top-0 left-0 w-1 h-full opacity-0 group-hover/npc:opacity-40 transition-opacity" style={{ background: 'linear-gradient(to bottom, transparent, var(--bg-elevated), transparent)' }} />
@@ -75,7 +76,9 @@ export const SceneNpcsWidget: React.FC<SceneNpcsWidgetProps> = ({
                       {displayGender ? `${displayGender}・${displayJob}` : displayJob}
                     </span>
                   </div>
-                  <div className="text-xs flex items-center px-2 py-1 rounded-full bg-black/20 border border-white/5" style={{ color: affectionColor(npc.affection) }}>
+                  {/* 好感度做成凹陷的小井——新擬態靠凹凸區分層級，不靠色塊 */}
+                  <div className="tactile-sunken text-xs flex items-center px-2.5 py-1 rounded-full shrink-0"
+                    style={{ color: affectionColor(npc.affection), background: 'var(--bg-sys-field)', border: 'var(--border-width) solid var(--border-default)' }}>
                     <Heart className="w-3 h-3 mr-1 fill-current" />
                     <span className="font-mono">{npc.affection}</span>
                   </div>
