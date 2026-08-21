@@ -33,6 +33,10 @@ interface LorebookModalProps {
   onSave?: () => void;
 }
 
+/**
+ * 色碼例外：Faction.color 的自動指派調色盤（CLAUDE.md 明文例外）。
+ * 這些值會**寫進存檔**當成勢力的識別色，換主題不該讓舊存檔的勢力全部改色。
+ */
 const FACTION_PALETTE = ['#7F77DD', '#E24B4A', '#1D9E75', '#EF9F27', '#5f93d3', '#C47D3E', '#FF637E'];
 function autoFactionColor(index: number) { return FACTION_PALETTE[index % FACTION_PALETTE.length]; }
 
@@ -146,7 +150,7 @@ export const LorebookModal: React.FC<LorebookModalProps> = ({
 
   const inputStyle: React.CSSProperties = {
     background: 'color-mix(in srgb, var(--bg-elevated) 50%, transparent)',
-    borderColor: 'rgba(255,255,255,0.1)',
+    borderColor: 'var(--tint-line-strong)',
     color: 'var(--text-main)',
   };
 
@@ -217,7 +221,7 @@ export const LorebookModal: React.FC<LorebookModalProps> = ({
       <input
         type="text"
         placeholder="輸入後按 Enter..."
-        className="w-full border border-white/10 rounded-[8px] px-3 py-1.5 text-sm outline-none transition"
+        className="w-full border border-[color:var(--tint-line)] rounded-[8px] px-3 py-1.5 text-sm outline-none transition"
         style={inputStyle}
         onKeyDown={e => {
           if (e.key === 'Enter') {
@@ -262,7 +266,7 @@ export const LorebookModal: React.FC<LorebookModalProps> = ({
           <input
             type="text"
             placeholder="輸入後按 Enter..."
-            className="w-full border border-white/10 rounded-[8px] px-3 py-1.5 text-sm outline-none transition"
+            className="w-full border border-[color:var(--tint-line)] rounded-[8px] px-3 py-1.5 text-sm outline-none transition"
             style={inputStyle}
             onKeyDown={e => {
               if (e.key === 'Enter') {
@@ -323,14 +327,14 @@ export const LorebookModal: React.FC<LorebookModalProps> = ({
                     type="text"
                     value={entry.title}
                     onChange={e => onUpdateLorebook(entry.id, { title: e.target.value })}
-                    className="flex-1 border border-white/10 rounded-[8px] p-2.5 text-sm font-bold outline-none transition"
+                    className="flex-1 border border-[color:var(--tint-line)] rounded-[8px] p-2.5 text-sm font-bold outline-none transition"
                     style={inputStyle}
                     placeholder="設定標題..."
                   />
                   <select
                     value={entry.category}
                     onChange={e => onUpdateLorebook(entry.id, { category: e.target.value })}
-                    className="border border-white/10 rounded-[8px] p-2.5 text-sm font-bold outline-none transition w-28"
+                    className="border border-[color:var(--tint-line)] rounded-[8px] p-2.5 text-sm font-bold outline-none transition w-28"
                     style={inputStyle}
                   >
                     <option value="地點">地點</option>
@@ -346,7 +350,7 @@ export const LorebookModal: React.FC<LorebookModalProps> = ({
                 <textarea
                   value={entry.content}
                   onChange={e => onUpdateLorebook(entry.id, { content: e.target.value })}
-                  className="w-full border border-white/10 rounded-[8px] p-2.5 text-sm outline-none transition resize-y min-h-[80px]"
+                  className="w-full border border-[color:var(--tint-line)] rounded-[8px] p-2.5 text-sm outline-none transition resize-y min-h-[80px]"
                   style={inputStyle}
                   placeholder="設定內容..."
                 />
@@ -361,7 +365,7 @@ export const LorebookModal: React.FC<LorebookModalProps> = ({
                     type="number"
                     value={entry.insertionOrder ?? 100}
                     onChange={e => onUpdateLorebook(entry.id, { insertionOrder: parseInt(e.target.value) || 100 })}
-                    className="w-20 border border-white/10 rounded-[8px] px-2 py-1 text-sm outline-none transition"
+                    className="w-20 border border-[color:var(--tint-line)] rounded-[8px] px-2 py-1 text-sm outline-none transition"
                     style={inputStyle}
                   />
                   <span className="text-[11px]" style={{ color: 'var(--text-muted)' }}>（數字越小越先注入，預設 100）</span>
@@ -500,7 +504,7 @@ export const LorebookModal: React.FC<LorebookModalProps> = ({
                   type="text"
                   value={entry.title}
                   onChange={e => onUpdateLorebook(entry.id, { title: e.target.value })}
-                  className="w-full border border-white/10 rounded-[8px] p-2.5 text-sm font-bold outline-none transition"
+                  className="w-full border border-[color:var(--tint-line)] rounded-[8px] p-2.5 text-sm font-bold outline-none transition"
                   style={inputStyle}
                   placeholder="地點名稱..."
                 />
@@ -509,7 +513,7 @@ export const LorebookModal: React.FC<LorebookModalProps> = ({
                 <textarea
                   value={entry.content}
                   onChange={e => onUpdateLorebook(entry.id, { content: e.target.value })}
-                  className="w-full border border-white/10 rounded-[8px] p-2.5 text-sm outline-none transition resize-y min-h-[80px]"
+                  className="w-full border border-[color:var(--tint-line)] rounded-[8px] p-2.5 text-sm outline-none transition resize-y min-h-[80px]"
                   style={inputStyle}
                   placeholder="地點簡介..."
                 />
@@ -521,7 +525,7 @@ export const LorebookModal: React.FC<LorebookModalProps> = ({
                     <select
                       value={entry.mapStatus ?? 'heard'}
                       onChange={e => onUpdateLorebook(entry.id, { mapStatus: e.target.value as 'heard' | 'known' })}
-                      className="w-full border border-white/10 rounded-[8px] px-2 py-1.5 text-sm outline-none transition"
+                      className="w-full border border-[color:var(--tint-line)] rounded-[8px] px-2 py-1.5 text-sm outline-none transition"
                       style={inputStyle}
                     >
                       <option value="heard">聽說過</option>
@@ -533,7 +537,7 @@ export const LorebookModal: React.FC<LorebookModalProps> = ({
                     <select
                       value={entry.locationType ?? 'wilderness'}
                       onChange={e => onUpdateLorebook(entry.id, { locationType: e.target.value as 'town' | 'wilderness' | 'building' })}
-                      className="w-full border border-white/10 rounded-[8px] px-2 py-1.5 text-sm outline-none transition"
+                      className="w-full border border-[color:var(--tint-line)] rounded-[8px] px-2 py-1.5 text-sm outline-none transition"
                       style={inputStyle}
                     >
                       <option value="town">城鎮</option>
@@ -842,7 +846,7 @@ export const LorebookModal: React.FC<LorebookModalProps> = ({
     const locationEntries = lorebookEntries.filter(e => e.category === '地點');
     const factionInputStyle: React.CSSProperties = {
       background: 'color-mix(in srgb, var(--bg-elevated) 50%, transparent)',
-      borderColor: 'rgba(255,255,255,0.1)',
+      borderColor: 'var(--tint-line-strong)',
       color: 'var(--text-main)',
     };
 
@@ -856,13 +860,13 @@ export const LorebookModal: React.FC<LorebookModalProps> = ({
         {/* Name */}
         <input type="text" placeholder="勢力名稱（必填）" value={factionForm.name}
           onChange={e => setFactionForm(p => ({ ...p, name: e.target.value }))}
-          className="w-full border border-white/10 rounded-[8px] p-2.5 text-sm font-bold outline-none transition"
+          className="w-full border border-[color:var(--tint-line)] rounded-[8px] p-2.5 text-sm font-bold outline-none transition"
           style={factionInputStyle} />
         {/* Type + Color */}
         <div className="flex gap-2">
           <select value={factionForm.type}
             onChange={e => setFactionForm(p => ({ ...p, type: e.target.value as Faction['type'] }))}
-            className="flex-1 border border-white/10 rounded-[8px] px-2.5 py-2 text-sm outline-none transition"
+            className="flex-1 border border-[color:var(--tint-line)] rounded-[8px] px-2.5 py-2 text-sm outline-none transition"
             style={factionInputStyle}>
             <option value="guild">公會</option>
             <option value="nation">國家</option>
@@ -871,7 +875,7 @@ export const LorebookModal: React.FC<LorebookModalProps> = ({
             <option value="criminal">犯罪</option>
             <option value="other">其他</option>
           </select>
-          <div className="flex items-center gap-2 border border-white/10 rounded-[8px] px-2.5"
+          <div className="flex items-center gap-2 border border-[color:var(--tint-line)] rounded-[8px] px-2.5"
             style={{ background: 'color-mix(in srgb, var(--bg-elevated) 50%, transparent)' }}>
             <span className="text-xs" style={{ color: 'var(--text-muted)' }}>顏色</span>
             <input type="color" value={factionForm.color}
@@ -882,14 +886,14 @@ export const LorebookModal: React.FC<LorebookModalProps> = ({
         {/* Description */}
         <textarea placeholder="勢力描述..." value={factionForm.description}
           onChange={e => setFactionForm(p => ({ ...p, description: e.target.value }))}
-          className="w-full border border-white/10 rounded-[8px] p-2.5 text-sm outline-none transition resize-y min-h-[60px]"
+          className="w-full border border-[color:var(--tint-line)] rounded-[8px] p-2.5 text-sm outline-none transition resize-y min-h-[60px]"
           style={factionInputStyle} />
         {/* Home location */}
         <div>
           <div className="text-xs mb-1" style={{ color: 'var(--text-muted)' }}>根據地（地圖上的主場地點）</div>
           <select value={factionForm.homeId}
             onChange={e => setFactionForm(p => ({ ...p, homeId: e.target.value }))}
-            className="w-full border border-white/10 rounded-[8px] px-2.5 py-2 text-sm outline-none transition"
+            className="w-full border border-[color:var(--tint-line)] rounded-[8px] px-2.5 py-2 text-sm outline-none transition"
             style={factionInputStyle}>
             <option value="">— 未設定 —</option>
             {locationEntries.map(e => <option key={e.id} value={String(e.id)}>{e.title}</option>)}
@@ -905,7 +909,7 @@ export const LorebookModal: React.FC<LorebookModalProps> = ({
                 return (
                   <label key={npc.id} className="flex items-center gap-1.5 px-2 py-1 rounded cursor-pointer text-sm"
                     style={{ color: isMember ? 'var(--text-primary)' : 'var(--text-muted)' }}
-                    onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.05)'; }}
+                    onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'var(--tint-surface)'; }}
                     onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'transparent'; }}>
                     {/* 寫 Npc.factionIds（唯一來源）。先前寫的是 Faction.npcIds，
                         而 promptBuilder 只讀 factionIds——在這裡勾的成員 AI 看不到。 */}
@@ -1028,7 +1032,7 @@ export const LorebookModal: React.FC<LorebookModalProps> = ({
                 <button onClick={() => setFactionMenuId(factionMenuId === faction.id ? null : faction.id)}
                   className="w-7 h-7 flex items-center justify-center rounded transition"
                   style={{ color: 'var(--text-muted)' }}
-                  onMouseEnter={e => { e.currentTarget.style.color = 'var(--text-primary)'; e.currentTarget.style.background = 'rgba(255,255,255,0.08)'; }}
+                  onMouseEnter={e => { e.currentTarget.style.color = 'var(--text-primary)'; e.currentTarget.style.background = 'var(--tint-line)'; }}
                   onMouseLeave={e => { e.currentTarget.style.color = 'var(--text-muted)'; e.currentTarget.style.background = 'transparent'; }}
                 ><MoreHorizontal className="w-4 h-4" /></button>
                 {factionMenuId === faction.id && (
@@ -1044,7 +1048,7 @@ export const LorebookModal: React.FC<LorebookModalProps> = ({
                       setFactionMenuId(null);
                     }} className="w-full text-left px-3 py-2 text-sm transition"
                       style={{ color: 'var(--text-body)' }}
-                      onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.06)'; }}
+                      onMouseEnter={e => { e.currentTarget.style.background = 'var(--tint-line)'; }}
                       onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}
                     >編輯</button>
                     <button onClick={() => {
@@ -1053,7 +1057,7 @@ export const LorebookModal: React.FC<LorebookModalProps> = ({
                       showToast('勢力已停用');
                     }} className="w-full text-left px-3 py-2 text-sm transition"
                       style={{ color: 'var(--text-danger)' }}
-                      onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,0,0,0.06)'; }}
+                      onMouseEnter={e => { e.currentTarget.style.background = 'color-mix(in srgb, var(--color-rose) 12%, transparent)'; }}
                       onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}
                     >刪除</button>
                   </div>
@@ -1089,14 +1093,14 @@ export const LorebookModal: React.FC<LorebookModalProps> = ({
       onClick={() => { if (factionAction === null) onClose(); }}
     >
       <div
-        className="backdrop-blur-xl w-full max-w-3xl rounded-[8px] shadow-[0_0_40px_rgba(0,0,0,0.5)] flex flex-col overflow-hidden border border-white/10 relative z-[61] h-[85vh]"
+        className="backdrop-blur-xl w-full max-w-3xl rounded-[8px] shadow-[var(--shadow-modal)] flex flex-col overflow-hidden border border-[color:var(--tint-line)] relative z-[61] h-[85vh]"
         style={{ background: 'color-mix(in srgb, var(--bg-elevated) 70%, transparent)' }}
         onClick={e => e.stopPropagation()}
       >
 
         {/* ── Header ── */}
         <div
-          className="p-4 border-b border-white/5 flex justify-between items-center"
+          className="p-4 border-b border-[color:var(--tint-line)] flex justify-between items-center"
           style={{ background: 'color-mix(in srgb, var(--bg-elevated) 50%, transparent)' }}
         >
           <div className="flex items-center">
@@ -1124,7 +1128,7 @@ export const LorebookModal: React.FC<LorebookModalProps> = ({
 
         {/* ── 搜尋 + Tabs ── */}
         <div
-          className="px-4 pt-3 pb-0 border-b border-white/5 space-y-2"
+          className="px-4 pt-3 pb-0 border-b border-[color:var(--tint-line)] space-y-2"
           style={{ background: 'color-mix(in srgb, var(--bg-elevated) 30%, transparent)' }}
         >
           {/* 第一行：搜尋欄 + 新增按鈕 */}
@@ -1136,7 +1140,7 @@ export const LorebookModal: React.FC<LorebookModalProps> = ({
                 placeholder="搜尋..."
                 value={lorebookSearch}
                 onChange={e => handleSearchChange(e.target.value)}
-                className="w-full backdrop-blur-sm border border-white/10 rounded-[16px] h-9 pl-9 pr-3 text-sm outline-none transition"
+                className="w-full backdrop-blur-sm border border-[color:var(--tint-line)] rounded-[16px] h-9 pl-9 pr-3 text-sm outline-none transition"
                 style={{ background: 'color-mix(in srgb, var(--bg-elevated) 50%, transparent)', color: 'var(--text-body)' }}
               />
             </div>
@@ -1145,7 +1149,7 @@ export const LorebookModal: React.FC<LorebookModalProps> = ({
                 <button
                   onClick={handleDownloadTemplate}
                   title="下載 JSON 範本，照著填好再匯入"
-                  className="backdrop-blur-sm border border-white/10 px-3 h-8 rounded-[16px] flex items-center gap-1.5 transition shrink-0"
+                  className="backdrop-blur-sm border border-[color:var(--tint-line)] px-3 h-8 rounded-[16px] flex items-center gap-1.5 transition shrink-0"
                   style={{ background: 'var(--btn-secondary)', color: 'var(--text-body)' }}
                   onMouseEnter={e => { e.currentTarget.style.background = 'var(--btn-secondary-hover)'; }}
                   onMouseLeave={e => { e.currentTarget.style.background = 'var(--btn-secondary)'; }}
@@ -1155,7 +1159,7 @@ export const LorebookModal: React.FC<LorebookModalProps> = ({
                 <button
                   onClick={handleExportNpcs}
                   title="匯出所有角色與勢力（格式與匯入相同，可再匯回）"
-                  className="backdrop-blur-sm border border-white/10 px-3 h-8 rounded-[16px] flex items-center gap-1.5 transition shrink-0"
+                  className="backdrop-blur-sm border border-[color:var(--tint-line)] px-3 h-8 rounded-[16px] flex items-center gap-1.5 transition shrink-0"
                   style={{ background: 'var(--btn-secondary)', color: 'var(--text-body)' }}
                   onMouseEnter={e => { e.currentTarget.style.background = 'var(--btn-secondary-hover)'; }}
                   onMouseLeave={e => { e.currentTarget.style.background = 'var(--btn-secondary)'; }}
@@ -1164,7 +1168,7 @@ export const LorebookModal: React.FC<LorebookModalProps> = ({
                 </button>
                 <label
                   title="批次匯入角色（同名的會保留現有資料）"
-                  className="backdrop-blur-sm border border-white/10 px-3 h-8 rounded-[16px] flex items-center gap-1.5 transition shrink-0 cursor-pointer"
+                  className="backdrop-blur-sm border border-[color:var(--tint-line)] px-3 h-8 rounded-[16px] flex items-center gap-1.5 transition shrink-0 cursor-pointer"
                   style={{ background: 'var(--btn-secondary)', color: 'var(--text-body)' }}
                   onMouseEnter={e => { e.currentTarget.style.background = 'var(--btn-secondary-hover)'; }}
                   onMouseLeave={e => { e.currentTarget.style.background = 'var(--btn-secondary)'; }}
@@ -1176,10 +1180,10 @@ export const LorebookModal: React.FC<LorebookModalProps> = ({
             )}
             <button
               onClick={handleAdd}
-              className="backdrop-blur-sm border border-white/10 px-10 h-8 rounded-[16px] flex items-center gap-1.5 transition shrink-0"
+              className="backdrop-blur-sm border border-[color:var(--tint-line)] px-10 h-8 rounded-[16px] flex items-center gap-1.5 transition shrink-0"
               style={{ background: 'var(--btn-primary)', color: 'var(--btn--text)', boxShadow: 'var(--shadow)' }}
-              onMouseEnter={e => { e.currentTarget.style.background = 'var(--btn-primary-hover)'; e.currentTarget.style.borderColor = 'rgba(255,255,255,0.2)'; }}
-              onMouseLeave={e => { e.currentTarget.style.background = 'var(--btn-primary)'; e.currentTarget.style.borderColor = 'rgba(255,255,255,0.1)'; }}
+              onMouseEnter={e => { e.currentTarget.style.background = 'var(--btn-primary-hover)'; e.currentTarget.style.borderColor = 'var(--tint-line-strong)'; }}
+              onMouseLeave={e => { e.currentTarget.style.background = 'var(--btn-primary)'; e.currentTarget.style.borderColor = 'var(--tint-line-strong)'; }}
             >
               <Plus className="w-4 h-4" /> 新增
             </button>
@@ -1187,7 +1191,7 @@ export const LorebookModal: React.FC<LorebookModalProps> = ({
 
           {/* 第二行：分類 Tabs */}
           <div
-            className="flex border border-white/10 rounded-t-[8px] overflow-hidden"
+            className="flex border border-[color:var(--tint-line)] rounded-t-[8px] overflow-hidden"
             style={{ background: 'color-mix(in srgb, var(--bg-elevated) 50%, transparent)' }}
           >
             {['地點', 'NPC', '怪物', '物品', '歷史', '其他', '勢力'].map(cat => {

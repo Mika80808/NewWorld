@@ -44,7 +44,7 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({ request, onClose }
   return (
     <div
       className="fixed inset-0 flex items-center justify-center px-6"
-      style={{ zIndex: 'var(--z-modal-high)', background: 'rgba(0,0,0,0.55)' }}
+      style={{ zIndex: 'var(--z-modal-high)', background: 'var(--bg-overlay)' }}
       onClick={onClose}
     >
       <div
@@ -52,7 +52,7 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({ request, onClose }
         style={{
           background: 'var(--bg-elevated)',
           border: '0.5px solid var(--border-default)',
-          boxShadow: '0 8px 40px rgba(0,0,0,0.5)',
+          boxShadow: 'var(--shadow-modal)',
         }}
         onClick={e => e.stopPropagation()}
       >

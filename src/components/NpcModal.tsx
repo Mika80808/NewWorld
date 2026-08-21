@@ -191,20 +191,20 @@ export const NpcModal: React.FC<NpcModalProps> = ({
 
   const inputStyle: React.CSSProperties = {
     background: 'color-mix(in srgb, var(--tab-inactive) 60%, transparent)',
-    borderColor: 'rgba(255,255,255,0.1)',
+    borderColor: 'var(--tint-line-strong)',
     color: 'var(--text-body)',
   };
 
   return (
     <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[60] flex items-center justify-center p-4" onClick={onClose}>
       <div
-        className="backdrop-blur-xl w-full max-w-md rounded-[8px] shadow-[0_0_40px_rgba(0,0,0,0.6)] flex flex-col overflow-hidden border border-white/10 relative z-[61]"
+        className="backdrop-blur-xl w-full max-w-md rounded-[8px] shadow-[var(--shadow-modal)] flex flex-col overflow-hidden border border-[color:var(--tint-line)] relative z-[61]"
         style={{ maxHeight: '90vh', background: 'color-mix(in srgb, var(--bg-elevated) 90%, transparent)', color: 'var(--text-title)' }}
         onClick={e => e.stopPropagation()}
       >
         {/* ── Header ────────────────────────────────────────────────────────── */}
         <div
-          className="p-4 border-b border-white/5 shrink-0 space-y-2"
+          className="p-4 border-b border-[color:var(--tint-line)] shrink-0 space-y-2"
           style={{ background: 'color-mix(in srgb, var(--bg-elevated) 60%, transparent)' }}
         >
           {/* Row 1: checkbox + 名字 + 種族性別 + 好感度 + 編輯 + 關閉 */}
@@ -316,7 +316,7 @@ export const NpcModal: React.FC<NpcModalProps> = ({
         </div>
 
         {/* ── Tabs ──────────────────────────────────────────────────────────── */}
-        <div className="flex border-b border-white/5 shrink-0">
+        <div className="flex border-b border-[color:var(--tint-line)] shrink-0">
           {(['info', 'memories'] as const).map(tab => {
             const isActive = activeTab === tab;
             return (
@@ -364,7 +364,7 @@ export const NpcModal: React.FC<NpcModalProps> = ({
                         value={editName}
                         onChange={e => setEditName(e.target.value)}
                         placeholder="角色姓名⋯"
-                        className="w-full border border-white/10 rounded-[8px] px-3 py-2 text-sm outline-none transition"
+                        className="w-full border border-[color:var(--tint-line)] rounded-[8px] px-3 py-2 text-sm outline-none transition"
                         style={inputStyle}
                       />
                     </div>
@@ -375,14 +375,14 @@ export const NpcModal: React.FC<NpcModalProps> = ({
                         value={(editFields.gender as string) ?? ''}
                         onChange={e => setEditFields(prev => ({ ...prev, gender: e.target.value }))}
                         placeholder="男、女⋯"
-                        className="w-full border border-white/10 rounded-[8px] px-3 py-2 text-sm outline-none transition"
+                        className="w-full border border-[color:var(--tint-line)] rounded-[8px] px-3 py-2 text-sm outline-none transition"
                         style={inputStyle}
                       />
                     </div>
                     <div>
                       <p className="text-sm ml-3 uppercase tracking-wider mb-0.5" style={{ color: 'var(--text-body)' }}>好感度</p>
                       <div
-                        className="flex items-center gap-1 border border-white/10 rounded-[8px] px-3 py-2 text-sm"
+                        className="flex items-center gap-1 border border-[color:var(--tint-line)] rounded-[8px] px-3 py-2 text-sm"
                         style={{ ...inputStyle, color: affectionColor(selectedNpc.affection), cursor: 'default', opacity: 0.7 }}
                       >
                         <Heart className="w-3.5 h-3.5 fill-current" />
@@ -405,7 +405,7 @@ export const NpcModal: React.FC<NpcModalProps> = ({
                           value={(editFields[key] as string) ?? ''}
                           onChange={e => setEditFields(prev => ({ ...prev, [key]: e.target.value }))}
                           placeholder={placeholder}
-                          className="w-full border border-white/10 rounded-[8px] px-3 py-2 text-sm outline-none transition"
+                          className="w-full border border-[color:var(--tint-line)] rounded-[8px] px-3 py-2 text-sm outline-none transition"
                           style={inputStyle}
                         />
                       </div>
@@ -427,7 +427,7 @@ export const NpcModal: React.FC<NpcModalProps> = ({
                     <select
                       value={(editFields.homeLocation as string) ?? ''}
                       onChange={e => setEditFields(prev => ({ ...prev, homeLocation: e.target.value }))}
-                      className="w-full border border-white/10 rounded-[8px] px-3 py-2 text-sm outline-none transition"
+                      className="w-full border border-[color:var(--tint-line)] rounded-[8px] px-3 py-2 text-sm outline-none transition"
                       style={inputStyle}
                     >
                       <option value="">未設定（GM 不會讓他主動出場）</option>
@@ -483,7 +483,7 @@ export const NpcModal: React.FC<NpcModalProps> = ({
                               if (Number.isFinite(id)) onSetNpcFactions?.(selectedNpc.id, [...current, id]);
                             }}
                             disabled={available.length === 0}
-                            className="w-full border border-white/10 rounded-[8px] px-3 py-2 text-sm outline-none transition disabled:opacity-40"
+                            className="w-full border border-[color:var(--tint-line)] rounded-[8px] px-3 py-2 text-sm outline-none transition disabled:opacity-40"
                             style={inputStyle}
                           >
                             <option value="">
@@ -511,7 +511,7 @@ export const NpcModal: React.FC<NpcModalProps> = ({
                         value={(editFields[key] as string) ?? ''}
                         onChange={e => setEditFields(prev => ({ ...prev, [key]: e.target.value }))}
                         placeholder={placeholder}
-                        className="w-full border border-white/10 rounded-[8px] px-3 py-2 text-sm outline-none transition resize-y min-h-[60px]"
+                        className="w-full border border-[color:var(--tint-line)] rounded-[8px] px-3 py-2 text-sm outline-none transition resize-y min-h-[60px]"
                         style={inputStyle}
                       />
                     </div>
@@ -533,7 +533,7 @@ export const NpcModal: React.FC<NpcModalProps> = ({
                         onClick={() => setIsEditing(false)}
                         className="px-4 py-1.5 text-sm rounded-[8px] transition border"
                         style={{ background: 'var(--bg-elevated)', color: 'var(--text-body)', borderColor: 'var(--border-default)' }}
-                        onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.05)'; }}
+                        onMouseEnter={e => { e.currentTarget.style.background = 'var(--tint-surface)'; }}
                         onMouseLeave={e => { e.currentTarget.style.background = 'var(--bg-elevated)'; }}
                       >
                         取消
@@ -563,7 +563,7 @@ export const NpcModal: React.FC<NpcModalProps> = ({
                     value ? (
                       <div
                         key={label}
-                        className="border border-white/5 rounded-[8px] px-3 py-2"
+                        className="border border-[color:var(--tint-line)] rounded-[8px] px-3 py-2"
                         style={{ background: 'color-mix(in srgb, var(--bg-ui-card) 50%, transparent)' }}
                       >
                         <p className="text-[10px] uppercase tracking-wider mb-1" style={{ color: 'var(--text-muted)' }}>{label}</p>
@@ -574,7 +574,7 @@ export const NpcModal: React.FC<NpcModalProps> = ({
 
                   {/* 背景故事 */}
                   <div
-                    className="border border-white/5 rounded-[8px] px-3 py-2"
+                    className="border border-[color:var(--tint-line)] rounded-[8px] px-3 py-2"
                     style={{ background: 'color-mix(in srgb, var(--bg-ui-card) 50%, transparent)' }}
                   >
                     <p className="text-[10px] uppercase tracking-wider mb-1 flex items-center gap-1" style={{ color: 'var(--text-muted)' }}>
@@ -665,7 +665,7 @@ export const NpcModal: React.FC<NpcModalProps> = ({
                                 ))}
                               </div>
                               {totalPages > 1 && (
-                                <div className="flex items-center justify-between text-[10px] pt-2 border-t border-white/5">
+                                <div className="flex items-center justify-between text-[10px] pt-2 border-t border-[color:var(--tint-line)]">
                                   <button
                                     onClick={() => setMemoryPage(p => Math.max(0, p - 1))}
                                     disabled={memoryPage === 0}
@@ -720,7 +720,7 @@ export const NpcModal: React.FC<NpcModalProps> = ({
                             {archivedMemories.map(mem => (
                               <div
                                 key={mem.id}
-                                className="border border-white/5 rounded-[8px] px-3 py-2 text-sm line-through"
+                                className="border border-[color:var(--tint-line)] rounded-[8px] px-3 py-2 text-sm line-through"
                                 style={{ background: 'color-mix(in srgb, var(--bg-elevated) 60%, transparent)', color: 'var(--text-muted)' }}
                               >
                                 <div className="flex justify-between items-start gap-2" style={{ textDecoration: 'none' }}>
@@ -735,11 +735,11 @@ export const NpcModal: React.FC<NpcModalProps> = ({
                     )}
 
                     {/* 新增記憶 */}
-                    <div className="pt-2 border-t border-white/5 space-y-2 mt-3">
+                    <div className="pt-2 border-t border-[color:var(--tint-line)] space-y-2 mt-3">
                       <textarea
                         ref={newMemRef}
                         placeholder="新增與他的回憶... (Enter 送出 / Shift+Enter 換行)"
-                        className="w-full border border-white/10 rounded-[8px] px-3 py-2 text-sm outline-none transition resize-none"
+                        className="w-full border border-[color:var(--tint-line)] rounded-[8px] px-3 py-2 text-sm outline-none transition resize-none"
                         style={{
                           background: 'color-mix(in srgb, var(--bg-elevated) 50%, transparent)',
                           color: 'var(--text-title)',
@@ -752,7 +752,7 @@ export const NpcModal: React.FC<NpcModalProps> = ({
                       <div className="flex gap-2">
                         <button
                           onClick={() => handleAddMemory('normal')}
-                          className="flex-1 border border-white/10 rounded-[8px] py-1.5 text-sm transition"
+                          className="flex-1 border border-[color:var(--tint-line)] rounded-[8px] py-1.5 text-sm transition"
                           style={{ background: 'color-mix(in srgb, var(--bg-elevated) 60%, transparent)', color: 'var(--text-title)' }}
                           onMouseEnter={e => { e.currentTarget.style.background = 'var(--bg-elevated)'; }}
                           onMouseLeave={e => { e.currentTarget.style.background = 'color-mix(in srgb, var(--bg-elevated) 60%, transparent)'; }}
@@ -813,9 +813,9 @@ export const NpcModal: React.FC<NpcModalProps> = ({
                 </button>
                 <button
                   onClick={() => setShowDeleteConfirm(false)}
-                  className="flex-1 border border-white/10 py-2 text-sm rounded-[8px] transition"
+                  className="flex-1 border border-[color:var(--tint-line)] py-2 text-sm rounded-[8px] transition"
                   style={{ background: 'var(--bg-elevated)', color: 'var(--text-body)' }}
-                  onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.05)'; }}
+                  onMouseEnter={e => { e.currentTarget.style.background = 'var(--tint-surface)'; }}
                   onMouseLeave={e => { e.currentTarget.style.background = 'var(--bg-elevated)'; }}
                 >
                   取消
@@ -857,10 +857,10 @@ const MemoryCard: React.FC<MemoryCardProps> = ({
           : 'color-mix(in srgb, var(--bg-elevated) 60%, transparent)',
         borderColor: isCore
           ? 'color-mix(in srgb, var(--color-amber) 30%, transparent)'
-          : 'rgba(255,255,255,0.05)',
+          : 'var(--tint-surface)',
       }}
-      onMouseEnter={e => { if (!isCore) e.currentTarget.style.borderColor = 'rgba(255,255,255,0.1)'; }}
-      onMouseLeave={e => { if (!isCore) e.currentTarget.style.borderColor = 'rgba(255,255,255,0.05)'; }}
+      onMouseEnter={e => { if (!isCore) e.currentTarget.style.borderColor = 'var(--tint-line-strong)'; }}
+      onMouseLeave={e => { if (!isCore) e.currentTarget.style.borderColor = 'var(--tint-surface)'; }}
     >
       <div className="flex items-center justify-between mb-1.5">
         <div className="flex items-center gap-1.5">

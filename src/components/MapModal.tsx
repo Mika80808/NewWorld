@@ -11,6 +11,13 @@ const SVG_W = 680;
 const SVG_H = 520;
 const MAP_SCALE = 2.2;
 const CLUSTER_THRESHOLD = 20;
+/**
+ * 色碼例外：整份檔案。
+ *
+ * 手繪羊皮紙地圖與勢力星圖是「畫在紙上的道具」，不是 UI 表面——
+ * 兩張圖在夜色與羊皮紙主題底下都該長一樣。CLAUDE.md 明文列為例外。
+ * 調色盤集中在 MAP_PALETTE / FACTION_SKY，SVG 內另有少量就地的線條色。
+ */
 const MAP_PALETTE = {
   paper: '#f9f4f0',
   paperDeep: '#e8dcd3',
@@ -27,7 +34,7 @@ const FACTION_PALETTE = ['#7F77DD', '#E24B4A', '#1D9E75', '#EF9F27', '#5f93d3', 
 
 /**
  * 勢力關係圖的「星圖」調色盤。
- * 與 MAP_PALETTE 同屬 CLAUDE.md 明文例外的「地圖類獨立調色盤」：
+ * 色碼例外：與 MAP_PALETTE 同屬 CLAUDE.md 明文例外的「地圖類獨立調色盤」：
  * 勢力圖是抽象的關係星座，不隨 UI 主題變動，故不走 CSS Variables。
  */
 const FACTION_SKY = {

@@ -57,6 +57,24 @@
   /* ── 陰影 ───────────────────────────────────────────────── */
   --shadow:          0 4px 12px rgba(16, 68, 171, 0.2);
 
+  /* ── 疊加色（tint）與遮罩 ──────────────────────────────────
+   * 全站原本散落著幾十處 `rgba(255,255,255,0.05)` 之類的「微亮一層」寫法。
+   * 那個手法**綁死深色主題**：白色疊在淺色紙面上等於什麼都沒發生，
+   * 卡片、按鈕、分隔線會在羊皮紙主題整片消失。
+   *
+   * 這裡把它抽成語意變數——深色主題疊白、淺色主題疊深棕，
+   * 組件端只要寫 `var(--tint-surface)` 就兩邊都對。
+   * 新增這類「浮在底色上的一層」時請用這組，不要再寫死 rgba。 */
+  --tint-surface:       rgba(255, 255, 255, 0.05);  /* 卡片／按鈕底的微亮面 */
+  --tint-surface-hover: rgba(255, 255, 255, 0.10);  /* 上述元素的懸停態 */
+  --tint-line:          rgba(255, 255, 255, 0.08);  /* 分隔線、細邊框 */
+  --tint-line-strong:   rgba(255, 255, 255, 0.14);  /* 需要看得出來的邊框 */
+  --shadow-modal:       0 0 40px rgba(0, 0, 0, 0.5);    /* Modal 投影 */
+  --shadow-float:       0 4px 20px rgba(0, 0, 0, 0.45); /* 浮動元素（選單、Toast） */
+  /* 懸停時的一圈細光環，疊在 box-shadow 最前面：
+     `boxShadow: 'var(--ring-accent), var(--shadow-float)'` */
+  --ring-accent:        0 0 0 1px color-mix(in srgb, var(--color-amber) 20%, transparent);
+
   /* ── 表單 ───────────────────────────────────────────────── */
   --bg-sys-field:    #454545;   /* 輸入框底色 */
   --bg-sys-tag:      #0092cc;   /* 關鍵字膠囊底色 */
@@ -333,6 +351,18 @@
   --btn-secondary-active: #bfb29b;
 
   --shadow: 0 2px 6px rgba(92, 74, 50, 0.18);
+
+  /* ── 疊加色：疊深棕而不是疊白 ──────────────────────────
+   * 淺色紙面上疊白等於沒疊。這裡改疊墨棕，並且不透明度要比深色主題高，
+   * 否則在高亮度的紙面上仍然看不出來。 */
+  --tint-surface:       rgba(92, 74, 50, 0.05);
+  --tint-surface-hover: rgba(92, 74, 50, 0.11);
+  --tint-line:          rgba(92, 74, 50, 0.13);
+  --tint-line-strong:   rgba(92, 74, 50, 0.22);
+  /* 擬物的投影是柔的暖影，不是深色主題那種大範圍發光 */
+  --shadow-modal:       0 12px 40px rgba(92, 74, 50, 0.22);
+  --shadow-float:       0 6px 20px rgba(92, 74, 50, 0.18);
+  --ring-accent:        0 0 0 1px color-mix(in srgb, var(--border-accent) 45%, transparent);
 
   /* ── 表單 ── */
   --bg-sys-field:  #e6ded1;   /* 輸入框用凹陷光影表現，不靠底色差異 */

@@ -111,13 +111,13 @@ export const DiaryModal: React.FC<DiaryModalProps> = ({
   return (
     <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[60] flex items-center justify-center p-4" onClick={onClose}>
       <div
-        className="backdrop-blur-xl w-full max-w-2xl rounded-[8px] shadow-[0_0_40px_rgba(0,0,0,0.5)] flex flex-col overflow-hidden border border-white/10 relative z-[61] h-[80vh]"
+        className="backdrop-blur-xl w-full max-w-2xl rounded-[8px] shadow-[var(--shadow-modal)] flex flex-col overflow-hidden border border-[color:var(--tint-line)] relative z-[61] h-[80vh]"
         style={{ background: panelBg, color: 'var(--text-body)' }}
         onClick={e => e.stopPropagation()}
       >
         {/* ── Header ── */}
         <div
-          className="p-4 border-b border-white/5 flex justify-between items-center"
+          className="p-4 border-b border-[color:var(--tint-line)] flex justify-between items-center"
           style={{ background: panelBgLight }}
         >
           <div className="flex items-center">
@@ -136,7 +136,7 @@ export const DiaryModal: React.FC<DiaryModalProps> = ({
                 placeholder="搜尋..."
                 value={diarySearch}
                 onChange={e => setDiarySearch(e.target.value)}
-                className="h-7 pl-7 pr-3 rounded-[16px] text-xs outline-none border border-white/10 w-36 transition"
+                className="h-7 pl-7 pr-3 rounded-[16px] text-xs outline-none border border-[color:var(--tint-line)] w-36 transition"
                 style={{ background: 'color-mix(in srgb, var(--bg-elevated) 50%, transparent)', color: 'var(--text-body)' }}
               />
             </div>
@@ -153,9 +153,9 @@ export const DiaryModal: React.FC<DiaryModalProps> = ({
         </div>
 
         {/* ── Action buttons ── */}
-        <div className="px-4 pt-3 pb-0 border-b border-white/5" style={{ background: panelBgLight }}>
+        <div className="px-4 pt-3 pb-0 border-b border-[color:var(--tint-line)]" style={{ background: panelBgLight }}>
           <div
-            className="flex border border-white/10 rounded-t-[8px] overflow-hidden"
+            className="flex border border-[color:var(--tint-line)] rounded-t-[8px] overflow-hidden"
             style={{ background: 'color-mix(in srgb, var(--bg-elevated) 50%, transparent)' }}
           >
             <button
@@ -194,7 +194,7 @@ export const DiaryModal: React.FC<DiaryModalProps> = ({
               style={{
                 background: isDiaryMergeMode ? 'var(--color-violet)' : 'transparent',
                 color: 'var(--text-tab)',
-                boxShadow: isDiaryMergeMode ? '0 0 12px rgba(167,139,250,0.35)' : 'none',
+                boxShadow: isDiaryMergeMode ? '0 0 12px color-mix(in srgb, var(--color-violet) 45%, transparent)' : 'none',
               }}
               onMouseEnter={e => { if (!isDiaryMergeMode) e.currentTarget.style.background = 'color-mix(in srgb, var(--color-violet) 25%, var(--bg-elevated))'; }}
               onMouseLeave={e => { if (!isDiaryMergeMode) e.currentTarget.style.background = 'transparent'; }}
@@ -208,7 +208,7 @@ export const DiaryModal: React.FC<DiaryModalProps> = ({
         {/* ── 融合模式控制列 ── */}
         {isDiaryMergeMode && (
           <div
-            className="px-4 py-2 flex items-center justify-between border-b border-white/5"
+            className="px-4 py-2 flex items-center justify-between border-b border-[color:var(--tint-line)]"
             style={{ background: panelBgDim }}
           >
             <span className="text-xs" style={{ color: 'var(--text-body)' }}>
@@ -217,7 +217,7 @@ export const DiaryModal: React.FC<DiaryModalProps> = ({
             <div className="flex gap-2">
               <button
                 onClick={() => { setIsDiaryMergeMode(false); setDiaryMergeSelection([]); }}
-                className="text-xs px-3 py-1.5 rounded-xl border border-white/10 transition"
+                className="text-xs px-3 py-1.5 rounded-xl border border-[color:var(--tint-line)] transition"
                 style={{ background: 'color-mix(in srgb, var(--bg-elevated) 60%, transparent)', color: 'var(--text-body)' }}
                 onMouseEnter={e => { e.currentTarget.style.background = 'color-mix(in srgb, var(--bg-elevated) 80%, transparent)'; }}
                 onMouseLeave={e => { e.currentTarget.style.background = 'color-mix(in srgb, var(--bg-elevated) 60%, transparent)'; }}
@@ -230,8 +230,8 @@ export const DiaryModal: React.FC<DiaryModalProps> = ({
                 className="text-xs px-3 py-1.5 rounded-xl transition"
                 style={
                   diaryMergeSelection.length >= 2
-                    ? { background: 'var(--color-violet)', color: 'var(--text-tab)', boxShadow: '0 0 15px rgba(167,139,250,0.4)', cursor: 'pointer' }
-                    : { background: 'color-mix(in srgb, var(--bg-elevated) 40%, transparent)', color: 'var(--border-default)', cursor: 'not-allowed', border: '1px solid rgba(255,255,255,0.05)' }
+                    ? { background: 'var(--color-violet)', color: 'var(--text-tab)', boxShadow: '0 0 15px color-mix(in srgb, var(--color-violet) 50%, transparent)', cursor: 'pointer' }
+                    : { background: 'color-mix(in srgb, var(--bg-elevated) 40%, transparent)', color: 'var(--border-default)', cursor: 'not-allowed', border: '1px solid var(--tint-surface)' }
                 }
                 onMouseEnter={e => { if (diaryMergeSelection.length >= 2) e.currentTarget.style.background = 'color-mix(in srgb, var(--color-violet) 80%, white)'; }}
                 onMouseLeave={e => { if (diaryMergeSelection.length >= 2) e.currentTarget.style.background = 'var(--color-violet)'; }}
@@ -326,7 +326,7 @@ export const DiaryModal: React.FC<DiaryModalProps> = ({
                         <input
                           type="text"
                           placeholder="輸入關鍵字後按 Enter..."
-                          className="w-full border border-white/10 rounded-[8px] px-3 py-1.5 text-xs outline-none transition"
+                          className="w-full border border-[color:var(--tint-line)] rounded-[8px] px-3 py-1.5 text-xs outline-none transition"
                           style={{ background: 'color-mix(in srgb, var(--bg-elevated) 50%, transparent)', color: 'var(--text-main)' }}
                           onKeyDown={e => {
                             if (e.key === 'Enter' && e.currentTarget.value.trim()) {
@@ -515,7 +515,7 @@ export const DiaryModal: React.FC<DiaryModalProps> = ({
                     {sourceDiaries.map(sourceEntry => (
                       <div
                         key={`source-${sourceEntry.id}`}
-                        className="rounded-xl p-3 border border-white/5 opacity-60"
+                        className="rounded-xl p-3 border border-[color:var(--tint-line)] opacity-60"
                         style={{ background: panelBgDim }}
                       >
                         {getDiaryTitle(sourceEntry) && (

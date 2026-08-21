@@ -61,13 +61,29 @@ LLM 擔任 GM 的開放式世界文字冒險 RPG，玩家以自由文字輸入�
 <div className="bg-gray-900 text-amber-400">
 ```
 
+### 這條規則由測試強制執行
+
+`src/utils/__tests__/noHardcodedColors.test.ts` 會掃過整個 `src/`，掃到未標注例外的
+色碼字面值就紅。這條規則過去只寫在文件裡、沒有東西擋著，結果累積了 60 幾處寫死的色碼
+——大多是 `rgba(255,255,255,0.05)` 這種「疊一層微亮」的手法，**綁死深色主題**：
+白色疊在淺色紙面上等於什麼都沒發生，羊皮紙主題底下卡片、按鈕、分隔線會整片消失。
+
+**要疊一層、要投影、要遮罩時，用下面「疊加色與陰影」那組變數，不要自己寫 rgba。**
+
 ### 明文例外（除此之外一律禁止）
+
+例外的寫法是在宣告處上方的註解寫 `色碼例外` 並說明理由（測試據此豁免其後 30 行）；
+整份檔案都是調色盤的（手繪地圖）則在檔案開頭寫 `色碼例外：整份檔案`。
+目的是逼人寫下理由，不是禁止例外。
+
 - `affectionColor()` 函數回傳的 CSS 變數字串，用於 `style={{ color }}`
-- `App.tsx` `getSkyGradient()` 的天空漸層色碼 — 場景氛圍色，隨遊戲時間變化，非 UI 主題色
-- `App.tsx` HP / MP 條的 `linear-gradient` 色碼 — 遊戲數值語意色
-- `MapModal.tsx` 頂部的手繪地圖調色盤物件（`MAP_PALETTE`）— 羊皮紙地圖風格，獨立於 UI 主題
-- `MapModal.tsx` 的 `FACTION_SKY` — 勢力關係圖的星圖天幕配色，同屬地圖類獨立調色盤
-- `Faction.color` — 由調色盤自動指派、存於存檔資料的勢力色
+- `App.tsx` `getSkyGradient()` 的天空與天氣色碼 — 場景氛圍色，隨遊戲時間變化，非 UI 主題色
+- `MapModal.tsx` — 整份檔案。手繪地圖（`MAP_PALETTE`）與勢力星圖（`FACTION_SKY`）是
+  「畫在紙上的道具」，不是 UI 表面，兩個主題底下都該長一樣
+- `GoalsPanel.tsx` 的 `NOTE_PAPER` — 便條紙調色盤，同理；紙面本身仍讀 `--bg-note-paper`
+- `Faction.color` 的自動指派調色盤（`LorebookModal` 的 `FACTION_PALETTE`、
+  `commandReducer` 的 `FACTION_COLOR_PALETTE`）— 這些值會**寫進存檔**，
+  換主題不該讓舊存檔裡的勢力全部改色
 - Google 登入按鈕 SVG 的品牌色（Google 規範要求）
 
 ---
@@ -79,7 +95,7 @@ LLM 擔任 GM 的開放式世界文字冒險 RPG，玩家以自由文字輸入�
 > 一度有 13 個值與實際不符（例如 `--text-title` 記成亮桃紅，實際是霧卡其），
 > 反而誤導。要知道確切顏色請直接看 `index.css`；寫程式時你只需要變數名。
 >
-> 共 80 個變數（`:root` 內，不含 `@theme` 的兩個字體）。若在下列找不到需要的語意，**先回 `index.css` 確認**，
+> 共 87 個變數（`:root` 內，不含 `@theme` 的兩個字體）。若在下列找不到需要的語意，**先回 `index.css` 確認**，
 > 不要因為表上沒有就硬編碼色碼（那會違反上方的顏色系統強制規則）。
 
 ### 背景層次
@@ -88,7 +104,7 @@ LLM 擔任 GM 的開放式世界文字冒險 RPG，玩家以自由文字輸入�
 | `--bg-base` | 最外層背景 |
 | `--bg-elevated` | 右側欄、Modal 底色 |
 | `--bg-ui-card` | Modal 內部二次容器（讓 A/B 區塊易於區別） |
-| `--bg-overlay` | 遮罩 |
+| `--bg-overlay` | Modal／抽屜的遮罩（見下方「疊加色與陰影」）|
 | `--bg-glass-left` / `--bg-glass-right` | 左／右欄玻璃底色 |
 | `--bg-mark` | 新日記亮點「通知」 |
 | `--bg-note-paper` | 便條紙背景（筆記紙 Widget） |
@@ -96,6 +112,25 @@ LLM 擔任 GM 的開放式世界文字冒險 RPG，玩家以自由文字輸入�
 
 ### 邊框
 `--border-default`（所有邊框）、`--border-width`、`--border-accent`（選中狀態）
+
+### 疊加色與陰影（`--tint-*` / `--shadow-*`）
+
+「浮在底色上的一層」一律走這組，不要自己寫 rgba——深色主題疊白、淺色主題疊深棕，
+組件端寫同一個變數兩邊都對。
+
+| 變數 | 用途 |
+|---|---|
+| `--tint-surface` | 卡片／按鈕底的微亮面 |
+| `--tint-surface-hover` | 上述元素的懸停態 |
+| `--tint-line` | 分隔線、細邊框 |
+| `--tint-line-strong` | 需要看得出來的邊框 |
+| `--shadow-modal` | Modal 投影 |
+| `--shadow-float` | 浮動元素（選單、Toast、右欄 Widget） |
+| `--ring-accent` | 懸停時的一圈細光環，疊在 `box-shadow` 最前面 |
+| `--bg-overlay` | Modal／抽屜的遮罩——**只有遮罩**，不要拿來當面板底色 |
+
+Tailwind class 需要用到時走 arbitrary value：`border-[color:var(--tint-line)]`、
+`shadow-[var(--shadow-modal)]`。
 
 ### 文字
 | 變數 | 用途 |
