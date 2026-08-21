@@ -37,6 +37,7 @@ import { renderMarkdown, cleanNarrative, APPEAR_TAG_PATTERN, APPEAR_TAG_CAPTURE_
 import { buildPrompt, BuildPromptDeps, BuildPromptResult } from './utils/promptBuilder';
 import { parseNpcImport, mergeImportedNpcs, mergeImportedFactions } from './utils/npcImport';
 import { setFactionRelation, removeFactionRelation } from './utils/factionRelation';
+import { ThemeId, loadTheme, saveTheme, applyTheme } from './utils/theme';
 import { SaveSlotsModal } from './components/SaveSlotsModal';
 
 export default function App() {
@@ -63,6 +64,9 @@ export default function App() {
   // 刻意不進存檔：這是每輪重算的暫時提示，存起來只會在載入後沿用過期的場景判斷。
   // 載入後的第一輪退回純規則行為，助理跑完一輪就會補上。
   const [loreHints, setLoreHints] = useState<number[]>([]);
+  // 佈景主題。初值直接讀 localStorage（不是先給預設再用 effect 補），
+  // 否則重新整理時會先閃一幀深色再跳成羊皮紙
+  const [theme, setThemeState] = useState<ThemeId>(() => loadTheme());
   const [hasNewDiary, setHasNewDiary] = useState(false);
   const [summaryCollapsed, setSummaryCollapsed] = useState(true);
   const [isQuestPanelOpen, setIsQuestPanelOpen] = useState(false);
@@ -412,6 +416,13 @@ ${newPool.map((s, i) => `${i + 1}. ${s}`).join('\n')}`;
   // 這個 effect 宣告在所有其他 effect 之前，同一次 commit 內會最先執行，
   // 因此下面讀 ref 的 effect（例如 persistToken 存檔）拿到的仍是最新值。
   // 讀取端全部落在 commit 之後（await 之後、或事件 callback 內），時序不變。
+  // 掛載時把已儲存的主題套到 <html>。
+  // 之後的切換由 handleSetTheme 直接套用，這裡只負責首次載入。
+  useEffect(() => {
+    applyTheme(theme);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   useEffect(() => {
     itemsRef.current = items;
     summaryPoolRef.current = summaryPool;
@@ -956,6 +967,14 @@ ${poolText}
     setNpcs(prev => prev.map(n =>
       n.id === npcId ? { ...n, factionIds: [...new Set(factionIds)] } : n
     ));
+  };
+
+  // 主題切換的唯一入口：套用到 <html> 並寫回 localStorage。
+  // 不進遊戲存檔——那是這台裝置的閱讀偏好，不是世界狀態（見 utils/theme.ts）
+  const handleSetTheme = (next: ThemeId) => {
+    setThemeState(next);
+    applyTheme(next);
+    saveTheme(next);
   };
 
   // 勢力關係的唯一寫入點。與 AI 的 FACTION_RELATION 指令共用 utils/factionRelation，
@@ -2431,6 +2450,8 @@ ${recentContext}
           setIsSaveSlotsModalOpen(true);
         }}
         isCloudSaving={isCloudSaving}
+        theme={theme}
+        onSetTheme={handleSetTheme}
       />
       </Suspense>}
 
