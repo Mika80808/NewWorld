@@ -65,7 +65,7 @@ export const SceneNpcsWidget: React.FC<SceneNpcsWidgetProps> = ({
               return (
                 <div
                   key={npc.id}
-                  className="p-2.5 rounded-[4px] flex justify-between items-center cursor-pointer transition-all duration-300 group/npc overflow-hidden relative"
+                  className="tactile-raised p-2.5 rounded-[8px] flex justify-between items-center cursor-pointer transition-all duration-300 group/npc relative"
                   style={{ background: 'var(--bg-ui-card)', border: 'var(--border-width) solid var(--border-default)' }}
                   onClick={() => onSelectNpc(npc)}
                 >
@@ -76,7 +76,8 @@ export const SceneNpcsWidget: React.FC<SceneNpcsWidgetProps> = ({
                       {displayGender ? `${displayGender}・${displayJob}` : displayJob}
                     </span>
                   </div>
-                  <div className="text-xs flex items-center px-2 py-1 rounded-full"
+                  {/* 好感度做成凹陷的小井——新擬態靠凹凸區分層級，不靠色塊 */}
+                  <div className="tactile-sunken text-xs flex items-center px-2.5 py-1 rounded-full shrink-0"
                     style={{ color: affectionColor(npc.affection), background: 'var(--bg-sys-field)', border: 'var(--border-width) solid var(--border-default)' }}>
                     <Heart className="w-3 h-3 mr-1 fill-current" />
                     <span className="font-mono">{npc.affection}</span>

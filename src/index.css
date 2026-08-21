@@ -285,20 +285,25 @@
    ============================================================ */
 
 [data-theme="parchment"] {
-  /* ── 背景層次：由外而內逐層變亮，像紙疊在桌面上 ── */
-  --bg-base:         #d9cfbe;   /* 桌面／最外層 */
-  --bg-elevated:     #ece4d6;   /* 卡片、右欄、Modal */
-  --bg-ui-card:      #f4eee3;   /* 卡片內的二次容器 */
+  /* ── 背景層次 ──────────────────────────────────────────
+   * ⚠️ 新擬態的前提是**元件與背景同色**，立體感完全由光影做出來。
+   * 這三層刻意只差一點點（不是傳統那種逐層拉亮的卡片階層）——
+   * 色差一拉開，對稱光影就失效，會變回普通卡片。 */
+  --bg-base:         #e6ded1;   /* 桌面／最外層 */
+  --bg-elevated:     #e9e1d5;   /* 卡片、右欄、Modal（僅微亮） */
+  --bg-ui-card:      #ece5da;   /* 卡片內的二次容器 */
   --bg-overlay:      rgba(60, 48, 34, 0.35);
-  --bg-glass-left:   rgba(236, 228, 214, 0.92);
-  --bg-glass-right:  rgba(236, 228, 214, 0.92);
+  --bg-glass-left:   #e9e1d5;
+  --bg-glass-right:  #e9e1d5;
   --bg-mark:         #c0776d;
   --bg-note-paper:   #f6f0e4;
   --text-note:       #4a3f31;
   --text-note-muted: rgba(74, 63, 49, 0.62);
 
   /* ── 邊框：擬物需要看得見的實體邊，不是 0.5px 的髮絲線 ── */
-  --border-default:  #c3b5a0;
+  /* 新擬態不靠描邊分界，邊框設成幾乎看不見；
+     真的需要分隔的地方用 .tactile-sunken 的凹槽表現 */
+  --border-default:  rgba(160, 140, 112, 0.18);
   --border-width:    1px;
   --border-accent:   #a98b5b;
 
@@ -330,13 +335,13 @@
   --shadow: 0 2px 6px rgba(92, 74, 50, 0.18);
 
   /* ── 表單 ── */
-  --bg-sys-field:  #f6f1e7;
-  --bg-sys-tag:    #ded4c2;
+  --bg-sys-field:  #e6ded1;   /* 輸入框用凹陷光影表現，不靠底色差異 */
+  --bg-sys-tag:    #e3dacd;
 
   /* ── 對話視窗 ── */
-  --bg-bubble-self:   #e5dcc9;
-  --bg-bubble-npc:    #f4eee3;
-  --bg-dialog-input:  #f6f1e7;
+  --bg-bubble-self:   #e6ded1;   /* 與底色同色，靠光影分層 */
+  --bg-bubble-npc:    #ebe4d8;   /* 敘事泡泡微亮一階，長文閱讀時較好定位 */
+  --bg-dialog-input:  #e3dacd;
   --text-dialog-main:  #3a3229;
   --text-dialog-muted: #6f6252;
 
@@ -390,17 +395,35 @@
   --tac-border-mid:    1.5px;
   --tac-border-thick:  2px;
 
-  /* Shadow Levels：由參考圖的四階而來 */
-  --tac-shadow-none:  none;
-  --tac-shadow-inner: inset 0 2px 4px rgba(92, 74, 50, 0.16),
-                      inset 0 -1px 0 rgba(255, 253, 246, 0.55);
-  --tac-shadow-lift:  0 1px 2px rgba(92, 74, 50, 0.12),
-                      0 3px 8px rgba(92, 74, 50, 0.10);
-  --tac-shadow-float: 0 2px 4px rgba(92, 74, 50, 0.14),
-                      0 8px 20px rgba(92, 74, 50, 0.16);
+  /* ── 新擬態的光影對 ──────────────────────────────────────
+   * 質感**完全靠這兩個顏色**：左上打高光、右下落陰影，成對出現，
+   * 讓元件看起來是從同色背景上「壓出來」或「凹進去」的。
+   *
+   * ⚠️ 這與一般卡片陰影是不同的做法。卡片是「不同底色 + 邊框 + 單向陰影」；
+   * 新擬態是「同底色 + 無邊框 + 對稱光影」。混用會兩邊都不像。
+   * 因此下方的 .tactile-* 一律不畫 border。
+   *
+   * 光源方向固定左上——全站必須一致，否則畫面會像被不同方向的燈打到。 */
+  --tac-light: rgba(255, 252, 244, 0.95);   /* 左上高亮 */
+  --tac-dark:  rgba(148, 128, 100, 0.42);   /* 右下陰影 */
 
-  /* 頂緣高光：擬物的「厚度」幾乎都靠這一條做出來 */
-  --tac-highlight: inset 0 1px 0 rgba(255, 253, 246, 0.85);
+  /* Shadow Levels：對應參考圖的四階 */
+  --tac-shadow-none:  none;
+
+  /* 凹陷（按下、輸入框、圖示井） */
+  --tac-shadow-inner: inset 4px 4px 8px var(--tac-dark),
+                      inset -4px -4px 8px var(--tac-light);
+
+  /* 微凸（一般卡片） */
+  --tac-shadow-lift:  -5px -5px 10px var(--tac-light),
+                       5px  5px 10px var(--tac-dark);
+
+  /* 高凸（Modal、需要浮起來的東西） */
+  --tac-shadow-float: -8px -8px 18px var(--tac-light),
+                       8px  8px 18px var(--tac-dark);
+
+  /* 頂緣細高光：疊在對稱光影之上，補出「邊緣厚度」 */
+  --tac-highlight: inset 0 1px 0 rgba(255, 255, 252, 0.7);
 }
 
 /* ── 紙張顆粒 ────────────────────────────────────────────
@@ -413,22 +436,27 @@
   background-blend-mode: multiply;
 }
 
-/* ── 三種深度，對應參考圖的 Shadow Levels ── */
+/* ── 三種深度 ────────────────────────────────────────────
+ * ⚠️ 一律 `border: none`。新擬態的形狀是光影切出來的，加了邊框
+ * 就變回「有描邊的卡片」，對稱光影的效果會被邊框壓掉。
+ *
+ * 這三個類別**只管光影，不管圓角**——圓角由各組件自己決定（膠囊要
+ * rounded-full、卡片要 12px）。先前寫在這裡會把組件的圓角蓋掉。
+ * 但圓角要夠大光影才有地方過渡，太小會像被削掉的方塊。 */
 [data-theme="parchment"] .tactile-raised {
-  border: var(--tac-border-thin) solid var(--border-default);
-  border-radius: var(--tac-radius-lg);
+  /* !important 是為了壓過組件寫在 inline style 的 border——
+     那些邊框在深色主題有用，但在新擬態下會破壞光影 */
+  border: none !important;
   box-shadow: var(--tac-shadow-lift), var(--tac-highlight);
 }
 
 [data-theme="parchment"] .tactile-float {
-  border: var(--tac-border-thin) solid var(--border-default);
-  border-radius: var(--tac-radius-lg);
+  border: none !important;
   box-shadow: var(--tac-shadow-float), var(--tac-highlight);
 }
 
 [data-theme="parchment"] .tactile-sunken {
-  border: var(--tac-border-thin) solid var(--border-default);
-  border-radius: var(--tac-radius-md);
+  border: none !important;
   box-shadow: var(--tac-shadow-inner);
 }
 

@@ -24,7 +24,7 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
     style={{
       color: 'var(--text-dialog-main)',
       background: isUser ? 'var(--bg-bubble-self)' : 'var(--bg-bubble-npc)',
-      borderRadius: '8px',
+      borderRadius: '14px',   // 圓角要夠大，柔和光影才有過渡空間
       border: isUser
         ? '0.5px solid color-mix(in srgb, var(--color-amber) 28%, transparent)'
         : '0.5px solid var(--border-default)',
