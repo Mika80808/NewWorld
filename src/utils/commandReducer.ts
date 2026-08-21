@@ -8,6 +8,7 @@ import { advanceTimeAndResolveQuestDeadlines } from './timeUtils';
 import { normalizeItemName, registerItemDef, touchItemDef, pruneItemCatalog } from './itemCatalog';
 import { pruneMemories } from './memoryStore';
 import { findQuestByTitle } from './questMatch';
+import { setFactionRelation } from './factionRelation';
 import {
   TimeState, Profile, Quest, MemoryEntry, Npc, ItemEntry, ItemCatalog,
   LorebookEntry, Message, StatusEffect, Faction, NpcRelation, NpcMemory,
@@ -453,24 +454,12 @@ export function reduceCommands(
         const relationType = cmd.parsed.relationType as 'ally' | 'enemy' | 'neutral' | 'vassal' | 'rival';
         const factionB = cmd.parsed.factionB as string;
         const note = cmd.parsed.note as string | undefined;
-        const idxA = workingFactions.findIndex(f => f.name === factionA);
-        const idxB = workingFactions.findIndex(f => f.name === factionB);
-        if (idxA === -1 || idxB === -1) break;
-        const fa = workingFactions[idxA];
-        const fb = workingFactions[idxB];
-        // 寫入 A → B
-        const relA = (fa.relations || []).filter(r => r.targetFactionId !== fb.id);
-        relA.push({ targetFactionId: fb.id, type: relationType, note });
-        // vassal 是單向（A 是 B 的附庸），其餘雙向
-        const relB = (fb.relations || []).filter(r => r.targetFactionId !== fa.id);
-        if (relationType !== 'vassal') {
-          relB.push({ targetFactionId: fa.id, type: relationType, note });
-        }
-        workingFactions = workingFactions.map((f, i) => {
-          if (i === idxA) return { ...f, relations: relA };
-          if (i === idxB) return { ...f, relations: relB };
-          return f;
-        });
+        const fa = workingFactions.find(f => f.name === factionA);
+        const fb = workingFactions.find(f => f.name === factionB);
+        if (!fa || !fb) break;
+        // 雙向寫入與 vassal 單向的規則走 utils/factionRelation 的共用入口，
+        // 與故事集的手動編輯用同一套，避免兩邊各寫一份而分歧
+        workingFactions = setFactionRelation(workingFactions, fa.id, fb.id, relationType, note);
         break;
       }
 
