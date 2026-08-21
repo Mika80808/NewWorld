@@ -342,8 +342,9 @@
   --bg-bubble-self:   #e6ded1;   /* 與底色同色，靠光影分層 */
   --bg-bubble-npc:    #ebe4d8;   /* 敘事泡泡微亮一階，長文閱讀時較好定位 */
   --bg-dialog-input:  #e3dacd;
-  --text-dialog-main:  #3a3229;
-  --text-dialog-muted: #6f6252;
+  --text-dialog-main:  #3a3229;   /* GM 敘事：正文墨色 */
+  --text-dialog-muted: #7d6a55;   /* *動作描述* 的專屬色，與台詞分開 */
+  --text-player-line:  #4d5a68;   /* 玩家的行：偏藍灰，像讀者的手寫註記 */
 
   /* ── 毛玻璃：這個主題不用，一律歸零 ── */
   --glass-sidebar-bg:   #ece4d6;
@@ -474,8 +475,56 @@
   display: none;
 }
 
-/* 閱讀行距：看小說的體感主要來自這裡，不是字級 */
+/* ── 閱讀模式：拆掉對話框，變成連續的文字流 ────────────────
+ * 這個主題的目標是「看電子書」，不是「看聊天室」。對話框（底色＋邊框＋
+ * 陰影＋左右分邊）會把連續的故事切成一格一格的訊息，正是要去掉的東西。
+ *
+ * 泡泡的底色／邊框寫在組件的 inline style，class 壓不過去，故用 !important。
+ * ⚠️ 這些只在 [data-theme="parchment"] 生效，深色主題的泡泡完全不受影響。 */
+[data-theme="parchment"] .rpg-message-card {
+  background: none !important;
+  background-image: none !important;   /* 連紙紋也拿掉，紋理留給頁面底層 */
+  border: none !important;
+  box-shadow: none !important;
+  border-radius: 0 !important;
+  padding: 0 !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  width: 100% !important;              /* 不再貼合內容寬度，整段跨欄 */
+}
+
+/* 玩家訊息原本靠右對齊、寬度貼合內容——那是聊天室的語言。
+   閱讀模式一律靠左、整欄寬，讓玩家與 GM 的文字連成同一條敘事。 */
+[data-theme="parchment"] .rpg-message-card-wrap {
+  align-items: flex-start !important;
+  padding-left: 0 !important;
+  padding-right: 0 !important;
+}
+
+/* 名字那一行在玩家訊息是 flex-row-reverse（靠右），閱讀模式要拉回正常方向，
+   否則整段靠左之後名字會孤零零掉在右邊 */
+[data-theme="parchment"] .rpg-message-head {
+  flex-direction: row !important;
+  margin-left: 0 !important;
+  margin-right: 0 !important;
+}
+
+/* 兩邊只靠「墨色」區分：GM 是正文黑棕，玩家是偏淡的藍灰，
+   像讀者自己寫在書頁邊上的字 */
 [data-theme="parchment"] .rpg-message-card p {
-  line-height: 1.95;
+  line-height: 2.05;
   letter-spacing: 0.02em;
+  text-align: justify;
+  text-justify: inter-character;
+}
+
+[data-theme="parchment"] .rpg-message-user p {
+  color: var(--text-player-line);
+}
+
+/* *動作描述* 走 <em>（markdownParser 已經這樣渲染），
+   閱讀模式下給它獨立的墨色與斜體，跟台詞明顯分開 */
+[data-theme="parchment"] .rpg-message-card em {
+  color: var(--text-dialog-muted);
+  font-style: italic;
 }

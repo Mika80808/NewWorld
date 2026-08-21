@@ -83,9 +83,11 @@ export const MessageCard: React.FC<MessageCardProps> = React.memo(({
       initial={{ opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.22, ease: 'easeOut' }}
-      className={`flex flex-col ${isUser ? 'items-end pl-5' : 'items-start pr-5'} max-w-3xl mx-auto w-full group relative ${activeMenuId === msg.id ? 'z-20' : 'z-0'}`}
+      // rpg-message-card-wrap：閱讀模式（羊皮紙主題）用它取消靠右對齊，
+      // 讓玩家與 GM 的文字連成同一條敘事流。深色主題下此 class 無樣式
+      className={`rpg-message-card-wrap flex flex-col ${isUser ? 'items-end pl-5' : 'items-start pr-5'} max-w-3xl mx-auto w-full group relative ${activeMenuId === msg.id ? 'z-20' : 'z-0'}`}
     >
-      <div className={`flex items-center space-x-2 mb-1 ${isUser ? 'mr-2 flex-row-reverse space-x-reverse' : 'ml-2'}`}>
+      <div className={`rpg-message-head flex items-center space-x-2 mb-1 ${isUser ? 'mr-2 flex-row-reverse space-x-reverse' : 'ml-2'}`}>
         <span className="text-sm text-[var(--text-muted)] font-bold">
           {isUser ? playerName : '主 GM'}
         </span>
@@ -198,7 +200,11 @@ export const MessageCard: React.FC<MessageCardProps> = React.memo(({
             </div>
           </div>
         ) : isUser ? (
-          <p className="leading-relaxed whitespace-pre-wrap">{msg.text}</p>
+          // 玩家訊息也走 markdown 渲染：先前是純文字輸出，於是玩家自己寫的
+          // *動作描述* 只會顯示成帶星號的原文，不像 GM 那樣上到專屬顏色。
+          // 不套 cleanNarrative——那是用來清 AI 的 COMMANDS 與出場標記殘骸的，
+          // 玩家的輸入不該被那套規則動到。
+          <div className="leading-relaxed">{renderMarkdown(msg.text)}</div>
         ) : (
           <div className="leading-relaxed">{renderMarkdown(cleanNarrative(msg.text))}</div>
         )}
