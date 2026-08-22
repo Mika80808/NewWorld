@@ -302,7 +302,7 @@ export const LorebookModal: React.FC<LorebookModalProps> = ({
     }
 
     return (
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         {filtered.map(entry => {
           const isEditing = editingLorebookId === entry.id;
           const allKeywords = [
@@ -481,7 +481,7 @@ export const LorebookModal: React.FC<LorebookModalProps> = ({
     }
 
     return (
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         {filtered.map(entry => {
           const isEditing = editingLorebookId === entry.id;
           const allKeywords = [
@@ -519,7 +519,7 @@ export const LorebookModal: React.FC<LorebookModalProps> = ({
                 />
 
                 {/* 地點專屬欄位 */}
-                <div className="grid grid-cols-2 gap-2">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   <div>
                     <div className="text-sm ml-3 mb-1 uppercase tracking-wider" style={{ color: 'var(--text-body)' }}>地圖狀態</div>
                     <select
@@ -651,7 +651,7 @@ export const LorebookModal: React.FC<LorebookModalProps> = ({
     }
 
     return (
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         {filtered.map(entry => {
           const npcData = npcs.find(n => n.name === entry.title);
           const affection = npcData?.affection ?? 0;
@@ -903,6 +903,7 @@ export const LorebookModal: React.FC<LorebookModalProps> = ({
         {isEdit && existing && (
           <div>
             <div className="text-xs mb-2" style={{ color: 'var(--text-muted)' }}>成員</div>
+            {/* 這裡刻意維持兩欄：內容是短名字，單欄只會讓清單拉得又長又空 */}
             <div className="grid grid-cols-2 gap-1 max-h-32 overflow-y-auto">
               {npcs.map(npc => {
                 const isMember = (npc.factionIds ?? []).includes(existing.id);
@@ -994,7 +995,7 @@ export const LorebookModal: React.FC<LorebookModalProps> = ({
     }
 
     return (
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         {/* Add form */}
         {factionAction === 'add' && renderFactionForm(false)}
 

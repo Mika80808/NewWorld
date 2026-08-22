@@ -1795,10 +1795,15 @@ ${recentContext}
 
   return (
     <div className="flex flex-col font-sans overflow-hidden" style={{ color: 'var(--text-title)', height: '100dvh' }}>
+      {/* 氛圍圖層（背景圖 + 天空漸層）。兩者都掛 class 是為了讓主題能關掉它們：
+          羊皮紙是「在看電子書」的主題，深色夜空與背景照片會整片蓋過紙面，
+          玩家看到的就不是紙而是原本的深色背景（見 index.css 的對應規則）。
+          vignette 與光暈是走 --fx-* 變數的，主題把值設成 transparent 就消失了，
+          但這兩層是 inline style，CSS 搆不到，所以才需要 class。 */}
       {/* Background image - fixed full screen */}
-      <div className="fixed inset-0 pointer-events-none z-0" style={{ backgroundImage: `url('${backgroundImageUrl}')`, backgroundSize: 'cover', backgroundPosition: 'center' }} />
+      <div className="rpg-bg-image fixed inset-0 pointer-events-none z-0" style={{ backgroundImage: `url('${backgroundImageUrl}')`, backgroundSize: 'cover', backgroundPosition: 'center' }} />
       {/* Sky gradient overlay */}
-      <div className="fixed inset-0 pointer-events-none z-0" style={{ background: getSkyGradient(timeState.hour, timeState.weather), opacity: 0.55, transition: 'background 2s ease' }} />
+      <div className="rpg-bg-sky fixed inset-0 pointer-events-none z-0" style={{ background: getSkyGradient(timeState.hour, timeState.weather), opacity: 0.55, transition: 'background 2s ease' }} />
       <div className="fixed inset-0 pointer-events-none z-0 rpg-vignette" />
       <div className="fixed inset-0 pointer-events-none z-0 overflow-hidden">
         <div

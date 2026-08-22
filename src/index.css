@@ -125,6 +125,15 @@
   --fx-orb-violet:        rgba(112, 8, 231, 0.18);
   --fx-orb-sky:           rgba(48, 177, 216, 0.12);
   --fx-message-shadow:    0 10px 24px rgba(0, 0, 0, 0.22);
+  /* 由上而下的整頁壓暗（.rpg-vignette 的第二層）。主題要能整層關掉，
+     所以連漸層本身都放進變數，而不只是顏色 */
+  --fx-page-shade:        linear-gradient(to bottom, rgba(0, 0, 0, 0.12), rgba(0, 0, 0, 0.34));
+  --fx-sweep:             rgba(255, 255, 255, 0.18);  /* 對話泡泡掠過的高光 */
+
+  /* ── 捲軸 ─────────────────────────────────────────────────
+   * 原本寫死中灰 rgba(160,160,160,...)，淺色主題下是一條突兀的灰條。 */
+  --scrollbar-thumb:       rgba(255, 255, 255, 0.22);
+  --scrollbar-thumb-hover: rgba(255, 255, 255, 0.42);
 
   /* ── Z-Index 層級系統（由低至高）─────────────────────── */
   --z-bg:           0;      /* 背景圖層（遊戲背景、天空梯度） */
@@ -157,7 +166,7 @@
 /* ── Scrollbar ──────────────────────────────────────────── */
 * {
   scrollbar-width: thin;
-  scrollbar-color: rgba(160, 160, 160, 0.25) transparent;
+  scrollbar-color: var(--scrollbar-thumb) transparent;
 }
 ::-webkit-scrollbar {
   width: 5px;
@@ -167,11 +176,11 @@
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: rgba(160, 160, 160, 0.25);
+  background: var(--scrollbar-thumb);
   border-radius: 99px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(160, 160, 160, 0.45);
+  background: var(--scrollbar-thumb-hover);
 }
 ::-webkit-scrollbar-corner {
   background: transparent;
@@ -183,6 +192,17 @@
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
 }
 
+
+/* ── 頁面底色 ─────────────────────────────────────────────
+ * 整個 App 的背景原本**完全**來自 App.tsx 那兩層固定的氛圍圖層
+ * （背景照片 + 天空漸層），body 自己沒有底色。羊皮紙主題把那兩層關掉之後
+ * 露出來的會是瀏覽器預設的白／灰，而不是紙。
+ *
+ * 底色一律由這裡負責，氛圍圖層只是疊在上面——深色主題底下那兩層不透明，
+ * 看不出差別，但捲動超出範圍（overscroll）時也不會再閃出一塊白。 */
+body {
+  background: var(--bg-base);
+}
 
 /* ── 遊戲字體 ───────────────────────────────────────────── */
 .font-game-sans  { font-family: 'Noto Sans TC', sans-serif; }
@@ -257,10 +277,15 @@
   100% { opacity: 1; transform: translateY(0) scale(1); }
 }
 
+/* 兩層：四角的暗角 + 由上而下的壓暗。
+ * ⚠️ 第二層原本是寫死的 `rgba(0,0,0,0.12) → rgba(0,0,0,0.34)`，
+ * 不受任何變數控制——羊皮紙主題把 --fx-vignette 設成 transparent 之後，
+ * 這一層仍然把整張紙由上而下染成灰的，紙色只剩最頂端看得出來。
+ * 兩層都要走變數，主題才關得掉。 */
 .rpg-vignette {
   background:
     radial-gradient(circle at top, transparent 0%, transparent 45%, var(--fx-vignette) 100%),
-    linear-gradient(to bottom, rgba(0, 0, 0, 0.12), rgba(0, 0, 0, 0.34));
+    var(--fx-page-shade);
 }
 
 .rpg-orb {
@@ -279,7 +304,7 @@
   content: "";
   position: absolute;
   inset: 0;
-  background: linear-gradient(120deg, transparent 0%, rgba(255, 255, 255, 0.18) 50%, transparent 100%);
+  background: linear-gradient(120deg, transparent 0%, var(--fx-sweep) 50%, transparent 100%);
   transform: translateX(-140%);
   pointer-events: none;
 }
@@ -386,6 +411,11 @@
 
   /* ── RPG 視覺特效：淡色底下這些光暈會變成髒污，全部關掉 ── */
   --fx-vignette:       transparent;
+  /* 紙面不壓暗——這一層若留著，整張紙會由上而下染成灰的 */
+  --fx-page-shade:     none;
+  --fx-sweep:          transparent;
+  --scrollbar-thumb:       rgba(92, 74, 50, 0.28);
+  --scrollbar-thumb-hover: rgba(92, 74, 50, 0.48);
   --fx-orb-amber:      transparent;
   --fx-orb-violet:     transparent;
   --fx-orb-sky:        transparent;
@@ -489,6 +519,18 @@
 [data-theme="parchment"] .tactile-sunken {
   border: none !important;
   box-shadow: var(--tac-shadow-inner);
+}
+
+/* 背景照片與夜空漸層整片蓋在紙面上，玩家看到的就不是紙而是原本的深色背景。
+   羊皮紙是「在看電子書」的主題，讀故事的那一面應該是紙，不是天空。
+
+   vignette 與光暈已經靠 --fx-* 設成 transparent 消失了，但這兩層是 App.tsx
+   的 inline style（背景圖 url、getSkyGradient 的回傳值），CSS 搆不到，
+   所以在組件端補了 .rpg-bg-image / .rpg-bg-sky 兩個 class 讓這裡關掉。
+   深色主題完全不受影響——氛圍圖層是那個主題的重點。 */
+[data-theme="parchment"] .rpg-bg-image,
+[data-theme="parchment"] .rpg-bg-sky {
+  display: none;
 }
 
 /* 這個主題一律關掉毛玻璃：擬物與半透明模糊是相衝的語言 */
