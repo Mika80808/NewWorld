@@ -7,7 +7,8 @@ import { CommandAST } from './commandParser';
 import { advanceTimeAndResolveQuestDeadlines } from './timeUtils';
 import { normalizeItemName, registerItemDef, touchItemDef, pruneItemCatalog } from './itemCatalog';
 import { pruneMemories } from './memoryStore';
-import { findQuestByTitle } from './questMatch';
+import { findQuestByTitle, findQuestByRef } from './questMatch';
+import { generateQuestShortId } from './questShortId';
 import { setFactionRelation } from './factionRelation';
 import {
   TimeState, Profile, Quest, MemoryEntry, Npc, ItemEntry, ItemCatalog,
@@ -71,6 +72,18 @@ export interface CurrentState {
   cooldownCounters: Record<string, number>;
   statusEffects: StatusEffect[];
   factions: Faction[];
+}
+
+/**
+ * 比對失敗時，把目前進行中的任務連同短 ID 列出來。
+ *
+ * 先前的 warn 只說「找不到任務『X』」，看不出當下到底有哪些任務可選——
+ * 是 AI 抄錯碼、還是那個任務早就結案了，從 log 分不出來。
+ */
+function activeQuestHint(quests: { title: string; status: string; shortId?: string }[]): string {
+  const active = quests.filter(q => q.status === 'active');
+  if (active.length === 0) return '目前沒有進行中的任務';
+  return `進行中：${active.map(q => `#${q.shortId ?? '?'} ${q.title}`).join('、')}`;
 }
 
 // ─── 勢力調色盤 ────────────────────────────────────────────────────────────────
@@ -229,13 +242,18 @@ export function reduceCommands(
         // 去重走 findQuestByTitle 而非字串相等：模型重發同一個委託時常常
         // 多一組引號或句尾標點，字串比對抓不到就會長出第二筆同樣的任務。
         // 涵蓋所有狀態（不只 active），否則剛完成的任務會被再發一次而復活
-        if (!findQuestByTitle(workingQuests, title)) {
+        // 第四個參數 strictContainment：去重時包含比對要加長度上限，否則
+        // 「護送商隊到南門」會被判成既有「護送商隊」的重複而靜默不建立
+        if (!findQuestByTitle(workingQuests, title, false, true)) {
           const createdAtTotalDays =
             currentState.timeState.year * 360 +
             (currentState.timeState.month - 1) * 30 +
             currentState.timeState.day;
           workingQuests.push({
             id: `quest_${Date.now()}_${Math.floor(Math.random() * 9999)}`,
+            // 短 ID 要在**全部任務**中唯一，不只進行中的：已完成的任務仍留在
+            // 存檔裡，若讓新任務撿走它的碼，AI 引用時就分不出是哪一個
+            shortId: generateQuestShortId(workingQuests.map(q => q.shortId ?? '')),
             title,
             giver: (cmd.parsed.giver as string) || '',
             description: (cmd.parsed.description as string) || '',
@@ -256,11 +274,11 @@ export function reduceCommands(
 
       case 'QUEST_GOAL_MET': {
         const title = cmd.parsed.title as string;
-        const goalQuest = findQuestByTitle(workingQuests, title, true);
+        const goalQuest = findQuestByRef(workingQuests, { id: cmd.parsed.id as string, title }, true);
         if (!goalQuest) {
           // 先前不論有沒有比中都無條件推 `✅ 目標達成`，玩家看到成功訊息、
           // 任務卻沒有任何變化。比不到就要說比不到
-          console.warn(`[QUEST_GOAL_MET] 找不到進行中的任務「${title}」，指令已忽略。原始指令：${cmd.raw}`);
+          console.warn(`[QUEST_GOAL_MET] 找不到進行中的任務（id=${cmd.parsed.id || "無"}、title=「${title}」），指令已忽略。${activeQuestHint(workingQuests)}。原始指令：${cmd.raw}`);
           feedback.cmdResults.push(`⚠️ 找不到進行中的任務「${title}」`);
           break;
         }
@@ -273,12 +291,12 @@ export function reduceCommands(
 
       case 'QUEST_COMPLETE': {
         const title = cmd.parsed.title as string;
-        const quest = findQuestByTitle(workingQuests, title, true);
+        const quest = findQuestByRef(workingQuests, { id: cmd.parsed.id as string, title }, true);
         if (!quest) {
           // 先前是 `if (quest) { ... }` 沒有 else：比不到就整段靜默跳過，
           // 沒有 log 也沒有提示，玩家只看到任務還掛在「進行中」、獎勵也沒發。
           // 這正是「完成任務後有機率沒偵測到」的來源
-          console.warn(`[QUEST_COMPLETE] 找不到進行中的任務「${title}」，獎勵未發放。原始指令：${cmd.raw}`);
+          console.warn(`[QUEST_COMPLETE] 找不到進行中的任務（id=${cmd.parsed.id || "無"}、title=「${title}」），獎勵未發放。${activeQuestHint(workingQuests)}。原始指令：${cmd.raw}`);
           feedback.cmdResults.push(`⚠️ 找不到進行中的任務「${title}」，未結案`);
           break;
         }

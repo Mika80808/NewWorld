@@ -204,6 +204,40 @@ describe('buildPrompt — 空區塊省略', () => {
     expect(prompt).toContain('護送商隊');
   });
 
+  // 短 ID：AI 回報完成時引用這三碼，不必重打中文標題。
+  // 這是模型唯一看得到 ID 的地方，沒印出來的話 QUEST_COMPLETE|id= 永遠是瞎猜。
+  it('任務清單會印出短 ID', () => {
+    const { prompt } = buildPrompt(
+      {
+        ...deps([], () => false),
+        quests: [{
+          id: 'q1', shortId: 'k3p', title: '護送商隊', giver: '鎮長', description: '', reward: {},
+          status: 'active', isGoalMet: false, createdAt: '4/15', createdAtTotalDays: 0,
+        }],
+      },
+      '測試輸入',
+      messages,
+    );
+    expect(prompt).toContain('#k3p 護送商隊');
+  });
+
+  /** 舊存檔的任務沒有 shortId。印個 `#undefined` 只會教壞模型 */
+  it('沒有短 ID 的舊任務不會印出 #undefined', () => {
+    const { prompt } = buildPrompt(
+      {
+        ...deps([], () => false),
+        quests: [{
+          id: 'q1', title: '護送商隊', giver: '鎮長', description: '', reward: {},
+          status: 'active', isGoalMet: false, createdAt: '4/15', createdAtTotalDays: 0,
+        }],
+      },
+      '測試輸入',
+      messages,
+    );
+    expect(prompt).toContain('護送商隊');
+    expect(prompt).not.toContain('#undefined');
+  });
+
   // 「無已知角色在附近」是給 AI 的指示（可自由創造新角色），不是佔位符——
   // 被當成空區塊刪掉的話，AI 會不敢生成新角色
   it('「當前場景可能出現的角色」在沒有候選時仍保留指示句', () => {

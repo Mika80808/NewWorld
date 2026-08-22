@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { saveDataMapper, CURRENT_SCHEMA } from '../useGameStore';
-import { Npc, Faction } from '../../types';
+import { Npc, Faction, Quest } from '../../types';
 
 // v4 → v5：NPC 勢力歸屬先前存在兩個地方各寫各的——FACTION_JOIN 寫 Npc.factionIds，
 // 勢力分頁的勾選寫 Faction.npcIds。promptBuilder 只讀前者，於是手動勾的成員 AI 看不到。
@@ -276,5 +276,48 @@ describe('migrateV5toV6 — 補建缺少的 npcs[] 紀錄', () => {
       npcs: [],
     });
     expect(d.npcs).toHaveLength(0);
+  });
+});
+
+// v6 → v7：任務短 ID。舊存檔的任務沒有這個欄位，不補的話 prompt 印不出 #xxx，
+// 那些任務就只能繼續走標題比對——也就是一直帶著原本那個 bug。
+describe('migrateV6toV7 — 補上任務短 ID', () => {
+  const run = (quests: Partial<Quest>[]) =>
+    saveDataMapper({ schemaVersion: 6, quests });
+
+  const q = (over: Partial<Quest> = {}): Partial<Quest> => ({
+    id: 'q1', title: '護送商隊', giver: '商會會長', description: '',
+    reward: {}, status: 'active', isGoalMet: false,
+    createdAt: '4/15', createdAtTotalDays: 1, ...over,
+  });
+
+  it('沒有 shortId 的任務會被補上', () => {
+    const d = run([q()]);
+    expect(d.quests[0].shortId).toMatch(/^[2-9a-z]{3}$/);
+  });
+
+  it('已經有 shortId 的不會被改掉', () => {
+    const d = run([q({ shortId: 'k3p' })]);
+    expect(d.quests[0].shortId).toBe('k3p');
+  });
+
+  /**
+   * 已完成的任務仍留在存檔裡。若讓進行中的任務撿到同一組碼，
+   * AI 引用時就分不出是哪一個——所以唯一性要涵蓋全部狀態，不只 active。
+   */
+  it('補出來的 ID 彼此不重複，也不與既有的撞號', () => {
+    const d = run([
+      q({ id: 'q1', title: '舊任務A', shortId: 'k3p', status: 'completed' }),
+      q({ id: 'q2', title: '舊任務B' }),
+      q({ id: 'q3', title: '舊任務C' }),
+      q({ id: 'q4', title: '舊任務D' }),
+    ]);
+    const ids = d.quests.map(x => x.shortId);
+    expect(new Set(ids).size).toBe(4);
+    expect(ids.filter(i => i === 'k3p')).toHaveLength(1);
+  });
+
+  it('沒有任務的存檔不會壞掉', () => {
+    expect(() => saveDataMapper({ schemaVersion: 6, quests: [] })).not.toThrow();
   });
 });

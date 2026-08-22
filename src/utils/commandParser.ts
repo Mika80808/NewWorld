@@ -222,18 +222,21 @@ function parseSingleCommand(line: string): CommandAST | null {
       };
     }
 
-    // QUEST_GOAL_MET|title=任務名
+    // QUEST_GOAL_MET|id=a7f（title= 為舊格式與 fallback，見下方說明）
     case 'QUEST_GOAL_MET': {
       const title = kv.title || kv.name || '';
-      if (!title) return null;
-      return { type: 'QUEST_GOAL_MET', raw: trimmed, parsed: { title } };
+      const id = kv.id || '';
+      // 兩個都沒有才丟棄。只給 id 是新格式的常態，不能要求一定要有 title
+      if (!title && !id) return null;
+      return { type: 'QUEST_GOAL_MET', raw: trimmed, parsed: { title, id } };
     }
 
-    // QUEST_COMPLETE|title=任務名
+    // QUEST_COMPLETE|id=a7f（title= 為舊格式與 fallback）
     case 'QUEST_COMPLETE': {
       const title = kv.title || kv.name || '';
-      if (!title) return null;
-      return { type: 'QUEST_COMPLETE', raw: trimmed, parsed: { title } };
+      const id = kv.id || '';
+      if (!title && !id) return null;
+      return { type: 'QUEST_COMPLETE', raw: trimmed, parsed: { title, id } };
     }
 
     // NPC_THOUGHT|npc=角色名|text=第一人稱內心想法

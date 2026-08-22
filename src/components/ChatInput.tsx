@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useLayoutEffect } from 'react';
 import { Send, X } from 'lucide-react';
 
 interface ChatInputProps {
@@ -10,8 +10,28 @@ interface ChatInputProps {
 /**
  * 輸入框獨立組件：打字 state 內收，避免每個按鍵重渲染整個 App
  */
+/** 輸入框最高長到這裡，再高就內部捲動——不然它會吃掉整個閱讀區 */
+const MAX_HEIGHT = 128;
+
 export const ChatInput: React.FC<ChatInputProps> = ({ isLoading, onSend, onAbort }) => {
   const [text, setText] = useState('');
+  const boxRef = useRef<HTMLTextAreaElement>(null);
+
+  /**
+   * 自動長高一律跟著 `text` 走，不要掛在 onInput 上。
+   *
+   * ⚠️ 這裡踩過的坑：高度是用 `el.style.height = ...` 直接寫上去的 inline style，
+   * 而 onInput **只在使用者輸入時觸發**。送出後 `setText('')` 只清掉了值，
+   * 高度還留在最後長到的那一格——輸入框從此固定是一大格，把上面的故事擋住。
+   *
+   * 跟著 state 走就一併涵蓋了送出清空、外部改動與首次掛載。
+   */
+  useLayoutEffect(() => {
+    const el = boxRef.current;
+    if (!el) return;
+    el.style.height = 'auto';                                   // 先收合才量得到真正的 scrollHeight
+    el.style.height = `${Math.min(el.scrollHeight, MAX_HEIGHT)}px`;
+  }, [text]);
 
   const handleSend = () => {
     if (!text.trim() || isLoading) return;
@@ -22,6 +42,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({ isLoading, onSend, onAbort
   return (
     <>
       <textarea
+        ref={boxRef}
         className="w-full bg-transparent pl-2 pr-2 outline-none resize-none max-h-32 disabled:opacity-80"
         style={{ color: 'var(--text-main)', lineHeight: '20px', paddingTop: '8px', paddingBottom: '8px' }}
         placeholder={isLoading ? "..." : "輸入你的行動或對話..."}
@@ -38,11 +59,6 @@ export const ChatInput: React.FC<ChatInputProps> = ({ isLoading, onSend, onAbort
             e.preventDefault();
             handleSend();
           }
-        }}
-        onInput={(e) => {
-          const el = e.currentTarget;
-          el.style.height = 'auto';
-          el.style.height = Math.min(el.scrollHeight, 128) + 'px';
         }}
       ></textarea>
       {isLoading ? (
