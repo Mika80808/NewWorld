@@ -91,3 +91,40 @@ describe('findQuestByTitle', () => {
     expect(findQuestByTitle([q('護送商隊')], '')).toBeUndefined();
   });
 });
+
+// ─── strictContainment（QUEST_ADD 去重專用）────────────────────────────────
+// **同一組字串，兩個指令要的答案是相反的**：
+//   既有「護送商隊到南門」+ AI 寫「護送商隊」→ COMPLETE 該結案
+//   既有「護送商隊」    + AI 寫「護送商隊到南門」→ ADD 該建新任務
+// 所以長度上限只在去重時套用，由呼叫端指定，不是全域行為。
+describe('findQuestByTitle — strictContainment（去重專用）', () => {
+  const q = (title: string) => ({ title, status: 'active' });
+  const dedupe = (quests: { title: string; status: string }[], title: string) =>
+    findQuestByTitle(quests, title, false, true);
+
+  it('差一大截時不算重複，系列任務進得來', () => {
+    expect(dedupe([q('護送商隊')], '護送商隊到南門')).toBeUndefined();
+    expect(dedupe([q('調查失蹤案')], '調查失蹤案：第二夜')).toBeUndefined();
+  });
+
+  it('反向也一樣（既有的比較長）', () => {
+    expect(dedupe([q('護送商隊到南門')], '護送商隊')).toBeUndefined();
+  });
+
+  /** 包含比對真正要救的是模型在同一個標題上多打／少打一兩個字 */
+  it('只差一兩個字時仍算重複', () => {
+    expect(dedupe([q('討伐哥布林')], '討伐哥布林們')?.title).toBe('討伐哥布林');
+    expect(dedupe([q('護送商隊')], '護送商隊的')?.title).toBe('護送商隊');
+  });
+
+  /** 前兩段（完全相等、正規化後相等）不受長度上限影響 */
+  it('正規化後完全相等時照樣算重複', () => {
+    expect(dedupe([q('護送商隊')], '「護送商隊」。')?.title).toBe('護送商隊');
+  });
+
+  /** 沒開 strict 的結案路徑維持寬鬆——這是同一組字串的另一半 */
+  it('不開 strict 時（結案路徑）差一大截仍比得到', () => {
+    expect(findQuestByTitle([q('護送商隊到南門')], '護送商隊', true)?.title)
+      .toBe('護送商隊到南門');
+  });
+});

@@ -19,6 +19,16 @@ import { normalizeQuestShortId } from './questShortId';
 
 /** 標題兩側常見的引號／括號，模型很愛自己加上去 */
 const WRAPPERS = /[「」『』《》〈〉【】〔〕[\]()（）"'‘’“”]/g;
+/**
+ * `strictContainment` 模式下，包含比對允許的長度差距（正規化後的字元數）。
+ *
+ * 這個值在救「模型多打／少打幾個字」與誤殺「真的是另一個任務」之間權衡。
+ * 2 的依據是實際會飄的東西：多一個「的」「之」、少一個量詞、
+ * 「討伐哥布林」↔「討伐哥布林們」這種。系列任務通常會多出「：第二夜」
+ * 「到南門」這類 3 字以上的後綴，落在門檻之外。
+ */
+const CONTAINMENT_MAX_DIFF = 2;
+
 /** 句尾標點 */
 const TRAILING_PUNCT = /[。．.、,，!！?？~～:：;；\-－—_\s]+$/;
 
@@ -51,11 +61,29 @@ interface TitledQuest {
  * ⚠️ 第三段的包含比對**只在唯一命中時採用**。「護送商隊」與「護送商隊到南門」
  * 同時存在時兩者都包含得到，這種情況寧可判定失敗讓上層 warn，也不要隨便挑一個
  * ——挑錯會把獎勵發到別的任務上，比沒偵測到更難查。
+ *
+ * @param strictContainment 包含比對加上長度差距上限（`QUEST_ADD` 去重用）。
+ *
+ * ⚠️ 為什麼這件事要由呼叫端決定：**同一組字串，兩個指令要的答案是相反的**。
+ *
+ * | 既有任務 | AI 寫的 | QUEST_COMPLETE 該怎樣 | QUEST_ADD 該怎樣 |
+ * |---|---|---|---|
+ * | 護送商隊到南門 | 護送商隊 | 結案（他在講這個） | — |
+ * | 護送商隊 | 護送商隊到南門 | — | 建新任務（這是系列的下一個） |
+ *
+ * 結案時寬鬆是對的：模型在指涉一個**已經存在**的東西，猜近的那個通常沒錯。
+ * 去重時寬鬆是錯的：會把真正的新任務靜默吞掉，系列任務（「調查失蹤案」→
+ * 「調查失蹤案：第二夜」）全部進不來，而且沒有任何提示——這是「完成偵測
+ * 不到」的鏡像，一樣難查。
+ *
+ * 短 ID 上線後結案已有可靠的路（`findQuestByRef` 先比 ID），
+ * 標題那條路的寬鬆代價更小了。
  */
 export function findQuestByTitle<T extends TitledQuest>(
   quests: T[],
   rawTitle: string,
   activeOnly = false,
+  strictContainment = false,
 ): T | undefined {
   const pool = activeOnly ? quests.filter(q => q.status === 'active') : quests;
   if (pool.length === 0) return undefined;
@@ -73,7 +101,11 @@ export function findQuestByTitle<T extends TitledQuest>(
 
   const contained = pool.filter(q => {
     const t = normalizeQuestTitle(q.title);
-    return t.length > 0 && (t.includes(target) || target.includes(t));
+    if (t.length === 0) return false;
+    if (!t.includes(target) && !target.includes(t)) return false;
+    // 去重時：差一大截的多半是真的另一個任務，不是模型打錯字
+    if (strictContainment && Math.abs(t.length - target.length) > CONTAINMENT_MAX_DIFF) return false;
+    return true;
   });
   return contained.length === 1 ? contained[0] : undefined;
 }

@@ -433,6 +433,23 @@ describe('reduceCommands — 任務標題比對', () => {
     expect(stateChanges.quests).toHaveLength(1);
   });
 
+  /**
+   * 系列任務。先前包含比對沒有長度上限，「護送商隊到南門」會被判成既有
+   * 「護送商隊」的重複而**靜默不建立**——玩家接了任務卻什麼都沒出現。
+   */
+  it('標題包含既有任務但差一大截時，會建立成新任務', () => {
+    const s = state({ quests: [quest()] });   // 既有：護送商隊
+    const { stateChanges } = run('QUEST_ADD|title=護送商隊到南門|giver=商會會長', s);
+    expect(stateChanges.quests).toHaveLength(2);
+    expect(stateChanges.quests?.map(q => q.title)).toContain('護送商隊到南門');
+  });
+
+  it('只差一兩個字時仍視為同一個任務，不重複發放', () => {
+    const s = state({ quests: [quest()] });
+    const { stateChanges } = run('QUEST_ADD|title=護送商隊的|giver=商會會長', s);
+    expect(stateChanges.quests).toHaveLength(1);
+  });
+
   it('真的是新任務時照常發放', () => {
     const s = state({ quests: [quest()] });
     const { stateChanges } = run('QUEST_ADD|title=討伐哥布林|giver=村長', s);

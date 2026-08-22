@@ -242,7 +242,9 @@ export function reduceCommands(
         // 去重走 findQuestByTitle 而非字串相等：模型重發同一個委託時常常
         // 多一組引號或句尾標點，字串比對抓不到就會長出第二筆同樣的任務。
         // 涵蓋所有狀態（不只 active），否則剛完成的任務會被再發一次而復活
-        if (!findQuestByTitle(workingQuests, title)) {
+        // 第四個參數 strictContainment：去重時包含比對要加長度上限，否則
+        // 「護送商隊到南門」會被判成既有「護送商隊」的重複而靜默不建立
+        if (!findQuestByTitle(workingQuests, title, false, true)) {
           const createdAtTotalDays =
             currentState.timeState.year * 360 +
             (currentState.timeState.month - 1) * 30 +
