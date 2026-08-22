@@ -116,27 +116,30 @@ export const DiaryModal: React.FC<DiaryModalProps> = ({
         onClick={e => e.stopPropagation()}
       >
         {/* ── Header ── */}
+        {/* 這一列在 390px 寬的手機上原本被壓成「一字一行」：標題、說明文字與搜尋框
+            擠在同一條不換行的 flex 裡，一起被壓到 min-content，中文於是逐字斷行。
+            改成整列可換行，標題不斷字，說明與搜尋在窄螢幕各自掉到下一行。 */}
         <div
-          className="p-4 border-b border-[color:var(--tint-line)] flex justify-between items-center"
+          className="p-4 border-b border-[color:var(--tint-line)] flex flex-wrap justify-between items-center gap-y-2"
           style={{ background: panelBgLight }}
         >
-          <div className="flex items-center">
-            <h2 className="text-lg font-bold flex items-center" style={{ color: 'var(--text-primary)' }}>
-              <Book className="w-5 h-5 mr-2" style={{ color: 'var(--text-primary)' }} /> 日記與記憶
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 min-w-0">
+            <h2 className="text-lg font-bold flex items-center whitespace-nowrap" style={{ color: 'var(--text-primary)' }}>
+              <Book className="w-5 h-5 mr-2 shrink-0" style={{ color: 'var(--text-primary)' }} /> 日記與記憶
             </h2>
-            <span className="ml-4 text-xs" style={{ color: 'var(--text-muted)' }}>
+            <span className="text-xs" style={{ color: 'var(--text-muted)' }}>
               勾選的項目將會被 AI 讀取並帶入遊戲記憶中
             </span>
           </div>
-          <div className="flex items-center gap-2">
-            <div className="relative">
+          <div className="flex items-center gap-2 w-full sm:w-auto">
+            <div className="relative flex-1 sm:flex-none">
               <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" style={{ color: 'var(--text-muted)' }} />
               <input
                 type="text"
                 placeholder="搜尋..."
                 value={diarySearch}
                 onChange={e => setDiarySearch(e.target.value)}
-                className="h-7 pl-7 pr-3 rounded-[16px] text-xs outline-none border border-[color:var(--tint-line)] w-36 transition"
+                className="h-7 pl-7 pr-3 rounded-[16px] text-xs outline-none border border-[color:var(--tint-line)] w-full sm:w-36 transition"
                 style={{ background: 'color-mix(in srgb, var(--bg-elevated) 50%, transparent)', color: 'var(--text-body)' }}
               />
             </div>
