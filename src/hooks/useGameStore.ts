@@ -14,13 +14,14 @@ import {
   DiaryEntry, Message, MemoryEntry, EquipmentItem, ItemEntry, ItemCatalog, StatusEffect, Faction,
 } from '../types';
 import { buildCatalogFromItems } from '../utils/itemCatalog';
+import { generateQuestShortId } from '../utils/questShortId';
 import {
   INITIAL_SYSTEM_PROMPT, INITIAL_LOREBOOK_ENTRIES,
   INITIAL_MESSAGES,
 } from '../constants';
 
 // ─── Schema 版本 ──────────────────────────────────────────────────────────────
-export const CURRENT_SCHEMA = 6;
+export const CURRENT_SCHEMA = 7;
 
 // ─── 型別：儲存快照 ───────────────────────────────────────────────────────────
 export interface GameSaveData {
@@ -221,6 +222,31 @@ export function migrateV5toV6(data: Record<string, unknown>): Record<string, unk
   return out;
 }
 
+/**
+ * v6 → v7：替既有任務補上短 ID。
+ *
+ * 短 ID 是給 AI 引用的（見 utils/questShortId.ts）。舊存檔裡的任務沒有這個欄位，
+ * 補之前 prompt 會印不出 `#xxx`，那些任務就只能繼續走標題比對——也就是
+ * 一直帶著原本那個 bug。因此在遷移時一次補齊，而不是等下次 QUEST_ADD。
+ *
+ * ⚠️ 要在**全部任務**中唯一，不只進行中的：已完成的任務仍留在存檔裡，
+ * 讓新舊任務撿到同一組碼的話，AI 引用時就分不出是哪一個。
+ */
+export function migrateV6toV7(data: Record<string, unknown>): Record<string, unknown> {
+  const out = { ...data };
+  const quests = Array.isArray(out.quests) ? (out.quests as Quest[]) : [];
+  if (quests.length === 0) return out;
+
+  const taken = quests.map(q => q.shortId ?? '').filter(Boolean);
+  out.quests = quests.map(q => {
+    if (q.shortId) return q;                     // 已經有的不動
+    const id = generateQuestShortId(taken);
+    taken.push(id);
+    return { ...q, shortId: id };
+  });
+  return out;
+}
+
 const MIGRATIONS: Record<number, (d: Record<string, unknown>) => Record<string, unknown>> = {
   0: migrateV0toV1,
   1: migrateV1toV2,
@@ -228,6 +254,7 @@ const MIGRATIONS: Record<number, (d: Record<string, unknown>) => Record<string, 
   3: migrateV3toV4,
   4: migrateV4toV5,
   5: migrateV5toV6,
+  6: migrateV6toV7,
 };
 
 function runMigrations(raw: Record<string, unknown>): Record<string, unknown> {

@@ -31,6 +31,14 @@ export interface Profile {
 
 export interface Quest {
   id: string;
+  /**
+   * 給 AI 引用的三碼短 ID（`k3p`）。注入 prompt 時寫成 `#k3p`。
+   *
+   * 存在的理由是「引用比重打可靠」：AI 回報完成時抄這三碼，
+   * 而不是重新打一次中文標題。舊存檔沒有這個欄位（schema v7 補上），
+   * 所以比對端仍必須保留標題那條路，見 `utils/questMatch.findQuestByRef`。
+   */
+  shortId?: string;
   title: string;
   giver: string;
   description: string;

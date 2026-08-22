@@ -411,10 +411,13 @@ Personality: ${profile.personality}${profile.other ? `\nOther: ${profile.other}`
       return active.map(q => {
         const remainingDays = getQuestRemainingDays(q, currentTotalDays)
         const remaining = remainingDays != null ? `剩 ${remainingDays} 天` : '無期限'
+        // 短 ID 擺在最前面：模型回報完成時引用這三碼，不必重打中文標題。
+        // 舊存檔的任務沒有 shortId，那就不印——印個 `#undefined` 只會教壞模型
+        const ref = q.shortId ? `#${q.shortId} ` : ''
         if (q.isGoalMet) {
-          return `${q.title}（委託：${q.giver}，目標已達成，待玩家回報）`
+          return `${ref}${q.title}（委託：${q.giver}，目標已達成，待玩家回報）`
         }
-        return `${q.title}（委託：${q.giver}，${remaining}）`
+        return `${ref}${q.title}（委託：${q.giver}，${remaining}）`
       }).join('\n')
     })()),
 
@@ -603,8 +606,8 @@ ITEM_ADD|name=道具名|qty=1|desc=說明（外觀與效果）
 ITEM_REMOVE|name=道具名|qty=1
 ITEM_USE|name=道具名
 QUEST_ADD|title=任務名|giver=委託人|desc=目標描述|gold=100|items=物品A,物品B|deadline=7
-QUEST_GOAL_MET|title=任務名
-QUEST_COMPLETE|title=任務名
+QUEST_GOAL_MET|id=任務短ID
+QUEST_COMPLETE|id=任務短ID
 NPC_NEW|name=姓名|race=種族|gender=性別|age=年齡|job=職業|appearance=外貌|personality=個性|backstory=背景(選填)
 NPC_HOME|name=姓名|loc=地點
 NPC_LOCATION|npc=姓名|loc=地點
@@ -634,7 +637,9 @@ NPC_RELATION|npc=NPC名|type=family/ally/rival/enemy/acquaintance/romantic|targe
 - ITEM_USE：玩家主動使用道具時（前端扣數量）。ITEM_REMOVE：道具消耗/丟失。
 - QUEST_ADD：NPC 正式委託或玩家接布告欄任務時。後四欄可留空。
 - QUEST_GOAL_MET：玩家已完成目標但未回報時靜默輸出（前端標記「待回報」）。
-- QUEST_COMPLETE：玩家向委託人回報結案時。名稱需與 QUEST_ADD 完全一致。
+- QUEST_COMPLETE：玩家向委託人回報結案時。
+- QUEST_GOAL_MET / QUEST_COMPLETE 的 id 必須**原樣抄寫**【進行中任務】清單裡該任務前面的短 ID（例如清單寫「#k3p 找回失竊的聖遺物」，就輸出 id=k3p）。
+  不要自己造 ID，也不要改寫；引用清單上沒有的 ID 一律會被忽略。清單上沒有的任務代表它不存在或已結案，不要對它輸出這兩個指令。
 - NPC_NEW：新角色首次出場時建檔（一次性）。NPC_HOME 同步輸出其主場地點。
 - NPC_LOCATION：NPC 出現於非主場地點時記錄足跡。
 - NPC_THOUGHT：NPC 有明顯情緒變化、做出重要決定、或對玩家產生新看法時，第一人稱。

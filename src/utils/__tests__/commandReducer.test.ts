@@ -466,6 +466,79 @@ describe('reduceCommands — 任務標題比對', () => {
     expect(feedback.cmdResults.some(r => r.startsWith('✅'))).toBe(false);
   });
 
+  // ─── 短 ID ────────────────────────────────────────────────────────────────
+  // 標題比對救不了、也不該救的一類是「兩個標題互相包含」。短 ID 是給那一類的。
+  it('QUEST_ADD 會配一組短 ID', () => {
+    const { stateChanges } = run('QUEST_ADD|title=採集任務|giver=村長');
+    expect(stateChanges.quests?.[0].shortId).toMatch(/^[2-9a-z]{3}$/);
+  });
+
+  it('連續發多個任務時短 ID 不重複', () => {
+    let s = state();
+    for (let i = 0; i < 20; i++) {
+      // 標題補零到等長：`任務1` 會被 `任務10` 的包含比對判成同一個任務
+      // （QUEST_ADD 的去重刻意涵蓋包含關係），那會讓這條測試量到的是去重而非 ID
+      const { stateChanges } = run(`QUEST_ADD|title=任務${String(i).padStart(2, '0')}|giver=村長`, s);
+      s = state({ quests: stateChanges.quests as Quest[] });
+    }
+    const ids = (s.quests as Quest[]).map(q => q.shortId);
+    expect(new Set(ids).size).toBe(20);
+  });
+
+  /** 已結案的任務仍在存檔裡，新任務撿走它的碼的話，AI 引用時就分不出是哪一個 */
+  it('短 ID 也會避開已完成任務用過的碼', () => {
+    const done = Array.from({ length: 15 }, (_, i) =>
+      quest({ id: `d${i}`, title: `舊任務${i}`, shortId: `x${i}z`.slice(0, 3), status: 'completed' }));
+    const s = state({ quests: done });
+    const { stateChanges } = run('QUEST_ADD|title=新任務|giver=村長', s);
+    const created = stateChanges.quests?.find(q => q.title === '新任務');
+    expect(done.map(d => d.shortId)).not.toContain(created?.shortId);
+  });
+
+  it('QUEST_COMPLETE 用 id 結案', () => {
+    const s = state({ quests: [quest({ shortId: 'k3p' })] });
+    const { stateChanges } = run('QUEST_COMPLETE|id=k3p', s);
+    expect(stateChanges.quests?.[0].status).toBe('completed');
+    expect(stateChanges.profile?.gold).toBe(200);
+  });
+
+  /** 模型多半會連 prompt 裡的井字號一起抄回來 */
+  it('id 帶 # 也結得了案', () => {
+    const s = state({ quests: [quest({ shortId: 'k3p' })] });
+    const { stateChanges } = run('QUEST_COMPLETE|id=#k3p', s);
+    expect(stateChanges.quests?.[0].status).toBe('completed');
+  });
+
+  /**
+   * 這題是短 ID 存在的理由：兩個標題互相包含，`findQuestByTitle` 會刻意
+   * 判定失敗（挑錯會把獎勵發到別的任務上）。只有 ID 分得出來。
+   */
+  it('標題互相包含時，用 id 仍能結對任務', () => {
+    const s = state({
+      quests: [
+        quest({ id: 'q1', title: '護送商隊', shortId: 'k3p', reward: { gold: 100 } }),
+        quest({ id: 'q2', title: '護送商隊到南門', shortId: 'm82', reward: { gold: 500 } }),
+      ],
+    });
+    const { stateChanges } = run('QUEST_COMPLETE|id=m82', s);
+    expect(stateChanges.quests?.find(q => q.id === 'q2')?.status).toBe('completed');
+    expect(stateChanges.quests?.find(q => q.id === 'q1')?.status).toBe('active');
+    expect(stateChanges.profile?.gold).toBe(600);   // 100 + 500，發對任務的獎勵
+  });
+
+  /** ID 抄錯時退回標題，而不是整條失敗 */
+  it('id 比不到時退回標題比對', () => {
+    const s = state({ quests: [quest({ shortId: 'k3p' })] });
+    const { stateChanges } = run('QUEST_COMPLETE|id=zzz|title=護送商隊', s);
+    expect(stateChanges.quests?.[0].status).toBe('completed');
+  });
+
+  it('QUEST_GOAL_MET 也吃 id', () => {
+    const s = state({ quests: [quest({ shortId: 'k3p' })] });
+    const { stateChanges } = run('QUEST_GOAL_MET|id=k3p', s);
+    expect(stateChanges.quests?.[0].isGoalMet).toBe(true);
+  });
+
   it('QUEST_GOAL_MET 標題有出入時仍標記待回報', () => {
     const s = state({ quests: [quest({ title: '護送商隊到南門' })] });
     const { stateChanges } = run('QUEST_GOAL_MET|title=「護送商隊到南門」', s);

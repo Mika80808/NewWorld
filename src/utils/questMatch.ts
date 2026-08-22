@@ -11,7 +11,11 @@
  *   沒有 log、沒有提示，玩家只看到任務還掛在「進行中」
  *
  * 因此比對一律走這裡，並採三段式：完全相等 → 正規化後相等 → 唯一的包含關係。
+ *
+ * 標題比對救不了、也不該救的一類是**兩個標題互相包含**（「護送商隊」與
+ * 「護送商隊到南門」）。那種情況交給短 ID——見 `findQuestByRef` 與 questShortId.ts。
  */
+import { normalizeQuestShortId } from './questShortId';
 
 /** 標題兩側常見的引號／括號，模型很愛自己加上去 */
 const WRAPPERS = /[「」『』《》〈〉【】〔〕[\]()（）"'‘’“”]/g;
@@ -34,6 +38,7 @@ export function normalizeQuestTitle(raw: string): string {
 interface TitledQuest {
   title: string;
   status: string;
+  shortId?: string;
 }
 
 /**
@@ -71,4 +76,43 @@ export function findQuestByTitle<T extends TitledQuest>(
     return t.length > 0 && (t.includes(target) || target.includes(t));
   });
   return contained.length === 1 ? contained[0] : undefined;
+}
+
+/**
+ * 依短 ID 找任務。ID 是系統發的、AI 只負責原樣引用，所以只要正規化後相等即可。
+ */
+export function findQuestByShortId<T extends TitledQuest>(
+  quests: T[],
+  rawId: string,
+  activeOnly = false,
+): T | undefined {
+  const target = normalizeQuestShortId(rawId);
+  if (!target) return undefined;
+  const pool = activeOnly ? quests.filter(q => q.status === 'active') : quests;
+  return pool.find(q => normalizeQuestShortId(q.shortId) === target);
+}
+
+/**
+ * 任務比對的**唯一入口**（`QUEST_GOAL_MET` / `QUEST_COMPLETE` 都走這裡）。
+ *
+ * 順序是先 ID 後標題，理由是可靠度：ID 是 AI 從 prompt 抄回來的，
+ * 標題是 AI 重新打的。ID 比中就不必再猜標題。
+ *
+ * 兩者都給時**不要求一致**——模型很常 ID 抄對、標題順手改寫成別的說法。
+ * 那種情況以 ID 為準才是對的；若因為對不起來就判失敗，等於把可靠的訊號
+ * 拿去被不可靠的訊號否決。
+ *
+ * 舊存檔的任務沒有 shortId，AI 也還沒學會輸出 id=，所以標題那條路必須留著。
+ */
+export function findQuestByRef<T extends TitledQuest>(
+  quests: T[],
+  ref: { id?: string; title?: string },
+  activeOnly = false,
+): T | undefined {
+  if (ref.id) {
+    const byId = findQuestByShortId(quests, ref.id, activeOnly);
+    if (byId) return byId;
+  }
+  if (ref.title) return findQuestByTitle(quests, ref.title, activeOnly);
+  return undefined;
 }
