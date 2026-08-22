@@ -2,6 +2,27 @@ import React from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { RefreshCw, ScrollText, ChevronDown, ChevronRight } from 'lucide-react';
 
+/**
+ * 色碼例外：便條紙的獨立調色盤。
+ *
+ * 這裡**刻意**不跟著佈景主題走，理由與 `MapModal` 的 `MAP_PALETTE` 相同：
+ * 便條紙在兩個主題底下都該是「一張淺色紙」——文字色也因此走
+ * `--text-note`（深色紙上用，與一般文字色相反）。若讓它跟著夜色主題翻黑，
+ * 格線、紅色裝訂線、堆疊紙邊這些擬物細節就全部失去意義了。
+ *
+ * 紙面本身仍讀 `--bg-note-paper`，主題想微調紙色時有調整餘地。
+ */
+const NOTE_PAPER = {
+  edge1:    'rgba(235,225,205,0.92)',  /* 下方第一張紙的邊 */
+  edge2:    'rgba(220,210,190,0.82)',  /* 第二張 */
+  border:   'rgba(185,165,130,0.55)',  /* 紙的外緣 */
+  rule:     'rgba(140,110,70,0.09)',   /* 橫向格線 */
+  margin:   'rgba(188,55,55,0.16)',    /* 左側紅色裝訂線 */
+  highlight:'rgba(255,255,255,0.55)',  /* 紙面頂端的反光 */
+  bullet:   'rgba(120,90,50,0.40)',    /* 目標項目的圓點 */
+  bulletDim:'rgba(120,90,50,0.35)',    /* 摘要項目的符號 */
+} as const;
+
 interface GoalsPanelProps {
   currentGoals: string[];
   adventureLog: string[];
@@ -24,23 +45,23 @@ export const GoalsPanel: React.FC<GoalsPanelProps> = ({
   <div
     className="rounded-[8px] overflow-hidden relative"
     style={{
-      background: 'rgba(248,242,226,0.90)',
-      border: '1px solid rgba(185,165,130,0.55)',
+      background: 'var(--bg-note-paper)',
+      border: `1px solid ${NOTE_PAPER.border}`,
       backdropFilter: 'blur(24px) saturate(180%)',
       WebkitBackdropFilter: 'blur(24px) saturate(180%)',
-      boxShadow: '2px 2px 0 0 rgba(235,225,205,0.92), 4px 4px 0 0 rgba(220,210,190,0.82), 0 10px 28px rgba(0,0,0,0.32), inset 0 1px 0 rgba(255,255,255,0.55)',
+      boxShadow: `2px 2px 0 0 ${NOTE_PAPER.edge1}, 4px 4px 0 0 ${NOTE_PAPER.edge2}, var(--shadow-float), inset 0 1px 0 ${NOTE_PAPER.highlight}`,
     }}
   >
     {/* 橫向格線 */}
     <div className="absolute inset-0 pointer-events-none" style={{
-      backgroundImage: 'repeating-linear-gradient(transparent 0, transparent 27px, rgba(140,110,70,0.09) 27px, rgba(140,110,70,0.09) 28px)',
+      backgroundImage: `repeating-linear-gradient(transparent 0, transparent 27px, ${NOTE_PAPER.rule} 27px, ${NOTE_PAPER.rule} 28px)`,
       backgroundPosition: '0 52px',
       zIndex: 0,
     }} />
     {/* 左側邊界線 */}
     <div className="absolute top-0 bottom-0 pointer-events-none" style={{
       left: '38px', width: '1px',
-      background: 'linear-gradient(to bottom, transparent 8%, rgba(188,55,55,0.16) 16%, rgba(188,55,55,0.16) 84%, transparent 92%)',
+      background: `linear-gradient(to bottom, transparent 8%, ${NOTE_PAPER.margin} 16%, ${NOTE_PAPER.margin} 84%, transparent 92%)`,
       zIndex: 0,
     }} />
     {/* 內容層 */}
@@ -54,7 +75,7 @@ export const GoalsPanel: React.FC<GoalsPanelProps> = ({
       <ul className="px-4 pb-2 space-y-1.5">
         {currentGoals.length > 0 ? currentGoals.map((goal, i) => (
           <li key={i} className="text-sm leading-relaxed flex items-start gap-2">
-            <span className="flex-shrink-0 mt-0.5 text-xs" style={{ color: 'rgba(120,90,50,0.40)' }}>○</span>
+            <span className="flex-shrink-0 mt-0.5 text-xs" style={{ color: NOTE_PAPER.bullet }}>○</span>
             <span style={{ color: 'var(--text-note)' }}>{goal}</span>
           </li>
         )) : (
@@ -73,7 +94,7 @@ export const GoalsPanel: React.FC<GoalsPanelProps> = ({
             <div className="px-4 pb-3">
               {adventureLog.length > 0 ? (
                 <div className="text-sm leading-relaxed flex items-start gap-2">
-                  <span className="flex-shrink-0 mt-0.5 text-xs" style={{ color: 'rgba(120,90,50,0.35)' }}>∵</span>
+                  <span className="flex-shrink-0 mt-0.5 text-xs" style={{ color: NOTE_PAPER.bulletDim }}>∵</span>
                   <span style={{ color: 'var(--text-note)', opacity: 0.85 }}>{adventureLog[0]}</span>
                 </div>
               ) : (

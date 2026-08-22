@@ -28,11 +28,11 @@ export const QuickLinksGrid: React.FC<QuickLinksGridProps> = ({
     <div
       className="rounded-[8px] p-2 mt-auto"
       style={{
-        background: 'rgba(0,0,0,0.58)',
+        background: 'var(--bg-ui-card)',
         backdropFilter: 'blur(20px) saturate(150%)',
         WebkitBackdropFilter: 'blur(20px) saturate(150%)',
-        border: '1px solid rgba(255,255,255,0.07)',
-        boxShadow: '0 4px 20px rgba(0,0,0,0.55)',
+        border: '1px solid var(--tint-line)',
+        boxShadow: 'var(--shadow-float)',
       }}
     >
       <div className="grid grid-cols-2 gap-1.5">
@@ -40,14 +40,14 @@ export const QuickLinksGrid: React.FC<QuickLinksGridProps> = ({
           <div
             key={item.label}
             className="p-1.5 rounded-[5px] cursor-pointer transition-all flex items-center justify-center"
-            style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)' }}
+            style={{ background: 'var(--tint-surface)', border: '1px solid var(--tint-line)' }}
             onMouseEnter={e => {
-              e.currentTarget.style.background = 'rgba(255,255,255,0.10)';
-              e.currentTarget.style.border = '1px solid rgba(255,255,255,0.12)';
+              e.currentTarget.style.background = 'var(--tint-surface-hover)';
+              e.currentTarget.style.border = '1px solid var(--tint-line-strong)';
             }}
             onMouseLeave={e => {
-              e.currentTarget.style.background = 'rgba(255,255,255,0.04)';
-              e.currentTarget.style.border = '1px solid rgba(255,255,255,0.06)';
+              e.currentTarget.style.background = 'var(--tint-surface)';
+              e.currentTarget.style.border = '1px solid var(--tint-line)';
             }}
             onClick={item.action}
           >

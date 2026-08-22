@@ -2,6 +2,7 @@ import React, { useState, useRef } from 'react';
 import { Settings, Download, Upload, RotateCcw, Eye, EyeOff } from 'lucide-react';
 import { User } from '@supabase/supabase-js';
 import { GMConfig, SubGMConfig } from '../types';
+import { ThemeId, THEMES } from '../utils/theme';
 
 const GEMINI_MODELS = [
   { value: 'gemini-3.1-pro-preview',    label: 'Gemini 3.1 Pro Preview（最強推理）' },
@@ -29,6 +30,10 @@ interface SettingsModalProps {
   onLogout?: () => void;
   onOpenSaveSlots?: () => void;
   isCloudSaving?: boolean;
+  /** 目前佈景主題 */
+  theme?: ThemeId;
+  /** 切換佈景主題（唯一入口，見 utils/theme.ts） */
+  onSetTheme?: (theme: ThemeId) => void;
 }
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({
@@ -36,6 +41,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   mainGMConfig, setMainGMConfig,
   subGMConfig, setSubGMConfig,
   handleExportSave, handleImportSave, handleResetGame,
+  theme = 'dark', onSetTheme,
   authUser, onLogout, onOpenSaveSlots, isCloudSaving,
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -79,7 +85,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
   return (
     <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[60] flex items-center justify-center p-4" onClick={() => { if (!hasUnsavedChanges) onClose(); }}>
-      <div className="backdrop-blur-xl w-full max-w-sm rounded-[8px] shadow-[0_0_40px_rgba(0,0,0,0.5)] flex flex-col overflow-hidden border rounded-[8px] relative z-[61]" style={{ background: 'color-mix(in srgb, var(--bg-elevated) 90%, transparent)', color: 'var(--text-title)', borderColor: 'color-mix(in srgb, var(--border-default) 60%, transparent)' }} onClick={e => e.stopPropagation()}>
+      <div className="backdrop-blur-xl w-full max-w-sm rounded-[8px] shadow-[var(--shadow-modal)] flex flex-col overflow-hidden border rounded-[8px] relative z-[61]" style={{ background: 'color-mix(in srgb, var(--bg-elevated) 90%, transparent)', color: 'var(--text-title)', borderColor: 'color-mix(in srgb, var(--border-default) 60%, transparent)' }} onClick={e => e.stopPropagation()}>
 
         {/* 標題列 */}
         <div className="p-4 flex justify-between items-center" style={{ borderBottom: `1px solid color-mix(in srgb, var(--border-default) 40%, transparent)` }}>
@@ -96,6 +102,34 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         </div>
 
         <div className="p-4 space-y-4 overflow-y-auto max-h-[80vh]">
+
+          {/* ── 外觀 ──
+              主題不進遊戲存檔：那是這台裝置的閱讀偏好，不是世界狀態。
+              存進去的話，手機選了羊皮紙、桌機開同一個存檔也會被強制換掉。 */}
+          <div className="mb-4 pb-4" style={{ borderBottom: '1px solid var(--border-default)' }}>
+            <p className="text-xs mb-3 font-medium" style={{ color: 'var(--text-muted)' }}>🎨 外觀</p>
+            <div className="flex gap-2">
+              {THEMES.map(t => {
+                const active = theme === t.id;
+                return (
+                  <button
+                    key={t.id}
+                    onClick={() => onSetTheme?.(t.id)}
+                    aria-pressed={active}
+                    className="flex-1 text-left px-3 py-2.5 rounded-[8px] transition"
+                    style={{
+                      background: active ? 'var(--btn-primary)' : 'var(--bg-sys-field)',
+                      color: active ? 'var(--btn--text)' : 'var(--text-body)',
+                      border: `var(--border-width) solid ${active ? 'var(--border-accent)' : 'var(--border-default)'}`,
+                    }}
+                  >
+                    <span className="block text-sm font-medium">{t.label}</span>
+                    <span className="block text-xs mt-0.5 opacity-80">{t.description}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
 
           {/* ── 帳號 ── */}
           <div className="mb-4 pb-4" style={{ borderBottom: '1px solid var(--border-default)' }}>

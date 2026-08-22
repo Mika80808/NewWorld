@@ -127,7 +127,7 @@ export const MessageCard: React.FC<MessageCardProps> = React.memo(({
             {isMenuOpen && (
               <div
                 role="menu"
-                className={`absolute ${menuUp ? 'bottom-full mb-1' : 'top-full mt-1'} w-24 backdrop-blur-md border border-white/10 rounded-[10px] shadow-[0_0_20px_rgba(0,0,0,0.3)] z-50 overflow-hidden flex flex-col ${isUser ? 'right-0' : 'left-0'}`}
+                className={`absolute ${menuUp ? 'bottom-full mb-1' : 'top-full mt-1'} w-24 backdrop-blur-md border border-[color:var(--tint-line)] rounded-[10px] shadow-[var(--shadow-float)] z-50 overflow-hidden flex flex-col ${isUser ? 'right-0' : 'left-0'}`}
                 style={{ background: 'color-mix(in srgb, var(--bg-elevated) 90%, transparent)' }}
               >
                 <button
@@ -175,7 +175,7 @@ export const MessageCard: React.FC<MessageCardProps> = React.memo(({
             <textarea
               value={editMessageText}
               onChange={(e) => onEditChange(e.target.value)}
-              className="w-full backdrop-blur-sm p-3 rounded-[10px] border border-white/10 outline-none resize-none text-sm min-h-[200px]"
+              className="w-full backdrop-blur-sm p-3 rounded-[10px] border border-[color:var(--tint-line)] outline-none resize-none text-sm min-h-[200px]"
               style={{ background: 'color-mix(in srgb, var(--bg-elevated) 50%, transparent)', color: 'var(--text-dialog-muted)' }}
               autoFocus
             />

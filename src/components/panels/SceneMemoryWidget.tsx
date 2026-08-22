@@ -32,10 +32,10 @@ export const SceneMemoryWidget: React.FC<SceneMemoryWidgetProps> = ({ memories, 
 
   return (
     <div
-      className="rounded-[8px] border border-white/10 backdrop-blur-md p-4 shadow-xl transition-all duration-300"
-      style={{ background: 'rgba(15,10,5,0.55)' }}
-      onMouseEnter={e => (e.currentTarget.style.boxShadow = '0 0 0 1px rgba(253,200,100,0.14), 0 8px 32px rgba(0,0,0,0.5)')}
-      onMouseLeave={e => (e.currentTarget.style.boxShadow = '0 10px 32px rgba(0,0,0,0.4)')}
+      className="rounded-[8px] border border-[color:var(--tint-line)] backdrop-blur-md p-4 shadow-xl transition-all duration-300"
+      style={{ background: 'var(--bg-ui-card)' }}
+      onMouseEnter={e => (e.currentTarget.style.boxShadow = 'var(--ring-accent), var(--shadow-float)')}
+      onMouseLeave={e => (e.currentTarget.style.boxShadow = 'var(--shadow-float)')}
     >
       <div className="flex items-center gap-2 mb-4">
         <MapPin className="w-4 h-4 shrink-0" style={{ color: 'var(--color-amber)' }} />

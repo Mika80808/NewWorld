@@ -37,6 +37,7 @@ import { renderMarkdown, cleanNarrative, APPEAR_TAG_PATTERN, APPEAR_TAG_CAPTURE_
 import { buildPrompt, BuildPromptDeps, BuildPromptResult } from './utils/promptBuilder';
 import { parseNpcImport, mergeImportedNpcs, mergeImportedFactions } from './utils/npcImport';
 import { setFactionRelation, removeFactionRelation } from './utils/factionRelation';
+import { ThemeId, loadTheme, saveTheme, applyTheme } from './utils/theme';
 import { SaveSlotsModal } from './components/SaveSlotsModal';
 
 export default function App() {
@@ -63,6 +64,9 @@ export default function App() {
   // 刻意不進存檔：這是每輪重算的暫時提示，存起來只會在載入後沿用過期的場景判斷。
   // 載入後的第一輪退回純規則行為，助理跑完一輪就會補上。
   const [loreHints, setLoreHints] = useState<number[]>([]);
+  // 佈景主題。初值直接讀 localStorage（不是先給預設再用 effect 補），
+  // 否則重新整理時會先閃一幀深色再跳成羊皮紙
+  const [theme, setThemeState] = useState<ThemeId>(() => loadTheme());
   const [hasNewDiary, setHasNewDiary] = useState(false);
   const [summaryCollapsed, setSummaryCollapsed] = useState(true);
   const [isQuestPanelOpen, setIsQuestPanelOpen] = useState(false);
@@ -412,6 +416,13 @@ ${newPool.map((s, i) => `${i + 1}. ${s}`).join('\n')}`;
   // 這個 effect 宣告在所有其他 effect 之前，同一次 commit 內會最先執行，
   // 因此下面讀 ref 的 effect（例如 persistToken 存檔）拿到的仍是最新值。
   // 讀取端全部落在 commit 之後（await 之後、或事件 callback 內），時序不變。
+  // 掛載時把已儲存的主題套到 <html>。
+  // 之後的切換由 handleSetTheme 直接套用，這裡只負責首次載入。
+  useEffect(() => {
+    applyTheme(theme);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   useEffect(() => {
     itemsRef.current = items;
     summaryPoolRef.current = summaryPool;
@@ -559,6 +570,11 @@ ${newPool.map((s, i) => `${i + 1}. ${s}`).join('\n')}`;
       default: return <Sun className="w-3.5 h-3.5 mr-1.5" style={{ color: 'var(--color-amber)' }} />;
     }
   };
+  /**
+   * 色碼例外：場景氛圍色。
+   * 天空與天氣的色碼隨遊戲內時間變化，是世界的樣子，不是 UI 主題色——
+   * 中午的天空在夜色主題與羊皮紙主題底下都該是一樣的藍。
+   */
   const getSkyGradient = (hour: number, weather: string): string => {
     let top: string, btm: string;
     if (hour < 5)       { top = '#010409'; btm = '#0a0d14'; }
@@ -956,6 +972,14 @@ ${poolText}
     setNpcs(prev => prev.map(n =>
       n.id === npcId ? { ...n, factionIds: [...new Set(factionIds)] } : n
     ));
+  };
+
+  // 主題切換的唯一入口：套用到 <html> 並寫回 localStorage。
+  // 不進遊戲存檔——那是這台裝置的閱讀偏好，不是世界狀態（見 utils/theme.ts）
+  const handleSetTheme = (next: ThemeId) => {
+    setThemeState(next);
+    applyTheme(next);
+    saveTheme(next);
   };
 
   // 勢力關係的唯一寫入點。與 AI 的 FACTION_RELATION 指令共用 utils/factionRelation，
@@ -1739,6 +1763,7 @@ ${recentContext}
           onMouseEnter={e => (e.currentTarget as HTMLElement).style.borderColor = 'var(--border-accent)'}
           onMouseLeave={e => (e.currentTarget as HTMLElement).style.borderColor = 'var(--border-default)'}
         >
+          {/* 色碼例外：Google 品牌色，識別規範要求原色呈現，不得跟著主題變 */}
           <svg width="18" height="18" viewBox="0 0 18 18">
             <path fill="#4285F4" d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844c-.209 1.125-.843 2.078-1.796 2.717v2.258h2.908c1.702-1.567 2.684-3.875 2.684-6.615z"/>
             <path fill="#34A853" d="M9 18c2.43 0 4.467-.806 5.956-2.18l-2.908-2.259c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332C2.438 15.983 5.482 18 9 18z"/>
@@ -1797,10 +1822,10 @@ ${recentContext}
           className="relative z-20 flex items-center px-3 shrink-0"
           style={{
             height: '46px',
-            background: 'rgba(10,12,10,0.82)',
+            background: 'var(--glass-sidebar-bg)',
             backdropFilter: 'blur(20px)',
             WebkitBackdropFilter: 'blur(20px)',
-            borderBottom: '0.5px solid rgba(255,255,255,0.07)',
+            borderBottom: '0.5px solid var(--tint-line)',
           }}
         >
           {/* 左側：☰ 開啟左抽屜 */}
@@ -1809,8 +1834,8 @@ ${recentContext}
             className="flex items-center justify-center shrink-0"
             style={{
               width: '34px', height: '34px', borderRadius: '8px',
-              background: mobileLeftOpen ? 'rgba(192,160,96,0.15)' : 'rgba(255,255,255,0.05)',
-              border: `0.5px solid ${mobileLeftOpen ? 'rgba(192,160,96,0.35)' : 'rgba(255,255,255,0.09)'}`,
+              background: mobileLeftOpen ? 'color-mix(in srgb, var(--border-accent) 20%, transparent)' : 'var(--tint-surface)',
+              border: `0.5px solid ${mobileLeftOpen ? 'color-mix(in srgb, var(--border-accent) 45%, transparent)' : 'var(--tint-line)'}`,
             }}
           >
             <MoreVertical className="w-4 h-4" style={{ color: mobileLeftOpen ? 'var(--border-accent)' : 'var(--text-title)' }} />
@@ -1820,7 +1845,7 @@ ${recentContext}
           <button
             onClick={() => { setIsQuestModalOpen(true); setMobileLeftOpen(false); }}
             className="flex items-center justify-center shrink-0 ml-1.5"
-            style={{ width: '34px', height: '34px', borderRadius: '8px', background: 'rgba(255,255,255,0.05)', border: '0.5px solid rgba(255,255,255,0.09)' }}
+            style={{ width: '34px', height: '34px', borderRadius: '8px', background: 'var(--tint-surface)', border: '0.5px solid var(--tint-line)' }}
           >
             <BookOpen className="w-4 h-4" style={{ color: 'var(--text-title)' }} />
           </button>
@@ -1829,7 +1854,7 @@ ${recentContext}
           <button
             onClick={() => { setIsDiaryModalOpen(true); setHasNewDiary(false); setMobileLeftOpen(false); }}
             className="flex items-center justify-center shrink-0 relative ml-1.5"
-            style={{ width: '34px', height: '34px', borderRadius: '8px', background: 'rgba(255,255,255,0.05)', border: '0.5px solid rgba(255,255,255,0.09)' }}
+            style={{ width: '34px', height: '34px', borderRadius: '8px', background: 'var(--tint-surface)', border: '0.5px solid var(--tint-line)' }}
           >
             <Book className="w-4 h-4" style={{ color: 'var(--text-title)' }} />
             {hasNewDiary && <span className="absolute top-1 right-1 w-2 h-2 rounded-full" style={{ background: 'var(--bg-mark)' }} />}
@@ -1844,7 +1869,7 @@ ${recentContext}
             <button
               onClick={() => setIsMapOpen(true)}
               className="flex items-center justify-center shrink-0"
-              style={{ width: '34px', height: '34px', borderRadius: '8px', background: 'rgba(255,255,255,0.05)', border: '0.5px solid rgba(255,255,255,0.09)' }}
+              style={{ width: '34px', height: '34px', borderRadius: '8px', background: 'var(--tint-surface)', border: '0.5px solid var(--tint-line)' }}
             >
               <MapIcon className="w-4 h-4" style={{ color: 'var(--text-title)' }} />
             </button>
@@ -1854,8 +1879,8 @@ ${recentContext}
               className="flex items-center justify-center shrink-0"
               style={{
                 width: '34px', height: '34px', borderRadius: '8px',
-                background: mobileRightOpen ? 'rgba(192,160,96,0.15)' : 'rgba(255,255,255,0.05)',
-                border: `0.5px solid ${mobileRightOpen ? 'rgba(192,160,96,0.35)' : 'rgba(255,255,255,0.09)'}`,
+                background: mobileRightOpen ? 'color-mix(in srgb, var(--border-accent) 20%, transparent)' : 'var(--tint-surface)',
+                border: `0.5px solid ${mobileRightOpen ? 'color-mix(in srgb, var(--border-accent) 45%, transparent)' : 'var(--tint-line)'}`,
               }}
             >
               <Brain className="w-4 h-4" style={{ color: mobileRightOpen ? 'var(--border-accent)' : 'var(--text-title)' }} />
@@ -1908,7 +1933,7 @@ ${recentContext}
               </h3>
               <div className="flex items-center gap-2">
                 {quests.filter(q => q.status === 'active').length > 0 && (
-                  <span className="text-xs font-bold px-2 py-0.5 rounded-full" style={{ background: 'var(--color-success)', color: '#fff' }}>
+                  <span className="text-xs font-bold px-2 py-0.5 rounded-full" style={{ background: 'var(--color-success)', color: 'var(--btn--text)' }}>
                     {quests.filter(q => q.status === 'active').length}
                   </span>
                 )}
@@ -1941,7 +1966,7 @@ ${recentContext}
             <div className="relative shrink-0">
               <Package className="w-4 h-4" style={{ color: 'var(--text-primary)' }} />
               {equipment.length > 0 && (
-                <span className="absolute -top-1.5 -right-2 text-[0.625rem] font-bold px-1 min-w-[16px] text-center rounded-full" style={{ background: 'var(--tab-active)', color: '#fff', lineHeight: '16px' }}>
+                <span className="absolute -top-1.5 -right-2 text-[0.625rem] font-bold px-1 min-w-[16px] text-center rounded-full" style={{ background: 'var(--tab-active)', color: 'var(--btn--text)', lineHeight: '16px' }}>
                   {equipment.length}
                 </span>
               )}
@@ -1973,7 +1998,7 @@ ${recentContext}
             <div className="relative shrink-0">
               <Beaker className="w-4 h-4" style={{ color: 'var(--text-primary)' }} />
               {totalItemCount > 0 && (
-                <span className="absolute -top-1.5 -right-2 text-[0.625rem] font-bold px-1 min-w-[16px] text-center rounded-full" style={{ background: 'var(--tab-active)', color: '#fff', lineHeight: '16px' }}>
+                <span className="absolute -top-1.5 -right-2 text-[0.625rem] font-bold px-1 min-w-[16px] text-center rounded-full" style={{ background: 'var(--tab-active)', color: 'var(--btn--text)', lineHeight: '16px' }}>
                   {totalItemCount}
                 </span>
               )}
@@ -2015,7 +2040,7 @@ ${recentContext}
                 className="fixed w-72 backdrop-blur-xl rounded-[8px] z-[110] flex flex-col overflow-hidden"
                 style={{ maxHeight: '60vh', top: inventoryPanelPos.top, left: inventoryPanelPos.left, border: `1px solid var(--border-default)`, background: 'color-mix(in srgb, var(--bg-elevated) 95%, transparent)' }}
               >
-                <div className="sticky top-0 backdrop-blur-md p-3 flex justify-between items-center z-10" style={{ background: 'color-mix(in srgb, var(--bg-elevated) 90%, transparent)', borderBottom: `1px solid rgba(0, 0, 0, 0.1)` }}>
+                <div className="sticky top-0 backdrop-blur-md p-3 flex justify-between items-center z-10" style={{ background: 'color-mix(in srgb, var(--bg-elevated) 90%, transparent)', borderBottom: `1px solid var(--tint-line)` }}>
                   <h3 className="font-bold flex items-center text-sm" style={{ color: 'var(--bg-elevated)' }}><Package className="w-4 h-4 mr-2" /> 裝備清單</h3>
                   <button onClick={() => setIsInventoryOpen(false)} className="text-[var(--text-muted)] hover:bg-white/5 transition-colors p-1 rounded-full" style={{ color: 'var(--text-muted)' }}>
                     <X className="w-4 h-4" />
@@ -2047,7 +2072,7 @@ ${recentContext}
                 className="fixed w-72 backdrop-blur-xl rounded-[8px] z-[110] flex flex-col overflow-hidden"
                 style={{ maxHeight: '60vh', top: consumablesPanelPos.top, left: consumablesPanelPos.left, border: `1px solid var(--border-default)`, background: 'color-mix(in srgb, var(--bg-elevated) 95%, transparent)' }}
               >
-                <div className="sticky top-0 backdrop-blur-md p-3 flex justify-between items-center z-10" style={{ background: 'color-mix(in srgb, var(--bg-elevated) 90%, transparent)', borderBottom: `1px solid rgba(0, 0, 0, 0.1)` }}>
+                <div className="sticky top-0 backdrop-blur-md p-3 flex justify-between items-center z-10" style={{ background: 'color-mix(in srgb, var(--bg-elevated) 90%, transparent)', borderBottom: `1px solid var(--tint-line)` }}>
                   <h3 className="font-bold flex items-center text-sm" style={{ color: 'var(--bg-elevated)' }}><Beaker className="w-4 h-4 mr-2" /> 消耗品清單</h3>
                   <button onClick={() => setIsConsumablesOpen(false)} className="hover:bg-white/5 transition-colors p-1 rounded-full" style={{ color: 'var(--text-muted)' }}>
                     <X className="w-4 h-4" />
@@ -2100,15 +2125,15 @@ ${recentContext}
                 onClick={() => setIsMapOpen(true)}
                 className="px-5 py-1.5 mr-3 rounded-[8px] text-base font-medium transition flex items-center"
                 style={{
-                  background: 'rgba(10,12,16,0.55)',
+                  background: 'var(--bg-ui-card)',
                   color: 'var(--text-primary)',
-                  border: `1px solid rgba(255,255,255,0.12)`,
+                  border: `1px solid var(--tint-line-strong)`,
                   backdropFilter: 'blur(16px) saturate(160%)',
                   WebkitBackdropFilter: 'blur(16px) saturate(160%)',
-                  boxShadow: '0 4px 16px rgba(0,0,0,0.35)',
+                  boxShadow: 'var(--shadow-float)',
                 }}
-                onMouseEnter={e => (e.currentTarget.style.background = 'rgba(30,32,40,0.7)')}
-                onMouseLeave={e => (e.currentTarget.style.background = 'rgba(10,12,16,0.55)')}
+                onMouseEnter={e => (e.currentTarget.style.background = 'var(--tint-surface-hover)')}
+                onMouseLeave={e => (e.currentTarget.style.background = 'var(--bg-ui-card)')}
               >
                 <MapIcon className="w-3.5 h-3.5 mr-1.5" />
                 世界地圖
@@ -2171,7 +2196,7 @@ ${recentContext}
 
           {/* Input Area */}
           <div className={`absolute bottom-0 w-full z-30 flex justify-center px-4 pt-2 pb-2${isMobile ? ' mobile-input-safe' : ''}`}>
-            <div className="w-full md:w-4/5 rounded-[8px] px-4 pt-2 pb-1 backdrop-blur-xl border border-white/8" style={{ background: 'rgba(10,12,16,0.72)', boxShadow: '0 -4px 32px rgba(0,0,0,0.5)' }}>
+            <div className="w-full md:w-4/5 rounded-[8px] px-4 pt-2 pb-1 backdrop-blur-xl border border-[color:var(--tint-line)]" style={{ background: 'var(--glass-sidebar-bg)', boxShadow: 'var(--shadow-float)' }}>
               {/* ⚡ Quick Options Popup Menu */}
               {showQuickMenu && quickOptions.length > 0 && (
                 <div className="flex flex-col gap-1.5 mb-3 animate-in fade-in slide-in-from-bottom-2 duration-200">
@@ -2431,6 +2456,8 @@ ${recentContext}
           setIsSaveSlotsModalOpen(true);
         }}
         isCloudSaving={isCloudSaving}
+        theme={theme}
+        onSetTheme={handleSetTheme}
       />
       </Suspense>}
 
@@ -2489,11 +2516,11 @@ ${recentContext}
               border: '1px solid var(--border-default)',
               backdropFilter: 'blur(24px) saturate(160%)',
               WebkitBackdropFilter: 'blur(24px) saturate(160%)',
-              boxShadow: '0 8px 40px rgba(0,0,0,0.5)',
+              boxShadow: 'var(--shadow-modal)',
             }}
           >
             {/* Header */}
-            <div className="px-4 py-3 flex items-center justify-between flex-shrink-0" style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+            <div className="px-4 py-3 flex items-center justify-between flex-shrink-0" style={{ borderBottom: '1px solid var(--tint-line)' }}>
               <div className="flex items-center gap-2">
                 <BookOpen className="w-4 h-4" style={{ color: 'var(--text-primary)' }} />
                 <span className="font-bold text-base" style={{ color: 'var(--text-primary)' }}>任務日誌</span>
@@ -2559,7 +2586,7 @@ ${recentContext}
               exit={{ opacity: 0 }}
               transition={{ duration: 0.2 }}
               className="fixed inset-0 z-[40]"
-              style={{ background: 'rgba(0,0,0,0.55)' }}
+              style={{ background: 'var(--bg-overlay)' }}
               onClick={() => setMobileLeftOpen(false)}
             />
             {/* Drawer */}
@@ -2572,10 +2599,10 @@ ${recentContext}
               className="fixed top-0 left-0 bottom-0 z-[50] flex flex-col overflow-hidden"
               style={{
                 width: 'min(80vw, 300px)',
-                background: 'rgba(12,14,12,0.97)',
+                background: 'var(--bg-glass-left)',
                 backdropFilter: 'blur(28px)',
                 WebkitBackdropFilter: 'blur(28px)',
-                borderRight: '0.5px solid rgba(255,255,255,0.07)',
+                borderRight: '0.5px solid var(--tint-line)',
               }}
             >
               {/* Drawer Header */}
@@ -2584,14 +2611,14 @@ ${recentContext}
                 style={{
                   height: '56px',
                   paddingTop: 'env(safe-area-inset-top, 0px)',
-                  borderBottom: '0.5px solid rgba(255,255,255,0.07)',
+                  borderBottom: '0.5px solid var(--tint-line)',
                 }}
               >
                 <span className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>選單</span>
                 <button
                   onClick={() => setMobileLeftOpen(false)}
                   className="flex items-center justify-center"
-                  style={{ width: '28px', height: '28px', borderRadius: '6px', background: 'rgba(255,255,255,0.05)', border: '0.5px solid rgba(255,255,255,0.08)' }}
+                  style={{ width: '28px', height: '28px', borderRadius: '6px', background: 'var(--tint-surface)', border: '0.5px solid var(--tint-line)' }}
                 >
                   <X className="w-3.5 h-3.5" style={{ color: 'var(--text-muted)' }} />
                 </button>
@@ -2623,7 +2650,7 @@ ${recentContext}
                     <div className="relative shrink-0">
                       <Package className="w-4 h-4" style={{ color: 'var(--text-primary)' }} />
                       {equipment.length > 0 && (
-                        <span className="absolute -top-1.5 -right-2 text-[0.625rem] font-bold px-1 min-w-[16px] text-center rounded-full" style={{ background: 'var(--tab-active)', color: '#fff', lineHeight: '16px' }}>
+                        <span className="absolute -top-1.5 -right-2 text-[0.625rem] font-bold px-1 min-w-[16px] text-center rounded-full" style={{ background: 'var(--tab-active)', color: 'var(--btn--text)', lineHeight: '16px' }}>
                           {equipment.length}
                         </span>
                       )}
@@ -2670,7 +2697,7 @@ ${recentContext}
                     <div className="relative shrink-0">
                       <Beaker className="w-4 h-4" style={{ color: 'var(--text-primary)' }} />
                       {totalItemCount > 0 && (
-                        <span className="absolute -top-1.5 -right-2 text-[0.625rem] font-bold px-1 min-w-[16px] text-center rounded-full" style={{ background: 'var(--tab-active)', color: '#fff', lineHeight: '16px' }}>
+                        <span className="absolute -top-1.5 -right-2 text-[0.625rem] font-bold px-1 min-w-[16px] text-center rounded-full" style={{ background: 'var(--tab-active)', color: 'var(--btn--text)', lineHeight: '16px' }}>
                           {totalItemCount}
                         </span>
                       )}
@@ -2728,7 +2755,7 @@ ${recentContext}
               exit={{ opacity: 0 }}
               transition={{ duration: 0.2 }}
               className="fixed inset-0 z-[40]"
-              style={{ background: 'rgba(0,0,0,0.55)' }}
+              style={{ background: 'var(--bg-overlay)' }}
               onClick={() => setMobileRightOpen(false)}
             />
             {/* Drawer */}
@@ -2741,10 +2768,10 @@ ${recentContext}
               className="fixed top-0 right-0 bottom-0 z-[50] flex flex-col overflow-hidden"
               style={{
                 width: 'min(80vw, 300px)',
-                background: 'rgba(12,14,12,0.97)',
+                background: 'var(--bg-glass-right)',
                 backdropFilter: 'blur(28px)',
                 WebkitBackdropFilter: 'blur(28px)',
-                borderLeft: '0.5px solid rgba(255,255,255,0.07)',
+                borderLeft: '0.5px solid var(--tint-line)',
               }}
             >
               {/* Drawer Header */}
@@ -2753,14 +2780,14 @@ ${recentContext}
                 style={{
                   height: '56px',
                   paddingTop: 'env(safe-area-inset-top, 0px)',
-                  borderBottom: '0.5px solid rgba(255,255,255,0.07)',
+                  borderBottom: '0.5px solid var(--tint-line)',
                 }}
               >
                 <span className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>資訊面板</span>
                 <button
                   onClick={() => setMobileRightOpen(false)}
                   className="flex items-center justify-center"
-                  style={{ width: '28px', height: '28px', borderRadius: '6px', background: 'rgba(255,255,255,0.05)', border: '0.5px solid rgba(255,255,255,0.08)' }}
+                  style={{ width: '28px', height: '28px', borderRadius: '6px', background: 'var(--tint-surface)', border: '0.5px solid var(--tint-line)' }}
                 >
                   <X className="w-3.5 h-3.5" style={{ color: 'var(--text-muted)' }} />
                 </button>
@@ -2792,7 +2819,7 @@ ${recentContext}
 
       {/* Toast Notification */}
       {toastMessage && (
-        <div className="fixed top-4 left-1/2 transform -translate-x-1/2 backdrop-blur-md px-6 py-3 rounded-full shadow-[0_0_30px_rgba(0,0,0,0.5)] z-[100] flex items-center animate-in fade-in slide-in-from-top-4 duration-300" style={{ background: 'color-mix(in srgb, var(--bg-elevated) 80%, transparent)', border: `1px solid color-mix(in srgb, var(--bg-elevated) 10%, transparent)`, color: 'var(--text-title)' }}>
+        <div className="fixed top-4 left-1/2 transform -translate-x-1/2 backdrop-blur-md px-6 py-3 rounded-full shadow-[var(--shadow-float)] z-[100] flex items-center animate-in fade-in slide-in-from-top-4 duration-300" style={{ background: 'color-mix(in srgb, var(--bg-elevated) 80%, transparent)', border: `1px solid color-mix(in srgb, var(--bg-elevated) 10%, transparent)`, color: 'var(--text-title)' }}>
           <CheckSquare className="w-4 h-4 mr-2" style={{ color: 'var(--color-emerald)' }} />
           {toastMessage}
         </div>

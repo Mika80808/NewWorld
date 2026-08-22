@@ -31,7 +31,7 @@ export const PinnedNpcsWidget: React.FC<PinnedNpcsWidgetProps> = ({ npcs, onSele
         {pinned.map(npc => (
           <div
             key={npc.id}
-            className="backdrop-blur-md p-3 rounded-[10px] flex justify-between items-center cursor-pointer transition-all duration-300 shadow-md border border-white/5 relative overflow-hidden group/pinned"
+            className="backdrop-blur-md p-3 rounded-[10px] flex justify-between items-center cursor-pointer transition-all duration-300 shadow-md border border-[color:var(--tint-line)] relative overflow-hidden group/pinned"
             onClick={() => onSelectNpc(npc)}
           >
             <div className="absolute top-0 left-0 w-1 h-full opacity-40" style={{ background: 'var(--border-accent)' }} />
@@ -40,7 +40,7 @@ export const PinnedNpcsWidget: React.FC<PinnedNpcsWidgetProps> = ({ npcs, onSele
               <div className="text-sm uppercase tracking-tighter" style={{ color: 'var(--text-body)' }}>{npc.job}</div>
             </div>
             <div className="flex flex-col items-end">
-              <div className="text-sm flex items-center bg-black/20 px-2 py-0.5 rounded-full border border-white/10" style={{ color: affectionColor(npc.affection) }}>
+              <div className="text-sm flex items-center bg-black/20 px-2 py-0.5 rounded-full border border-[color:var(--tint-line)]" style={{ color: affectionColor(npc.affection) }}>
                 <Heart className="w-3 h-3 mr-1 fill-current" /> {npc.affection}
               </div>
             </div>

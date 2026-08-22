@@ -34,33 +34,37 @@ export const QuestModal: React.FC<QuestModalProps> = ({ isOpen, onClose, quests,
 
   return (
     <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-[60] flex items-center justify-center p-4" onClick={onClose}>
-      <div className="backdrop-blur-xl w-full max-w-2xl max-h-[85vh] rounded-[8px] shadow-[0_0_50px_rgba(0,0,0,0.6)] border border-white/10 flex flex-col overflow-hidden relative z-[61]" style={{ background: 'color-mix(in srgb, var(--bg-elevated) 95%, transparent)', color: 'var(--text-title)' }} onClick={e => e.stopPropagation()}>
+      <div className="backdrop-blur-xl w-full max-w-2xl max-h-[85vh] rounded-[8px] shadow-[var(--shadow-modal)] border border-[color:var(--tint-line)] flex flex-col overflow-hidden relative z-[61]" style={{ background: 'color-mix(in srgb, var(--bg-elevated) 95%, transparent)', color: 'var(--text-title)' }} onClick={e => e.stopPropagation()}>
 
         {/* Header */}
-        <div className="px-6 py-4 border-b border-white/5 flex items-center justify-between flex-shrink-0">
-          <div className="flex items-center gap-2">
-            <Book className="w-5 h-5" style={{ color: 'var(--text-primary)' }} />
-            <h2 className="text-lg font-bold" style={{ color: 'var(--text-primary)' }}>任務日誌</h2>
+        {/* 標題列在 390px 寬的手機上原本被壓成「一字一行」：這一列是不換行的
+            flex，標題與四個計數器一起被擠到 min-content，中文於是逐字斷行。
+            改成整列可換行、每個項目 whitespace-nowrap，窄螢幕時計數器整組掉到
+            下一行，而不是被壓扁。 */}
+        <div className="px-6 py-4 border-b border-[color:var(--tint-line)] flex flex-wrap items-center justify-between gap-y-2 flex-shrink-0">
+          <div className="flex items-center gap-2 shrink-0">
+            <Book className="w-5 h-5 shrink-0" style={{ color: 'var(--text-primary)' }} />
+            <h2 className="text-lg font-bold whitespace-nowrap" style={{ color: 'var(--text-primary)' }}>任務日誌</h2>
           </div>
 
           {/* Status counts */}
-          <div className="flex items-center gap-3 text-xs">
-            <span className="flex items-center gap-1">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs order-last sm:order-none w-full sm:w-auto">
+            <span className="flex items-center gap-1 whitespace-nowrap">
               <span className="w-2 h-2 rounded-full inline-block" style={{ background: 'var(--color-success)' }} />
               <span className="font-medium" style={{ color: 'var(--color-success)' }}>{activeQuests.length}</span>
               <span style={{ color: 'var(--color-success)' }}>進行中</span>
             </span>
-            <span className="flex items-center gap-1">
+            <span className="flex items-center gap-1 whitespace-nowrap">
               <span className="w-2 h-2 rounded-full inline-block" style={{ background: 'var(--color-amber)' }} />
               <span className="font-medium" style={{ color: 'var(--text-primary)' }}>{pendingQuests.length}</span>
               <span style={{ color: 'var(--color-amber)' }}>待回報</span>
             </span>
-            <span className="flex items-center gap-1">
+            <span className="flex items-center gap-1 whitespace-nowrap">
               <span className="w-2 h-2 rounded-full inline-block" style={{ background: 'var(--color-sky)' }} />
               <span className="font-medium" style={{ color: 'var(--color-sky)' }}>{completedQuests.length}</span>
               <span style={{ color: 'var(--color-sky)' }}>已完成</span>
             </span>
-            <span className="flex items-center gap-1">
+            <span className="flex items-center gap-1 whitespace-nowrap">
               <span className="w-2 h-2 rounded-full inline-block" style={{ background: 'var(--color-taupe)' }} />
               <span className="font-medium" style={{ color: 'var(--color-taupe)' }}>{failedQuests.length}</span>
               <span style={{ color: 'var(--color-taupe)' }}>失敗</span>
@@ -105,7 +109,7 @@ export const QuestModal: React.FC<QuestModalProps> = ({ isOpen, onClose, quests,
                   </span>
                   <div className="flex items-center gap-3 text-xs" style={{ color: 'var(--text-body)' }}>
                     {remaining !== null && (
-                      <span className="flex items-center gap-1">
+                      <span className="flex items-center gap-1 whitespace-nowrap">
                         <Clock className="w-3 h-3" />
                         剩 {remaining}
                       </span>

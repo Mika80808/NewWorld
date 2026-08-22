@@ -30,7 +30,7 @@ export function SaveSlotsModal({
       {isOpen && (
         <motion.div
           className="fixed inset-0 z-[60] flex items-center justify-center p-4"
-          style={{ background: 'rgba(0,0,0,0.6)' }}
+          style={{ background: 'var(--bg-overlay)' }}
           initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
           onClick={onClose}
         >
