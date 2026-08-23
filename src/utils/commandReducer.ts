@@ -210,7 +210,8 @@ export function reduceCommands(
             idx === existingIdx ? { ...prev, quantity: prev.quantity + quantity } : i
           );
         } else {
-          workingItems = [...workingItems, { id: nextId(), name, quantity, description: reg.def.description }];
+          // 實例只存名稱引用；說明留在圖鑑一份（reg 仍要跑，它負責先寫先贏登錄）
+          workingItems = [...workingItems, { id: nextId(), name, quantity }];
         }
         feedback.cmdResults.push(`📦 獲得 ${name} ×${quantity}`);
         break;
@@ -317,7 +318,7 @@ export function reduceCommands(
                   idx === existingIdx ? { ...prev, quantity: prev.quantity + 1 } : i
                 );
               } else {
-                workingItems = [...workingItems, { id: nextId(), name, quantity: 1, description: reg.def.description }];
+                workingItems = [...workingItems, { id: nextId(), name, quantity: 1 }];
               }
             });
             feedback.cmdResults.push(`📦 獎勵物品：${quest.reward.items.join('、')}`);

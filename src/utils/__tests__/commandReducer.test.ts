@@ -176,14 +176,14 @@ describe('reduceCommands — 道具', () => {
   });
 
   it('ITEM_ADD 同名道具疊加數量', () => {
-    const existing: ItemEntry = { id: 1, name: '草藥', quantity: 1, description: '' };
+    const existing: ItemEntry = { id: 1, name: '草藥', quantity: 1 };
     const { stateChanges } = run('ITEM_ADD|name=草藥|qty=2', state({ items: [existing] }));
     expect(stateChanges.items).toHaveLength(1);
     expect(stateChanges.items?.[0].quantity).toBe(3);
   });
 
   it('ITEM_REMOVE 扣減並在歸零時移除', () => {
-    const existing: ItemEntry = { id: 1, name: '草藥', quantity: 2, description: '' };
+    const existing: ItemEntry = { id: 1, name: '草藥', quantity: 2 };
     const { stateChanges } = run('ITEM_REMOVE|name=草藥|qty=2', state({ items: [existing] }));
     expect(stateChanges.items?.find(i => i.name === '草藥')).toBeUndefined();
   });
@@ -192,7 +192,7 @@ describe('reduceCommands — 道具', () => {
   // `existingItem.quantity += n` / `item.quantity -= n` 就地改寫，
   // 會連 React state 裡的同一個物件一起竄改（reducer 應為純函數）
   it('ITEM_ADD 疊加不竄改傳入的 items（純函數）', () => {
-    const existing: ItemEntry = { id: 1, name: '草藥', quantity: 1, description: '' };
+    const existing: ItemEntry = { id: 1, name: '草藥', quantity: 1 };
     const s = state({ items: [existing] });
     run('ITEM_ADD|name=草藥|qty=2', s);
     expect(existing.quantity).toBe(1);
@@ -200,7 +200,7 @@ describe('reduceCommands — 道具', () => {
   });
 
   it('ITEM_REMOVE 扣減不竄改傳入的 items（純函數）', () => {
-    const existing: ItemEntry = { id: 1, name: '草藥', quantity: 5, description: '' };
+    const existing: ItemEntry = { id: 1, name: '草藥', quantity: 5 };
     const s = state({ items: [existing] });
     const { stateChanges } = run('ITEM_REMOVE|name=草藥|qty=2', s);
     expect(existing.quantity).toBe(5);
@@ -222,7 +222,9 @@ describe('reduceCommands — 道具圖鑑（Master Data）', () => {
     });
     const { stateChanges } = run('ITEM_ADD|name=草藥|qty=1|desc=完全不同的新描述', s);
     expect(stateChanges.itemCatalog?.['草藥'].description).toBe('回復 20 HP');
-    expect(stateChanges.items?.[0].description).toBe('回復 20 HP');
+    // 實例上不再有 description（schema v9 移除）——說明只在圖鑑一份，
+    // 顯示與 prompt 都走 describeItem() 查回來
+    expect(stateChanges.items?.[0]).not.toHaveProperty('description');
   });
 
   it('ITEM_ADD 名稱正規化：空白差異視為同一道具', () => {
@@ -234,7 +236,7 @@ describe('reduceCommands — 道具圖鑑（Master Data）', () => {
   });
 
   it('ITEM_REMOVE 歸零移除實例，但圖鑑定義保留', () => {
-    const existing: ItemEntry = { id: 1, name: '草藥', quantity: 1, description: '回復 20 HP' };
+    const existing: ItemEntry = { id: 1, name: '草藥', quantity: 1 };
     const s = state({
       items: [existing],
       itemCatalog: { 草藥: { name: '草藥', description: '回復 20 HP', createdAt: '4/1', lastUsedAt: 1 } },
@@ -255,7 +257,9 @@ describe('reduceCommands — 道具圖鑑（Master Data）', () => {
       itemCatalog: { 草藥: { name: '草藥', description: '回復 20 HP', createdAt: '4/1', lastUsedAt: 1 } },
     });
     const { stateChanges } = run('QUEST_COMPLETE|title=採藥', s);
-    expect(stateChanges.items?.[0]).toMatchObject({ name: '草藥', description: '回復 20 HP' });
+    expect(stateChanges.items?.[0]).toMatchObject({ name: '草藥' });
+    // 說明改由圖鑑提供（實例不再帶 description）
+    expect(stateChanges.itemCatalog?.['草藥'].description).toBe('回復 20 HP');
   });
 });
 

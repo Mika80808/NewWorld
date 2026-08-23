@@ -38,6 +38,7 @@ import { buildPrompt, BuildPromptDeps, BuildPromptResult } from './utils/promptB
 import { parseNpcImport, mergeImportedNpcs, mergeImportedFactions } from './utils/npcImport';
 import { setFactionRelation, removeFactionRelation } from './utils/factionRelation';
 import { ThemeId, loadTheme, saveTheme, applyTheme } from './utils/theme';
+import { describeItem } from './utils/itemCatalog';
 import { SaveSlotsModal } from './components/SaveSlotsModal';
 
 export default function App() {
@@ -216,7 +217,8 @@ ${lastMessages}`;
             const next = [...prev];
             moving.forEach(item => {
               if (!next.some(e => e.name === item.name)) {
-                next.push({ id: item.id, name: item.name, description: item.description, isEquipped: false });
+                // 說明不跟著搬——它只在圖鑑一份（見 utils/itemCatalog.describeItem）
+                next.push({ id: item.id, name: item.name, isEquipped: false });
               }
             });
             return next;
@@ -1620,7 +1622,7 @@ ${recentContext}
   };
   const handleUseConsumable = (item: ItemEntry) => {
     consumeItem(item.name);
-    handleSendMessage(`（我使用了 ${item.name}（${item.description}））`);
+    handleSendMessage(`（我使用了 ${item.name}（${describeItem(itemCatalog, item.name)}））`);
   };
   const handleDropConsumable = (item: ItemEntry) => {
     setItems(prev => prev.filter(i => i.id !== item.id));
@@ -2079,6 +2081,7 @@ ${recentContext}
                 </div>
                 <div className="p-3 space-y-2 overflow-y-auto custom-scrollbar flex-1">
                   <EquipmentList
+                  itemCatalog={itemCatalog}
                     equipment={equipment}
                     selectedId={selectedInventoryItem}
                     onSelect={setSelectedInventoryItem}
@@ -2111,6 +2114,7 @@ ${recentContext}
                 </div>
                 <div className="p-3 space-y-2 overflow-y-auto custom-scrollbar flex-1">
                   <ConsumableList
+                  itemCatalog={itemCatalog}
                     items={items}
                     selectedId={selectedConsumableItem}
                     onSelect={setSelectedConsumableItem}
@@ -2702,6 +2706,7 @@ ${recentContext}
                       >
                         <div className="mt-1 rounded-[8px] border p-2 space-y-2" style={{ borderColor: 'var(--border-default)', background: 'color-mix(in srgb, var(--bg-elevated) 80%, transparent)' }}>
                           <EquipmentList
+                  itemCatalog={itemCatalog}
                             equipment={equipment}
                             selectedId={selectedInventoryItem}
                             onSelect={setSelectedInventoryItem}
@@ -2749,6 +2754,7 @@ ${recentContext}
                       >
                         <div className="mt-1 rounded-[8px] border p-2 space-y-2" style={{ borderColor: 'var(--border-default)', background: 'color-mix(in srgb, var(--bg-elevated) 80%, transparent)' }}>
                           <ConsumableList
+                  itemCatalog={itemCatalog}
                             items={items}
                             selectedId={selectedConsumableItem}
                             onSelect={setSelectedConsumableItem}

@@ -355,3 +355,45 @@ describe('migrateV7toV8 — 拆掉 adventureLog', () => {
     expect(run({ adventureLog: ['', '  '], summaryPool: ['甲'] }).summaryPool).toEqual(['甲']);
   });
 });
+
+// v8 → v9：道具說明只留圖鑑一份。實例的 description 欄位移除前必須先摺進圖鑑，
+// 否則舊存檔的道具說明會整批消失——尤其是裝備：migrateV3toV4 當年只從 items[]
+// 建圖鑑，沒有涵蓋 equipment[]，純裝備的說明很可能只存在實例上。
+describe('migrateV8toV9 — 道具說明收斂到圖鑑', () => {
+  const run = (d: Record<string, unknown>) => saveDataMapper({ schemaVersion: 8, ...d });
+
+  it('背包實例的說明搬進圖鑑，欄位移除', () => {
+    const d = run({ items: [{ id: 1, name: '草藥', quantity: 2, description: '回復 20 HP' }] });
+    expect(d.itemCatalog['草藥'].description).toBe('回復 20 HP');
+    expect(d.items[0]).not.toHaveProperty('description');
+    expect(d.items[0]).toMatchObject({ name: '草藥', quantity: 2 });
+  });
+
+  /** 這是最會掉資料的一條：舊的建圖鑑遷移根本沒看 equipment[] */
+  it('裝備實例的說明也搬得進去', () => {
+    const d = run({ equipment: [{ id: 1, name: '鐵劍', isEquipped: true, description: '一把舊劍' }] });
+    expect(d.itemCatalog['鐵劍'].description).toBe('一把舊劍');
+    expect(d.equipment[0]).not.toHaveProperty('description');
+    expect(d.equipment[0]).toMatchObject({ name: '鐵劍', isEquipped: true });
+  });
+
+  it('先寫先贏：圖鑑既有的定義不被實例覆蓋', () => {
+    const d = run({
+      itemCatalog: { 草藥: { name: '草藥', description: '圖鑑版', createdAt: '4/1', lastUsedAt: 1 } },
+      items: [{ id: 1, name: '草藥', quantity: 1, description: '實例版' }],
+    });
+    expect(d.itemCatalog['草藥'].description).toBe('圖鑑版');
+  });
+
+  it('背包與裝備同名時以背包為準（items 先跑）', () => {
+    const d = run({
+      items: [{ id: 1, name: '鐵劍', quantity: 1, description: '背包裡的' }],
+      equipment: [{ id: 2, name: '鐵劍', isEquipped: false, description: '裝備上的' }],
+    });
+    expect(d.itemCatalog['鐵劍'].description).toBe('背包裡的');
+  });
+
+  it('沒有道具的存檔不會壞掉', () => {
+    expect(() => run({})).not.toThrow();
+  });
+});

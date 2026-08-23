@@ -21,7 +21,7 @@ import {
 } from '../constants';
 
 // ─── Schema 版本 ──────────────────────────────────────────────────────────────
-export const CURRENT_SCHEMA = 8;
+export const CURRENT_SCHEMA = 9;
 
 // ─── 型別：儲存快照 ───────────────────────────────────────────────────────────
 export interface GameSaveData {
@@ -55,8 +55,9 @@ function migrateEquipment(raw: unknown[]): EquipmentItem[] {
     return {
       id:          (item.id          as number)  ?? Date.now(),
       name:        (item.name        as string)  ?? '',
-      description: (item.description as string)  ?? '',
       isEquipped:  (item.isEquipped  as boolean) ?? false,
+      // 沒有 description：說明只存圖鑑一份（schema v9），這裡再補一次就等於
+      // 把剛移除的欄位又長回來
     };
   });
 }
@@ -68,7 +69,7 @@ function migrateItems(raw: unknown[]): ItemEntry[] {
       id:          (item.id          as number) ?? Date.now(),
       name:        (item.name        as string) ?? '',
       quantity:    (item.quantity    as number) ?? 1,
-      description: (item.description as string) ?? '',
+      // 同上：不要補 description 回來
     };
   });
 }
@@ -272,6 +273,44 @@ export function migrateV7toV8(data: Record<string, unknown>): Record<string, unk
   return out;
 }
 
+/**
+ * v8 → v9：道具說明只留圖鑑一份。
+ *
+ * 說明先前存三份：`itemCatalog[name].description`（CLAUDE.md 寫明是「全遊戲
+ * 只存一份」的 Master Data）、`ItemEntry.description`、`EquipmentItem.description`。
+ * 而且**沒有任何地方讀圖鑑**——prompt 與 UI 全讀實例上的副本，圖鑑只在
+ * ITEM_ADD 時寫入、複製一份進實例。「先寫先贏」於是只在建立那一刻成立。
+ *
+ * ⚠️ 必須先把實例的說明摺進圖鑑再刪欄位，否則舊存檔的道具說明會整批消失：
+ * - `migrateV3toV4` 當年只從 `items[]` 建圖鑑，**沒有涵蓋 `equipment[]`**，
+ *   所以純裝備的說明很可能只存在實例上
+ * - 先寫先贏：圖鑑已有的名稱不被實例覆蓋；items 先於 equipment
+ */
+export function migrateV8toV9(data: Record<string, unknown>): Record<string, unknown> {
+  const out = { ...data };
+  const items = Array.isArray(out.items) ? (out.items as ItemEntry[]) : [];
+  const equipment = Array.isArray(out.equipment) ? (out.equipment as EquipmentItem[]) : [];
+  const base = (out.itemCatalog && typeof out.itemCatalog === 'object' && !Array.isArray(out.itemCatalog))
+    ? (out.itemCatalog as ItemCatalog)
+    : {};
+
+  const now = Date.now();
+  let catalog = buildCatalogFromItems(items as { name?: string; description?: string }[], now, base);
+  catalog = buildCatalogFromItems(equipment as { name?: string; description?: string }[], now, catalog);
+  out.itemCatalog = catalog;
+
+  // 欄位移除。留著的話下一個人會以為它還是有效來源，然後又寫進去
+  out.items = items.map(i => {
+    const { description: _d, ...rest } = i as ItemEntry & { description?: string };
+    return rest;
+  });
+  out.equipment = equipment.map(e => {
+    const { description: _d, ...rest } = e as EquipmentItem & { description?: string };
+    return rest;
+  });
+  return out;
+}
+
 const MIGRATIONS: Record<number, (d: Record<string, unknown>) => Record<string, unknown>> = {
   0: migrateV0toV1,
   1: migrateV1toV2,
@@ -281,6 +320,7 @@ const MIGRATIONS: Record<number, (d: Record<string, unknown>) => Record<string, 
   5: migrateV5toV6,
   6: migrateV6toV7,
   7: migrateV7toV8,
+  8: migrateV8toV9,
 };
 
 function runMigrations(raw: Record<string, unknown>): Record<string, unknown> {

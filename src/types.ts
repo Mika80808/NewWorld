@@ -26,7 +26,9 @@ export interface Profile {
   gold: number;
   maxHp?: number;
   maxMp?: number;
-  status?: StatusEffect[];  // 原 string 改為 StatusEffect 陣列
+  // 註：舊的 status 欄位已移除。狀態異常改存在頂層的 statusEffects state，
+  // 而這個欄位在最後一次搬遷之後就沒有任何讀寫了——留著只會讓人以為它還有效，
+  // 然後往裡面寫一份永遠不會被顯示、也不會進 prompt 的資料。
 }
 
 export interface Quest {
@@ -195,10 +197,18 @@ export interface MemoryEntry {
   lastTriggeredAt?: number;
 }
 
+/**
+ * 背包與裝備都是**實例**：名稱引用 ＋ 數量／裝備狀態。
+ *
+ * ⚠️ 兩者都**沒有** description。說明只存在 `itemCatalog` 一份（Master Data），
+ * 讀取一律走 `utils/itemCatalog.describeItem()`。
+ *
+ * 先前這裡各有一個 description 欄位，加上圖鑑共三份，而且沒有任何地方讀圖鑑——
+ * 「先寫先贏、全遊戲描述一致」的保證因此只在建立那一刻成立。schema v9 移除。
+ */
 export interface EquipmentItem {
   id: number;
   name: string;
-  description: string;
   isEquipped: boolean;
 }
 
@@ -206,7 +216,6 @@ export interface ItemEntry {
   id: number;
   name: string;
   quantity: number;
-  description: string;
 }
 
 // ─── 道具圖鑑（Master Data：定義全遊戲只存一份，背包 items[] 為實例） ──────────

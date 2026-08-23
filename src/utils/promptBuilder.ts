@@ -4,7 +4,7 @@ import {
   StatusEffect, Faction,
 } from '../types'
 import { getTotalDaysFromTimeState, getQuestRemainingDays } from './timeUtils'
-import { selectKnownItemNames } from './itemCatalog'
+import { selectKnownItemNames, describeItem } from './itemCatalog'
 import { relationText } from './affectionLabel'
 import { resolveNpcProfile, npcIdentityBrief } from './npcProfile'
 import { isNpcOnStage } from './npcPresence'
@@ -378,7 +378,7 @@ Personality: ${profile.personality}${profile.other ? `\nOther: ${profile.other}`
     ].filter(Boolean).join('\n')),
 
     section('[Inventory]', [
-      ...equipment.map(e => `- [裝備] ${e.name}${e.isEquipped ? '（裝備中）' : ''}: ${e.description}`),
+      ...equipment.map(e => `- [裝備] ${e.name}${e.isEquipped ? '（裝備中）' : ''}: ${describeItem(itemCatalog, e.name)}`),
       ...(() => {
         if (items.length === 0) return [] as string[]
         const hasEffect = (desc: string) => /HP|MP|回復|治療|效果|使用後|傷害|攻擊|防禦|強化|解毒|能量/i.test(desc)
@@ -386,8 +386,9 @@ Personality: ${profile.personality}${profile.other ? `\nOther: ${profile.other}`
         const recentIds = [...items].sort((a, b) => b.id - a.id).slice(0, 5).map(i => i.id)
         const overLimit = items.length > 15
         return items.map(i => {
-          const showFull = (i.quantity > 1 || hasEffect(i.description)) && (!overLimit || recentIds.includes(i.id))
-          return showFull ? `- ${i.name} x${i.quantity}: ${i.description}` : `- ${i.name} x${i.quantity}`
+          const desc = describeItem(itemCatalog, i.name)
+          const showFull = (i.quantity > 1 || hasEffect(desc)) && (!overLimit || recentIds.includes(i.id))
+          return showFull ? `- ${i.name} x${i.quantity}: ${desc}` : `- ${i.name} x${i.quantity}`
         })
       })(),
     ].join('\n')),
