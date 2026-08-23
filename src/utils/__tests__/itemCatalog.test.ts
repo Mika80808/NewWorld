@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   normalizeItemName, registerItemDef, touchItemDef,
-  pruneItemCatalog, selectKnownItemNames, buildCatalogFromItems,
+  pruneItemCatalog, selectKnownItemNames, buildCatalogFromItems, describeItem,
 } from '../itemCatalog';
 import { ItemCatalog } from '../../types';
 
@@ -91,17 +91,65 @@ describe('selectKnownItemNames', () => {
 
 describe('buildCatalogFromItems — 存檔遷移', () => {
   it('從背包實例建立圖鑑，先寫先贏', () => {
+    // 舊存檔裡的實例還帶著 id / quantity（schema v9 之前 description 也在上面）
     const catalog = buildCatalogFromItems([
       { id: 1, name: '草藥', quantity: 2, description: '回復 20 HP' },
       { id: 2, name: '草藥', quantity: 1, description: '後來的重複描述' },
       { id: 3, name: ' 鐵劍 ', quantity: 1, description: '一把劍' },
-    ]);
+    ] as unknown as { name?: string; description?: string }[]);
     expect(catalog['草藥'].description).toBe('回復 20 HP');
     expect(catalog['鐵劍']).toBeDefined();
     expect(Object.keys(catalog)).toHaveLength(2);
   });
 
   it('空名稱跳過', () => {
-    expect(buildCatalogFromItems([{ id: 1, name: '  ', quantity: 1, description: '' }])).toEqual({});
+    expect(buildCatalogFromItems([{ name: '  ', description: '' }])).toEqual({});
+  });
+});
+
+// ─── describeItem：讀取說明的唯一入口 ────────────────────────────────────────
+// 說明先前存三份（圖鑑、背包實例、裝備實例），而且沒有任何地方讀圖鑑——
+// 「先寫先贏、全遊戲描述一致」的保證因此只在建立那一刻成立。實例的欄位已移除。
+describe('describeItem', () => {
+  const catalog = {
+    草藥: { name: '草藥', description: '回復 20 HP', createdAt: '4/1', lastUsedAt: 1 },
+  };
+
+  it('查得到', () => {
+    expect(describeItem(catalog, '草藥')).toBe('回復 20 HP');
+  });
+
+  /** 圖鑑主鍵是正規化後的名稱，查詢端不該還要自己記得正規化 */
+  it('名稱有空白差異也查得到', () => {
+    expect(describeItem(catalog, '　草藥 ')).toBe('回復 20 HP');
+  });
+
+  /**
+   * 查不到時回空字串而不是 undefined——呼叫端多半直接串進字串模板
+   * （`（我使用了 ${name}（${desc}））`），回 undefined 玩家會看到字面的 undefined
+   */
+  it('查不到回空字串，不是 undefined', () => {
+    expect(describeItem(catalog, '不存在的道具')).toBe('');
+    expect(describeItem({}, '草藥')).toBe('');
+    expect(describeItem(catalog, '')).toBe('');
+  });
+});
+
+describe('buildCatalogFromItems — base 既有圖鑑', () => {
+  /** 先寫先贏：圖鑑已有的名稱不該被舊實例上的描述覆蓋掉 */
+  it('既有圖鑑優先於實例', () => {
+    const base = { 草藥: { name: '草藥', description: '圖鑑版', createdAt: '4/1', lastUsedAt: 1 } };
+    const out = buildCatalogFromItems(
+      [{ name: '草藥', description: '實例版' }, { name: '鐵劍', description: '一把劍' }],
+      123, base,
+    );
+    expect(out['草藥'].description).toBe('圖鑑版');
+    expect(out['鐵劍'].description).toBe('一把劍');
+  });
+
+  it('不改動傳入的 base', () => {
+    const base = { 草藥: { name: '草藥', description: '圖鑑版', createdAt: '4/1', lastUsedAt: 1 } };
+    buildCatalogFromItems([{ name: '鐵劍', description: '一把劍' }], 123, base);
+    expect(Object.keys(base)).toEqual(['草藥']);
   });
 });

@@ -1,6 +1,6 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { RefreshCw, ScrollText, ChevronDown, ChevronRight } from 'lucide-react';
+import { RefreshCw, ScrollText, ChevronDown, ChevronRight, Pencil, Check, X, Plus } from 'lucide-react';
 
 /**
  * 色碼例外：便條紙的獨立調色盤。
@@ -25,10 +25,15 @@ const NOTE_PAPER = {
 
 interface GoalsPanelProps {
   currentGoals: string[];
-  adventureLog: string[];
+  /** 冒險摘要：`summaryPool` 的最後一則（同一份資料，不再另存一份） */
+  summary: string;
   isUpdatingLog: boolean;
   summaryCollapsed: boolean;
   onToggleSummary: () => void;
+  /** 手動改寫目標；不給就是唯讀 */
+  onEditGoals?: (goals: string[]) => void;
+  /** 手動改寫摘要（會一併改到 AI 讀的那份，因為只有一份） */
+  onEditSummary?: (summary: string) => void;
 }
 
 /**
@@ -37,11 +42,35 @@ interface GoalsPanelProps {
  */
 export const GoalsPanel: React.FC<GoalsPanelProps> = ({
   currentGoals,
-  adventureLog,
+  summary,
   isUpdatingLog,
   summaryCollapsed,
   onToggleSummary,
-}) => (
+  onEditGoals,
+  onEditSummary,
+}) => {
+  const [editingGoals, setEditingGoals] = useState(false);
+  const [draftGoals, setDraftGoals] = useState<string[]>(currentGoals);
+  const [editingSummary, setEditingSummary] = useState(false);
+  const [draftSummary, setDraftSummary] = useState(summary);
+
+  // 草稿不跟外部值同步：非編輯狀態下顯示的是 currentGoals / summary 本身，
+  // 草稿只有進入編輯時才有意義，而按下鉛筆就會重新播種（見下方 onClick）。
+  // 先前這裡掛了兩個 useEffect 做同步，是多餘的，還會觸發 set-state-in-effect。
+
+  const iconBtn = 'p-1 rounded transition';
+  const inputStyle: React.CSSProperties = {
+    background: 'transparent',
+    color: 'var(--text-note)',
+    borderBottom: `1px solid ${NOTE_PAPER.rule}`,
+  };
+
+  const commitGoals = () => {
+    onEditGoals?.(draftGoals.map(g => g.trim()).filter(Boolean));
+    setEditingGoals(false);
+  };
+
+  return (
   <div
     className="rounded-[8px] overflow-hidden relative"
     style={{
@@ -71,31 +100,118 @@ export const GoalsPanel: React.FC<GoalsPanelProps> = ({
           <ScrollText className="w-4 h-4 mr-2" style={{ color: 'var(--text-note)' }} /> 當前目標
           {isUpdatingLog && <RefreshCw className="w-3 h-3 ml-2 animate-spin opacity-50" style={{ color: 'var(--text-note)' }} />}
         </h3>
-      </div>
-      <ul className="px-4 pb-2 space-y-1.5">
-        {currentGoals.length > 0 ? currentGoals.map((goal, i) => (
-          <li key={i} className="text-sm leading-relaxed flex items-start gap-2">
-            <span className="flex-shrink-0 mt-0.5 text-xs" style={{ color: NOTE_PAPER.bullet }}>○</span>
-            <span style={{ color: 'var(--text-note)' }}>{goal}</span>
-          </li>
-        )) : (
-          <li className="text-sm" style={{ color: 'var(--text-note-muted)' }}>暫無明確目標...</li>
+        {onEditGoals && (
+          <div className="ml-auto flex items-center gap-1">
+            {editingGoals ? (
+              <>
+                <button className={iconBtn} aria-label="取消編輯目標"
+                  style={{ color: 'var(--text-note-muted)' }}
+                  onClick={() => { setDraftGoals(currentGoals); setEditingGoals(false); }}>
+                  <X className="w-4 h-4" />
+                </button>
+                <button className={iconBtn} aria-label="儲存目標"
+                  style={{ color: 'var(--text-note)' }} onClick={commitGoals}>
+                  <Check className="w-4 h-4" />
+                </button>
+              </>
+            ) : (
+              <button className={iconBtn} aria-label="編輯目標"
+                style={{ color: 'var(--text-note-muted)' }}
+                onClick={() => { setDraftGoals(currentGoals); setEditingGoals(true); }}>
+                <Pencil className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </div>
         )}
-      </ul>
-      <button className="w-full px-4 py-2 flex items-center transition-all" onClick={onToggleSummary} style={{ background: 'transparent' }}>
-        {summaryCollapsed
-          ? <ChevronRight className="w-3.5 h-3.5 mr-1.5 flex-shrink-0" style={{ color: 'var(--text-note)' }} />
-          : <ChevronDown className="w-3.5 h-3.5 mr-1.5 flex-shrink-0" style={{ color: 'var(--text-note)' }} />}
-        <span className="text-sm font-bold" style={{ color: 'var(--text-note)' }}>冒險摘要</span>
-      </button>
+      </div>
+
+      {editingGoals ? (
+        <ul className="px-4 pb-2 space-y-1.5">
+          {draftGoals.map((goal, i) => (
+            <li key={i} className="text-sm leading-relaxed flex items-center gap-2">
+              <span className="flex-shrink-0 text-xs" style={{ color: NOTE_PAPER.bullet }}>○</span>
+              <input
+                className="flex-1 min-w-0 text-sm outline-none py-0.5"
+                style={inputStyle}
+                value={goal}
+                aria-label={`目標 ${i + 1}`}
+                onChange={e => setDraftGoals(prev => prev.map((g, j) => j === i ? e.target.value : g))}
+              />
+              <button className={iconBtn} aria-label={`刪除目標 ${i + 1}`}
+                style={{ color: 'var(--text-note-muted)' }}
+                onClick={() => setDraftGoals(prev => prev.filter((_, j) => j !== i))}>
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </li>
+          ))}
+          <li>
+            <button className="text-sm flex items-center gap-1.5 py-1"
+              style={{ color: 'var(--text-note-muted)' }}
+              onClick={() => setDraftGoals(prev => [...prev, ''])}>
+              <Plus className="w-3.5 h-3.5" /> 新增目標
+            </button>
+          </li>
+        </ul>
+      ) : (
+        <ul className="px-4 pb-2 space-y-1.5">
+          {currentGoals.length > 0 ? currentGoals.map((goal, i) => (
+            <li key={i} className="text-sm leading-relaxed flex items-start gap-2">
+              <span className="flex-shrink-0 mt-0.5 text-xs" style={{ color: NOTE_PAPER.bullet }}>○</span>
+              <span style={{ color: 'var(--text-note)' }}>{goal}</span>
+            </li>
+          )) : (
+            <li className="text-sm" style={{ color: 'var(--text-note-muted)' }}>暫無明確目標...</li>
+          )}
+        </ul>
+      )}
+      <div className="w-full px-4 py-2 flex items-center">
+        <button className="flex items-center transition-all" onClick={onToggleSummary} style={{ background: 'transparent' }}>
+          {summaryCollapsed
+            ? <ChevronRight className="w-3.5 h-3.5 mr-1.5 flex-shrink-0" style={{ color: 'var(--text-note)' }} />
+            : <ChevronDown className="w-3.5 h-3.5 mr-1.5 flex-shrink-0" style={{ color: 'var(--text-note)' }} />}
+          <span className="text-sm font-bold" style={{ color: 'var(--text-note)' }}>冒險摘要</span>
+        </button>
+        {onEditSummary && !summaryCollapsed && (
+          <div className="ml-auto flex items-center gap-1">
+            {editingSummary ? (
+              <>
+                <button className={iconBtn} aria-label="取消編輯摘要"
+                  style={{ color: 'var(--text-note-muted)' }}
+                  onClick={() => { setDraftSummary(summary); setEditingSummary(false); }}>
+                  <X className="w-4 h-4" />
+                </button>
+                <button className={iconBtn} aria-label="儲存摘要"
+                  style={{ color: 'var(--text-note)' }}
+                  onClick={() => { onEditSummary(draftSummary.trim()); setEditingSummary(false); }}>
+                  <Check className="w-4 h-4" />
+                </button>
+              </>
+            ) : (
+              <button className={iconBtn} aria-label="編輯摘要"
+                style={{ color: 'var(--text-note-muted)' }}
+                onClick={() => { setDraftSummary(summary); setEditingSummary(true); }}>
+                <Pencil className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </div>
+        )}
+      </div>
       <AnimatePresence>
         {!summaryCollapsed && (
           <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.2 }} className="overflow-hidden">
             <div className="px-4 pb-3">
-              {adventureLog.length > 0 ? (
+              {editingSummary ? (
+                <textarea
+                  className="w-full text-sm leading-relaxed outline-none resize-none py-1"
+                  style={{ ...inputStyle, minHeight: '72px' }}
+                  aria-label="冒險摘要"
+                  value={draftSummary}
+                  onChange={e => setDraftSummary(e.target.value)}
+                />
+              ) : summary ? (
                 <div className="text-sm leading-relaxed flex items-start gap-2">
                   <span className="flex-shrink-0 mt-0.5 text-xs" style={{ color: NOTE_PAPER.bulletDim }}>∵</span>
-                  <span style={{ color: 'var(--text-note)', opacity: 0.85 }}>{adventureLog[0]}</span>
+                  <span style={{ color: 'var(--text-note)', opacity: 0.85 }}>{summary}</span>
                 </div>
               ) : (
                 <div className="text-sm" style={{ color: 'var(--text-note-muted)' }}>等待冒險展開...</div>
@@ -106,6 +222,7 @@ export const GoalsPanel: React.FC<GoalsPanelProps> = ({
       </AnimatePresence>
     </div>
   </div>
-);
+  );
+};
 
 GoalsPanel.displayName = 'GoalsPanel';

@@ -8,7 +8,7 @@
  * - 查詢以名稱為主鍵（Record key），O(1)，AI 不參與查重。
  * - LOD 淘汰：圖鑑超過上限時，淘汰最久未使用且不在背包中的條目。
  */
-import { ItemCatalog, ItemDef, ItemEntry } from '../types';
+import { ItemCatalog, ItemDef } from '../types';
 
 /** 圖鑑條目上限，超過時觸發 LRU 淘汰 */
 export const MAX_CATALOG_SIZE = 300;
@@ -38,6 +38,24 @@ export function registerItemDef(
     ? { ...existing, lastUsedAt: now }
     : { name, description, createdAt, lastUsedAt: now };
   return { catalog: { ...catalog, [name]: def }, def };
+}
+
+/**
+ * 讀取道具描述的**唯一入口**。
+ *
+ * ⚠️ 描述先前存了三份：圖鑑（這裡，CLAUDE.md 寫明是「全遊戲只存一份」的
+ * Master Data）、`ItemEntry.description`（背包）、`EquipmentItem.description`
+ * （裝備）。而且沒有任何地方讀圖鑑——prompt 與 UI 全部讀實例上的副本，
+ * 圖鑑只在 ITEM_ADD 時被寫入、然後複製一份進實例。
+ *
+ * 結果是「先寫先贏」只在**建立那一刻**成立：圖鑑之後被改動，背包裡的舊實例
+ * 不會跟著變。實例的 description 欄位已於 schema v9 移除，一律查這裡。
+ *
+ * 查不到時回空字串而不是 undefined——呼叫端多半直接串進字串模板，
+ * 回 undefined 會讓玩家看到「未知道具（undefined）」。
+ */
+export function describeItem(catalog: ItemCatalog, name: string): string {
+  return catalog[normalizeItemName(name || '')]?.description ?? '';
 }
 
 /** 更新 lastUsedAt（道具被使用、移除時），條目不存在則原樣回傳 */
@@ -85,12 +103,23 @@ export function selectKnownItemNames(
     .map(d => d.name);
 }
 
-/** 存檔遷移：從既有背包 items[] 建立圖鑑（先寫先贏） */
+/**
+ * 存檔遷移：把帶有 name / description 的實例摺進圖鑑（先寫先贏）。
+ *
+ * 背包與裝備兩種實例都吃——它們的 description 欄位在 schema v9 被移除，
+ * 移除前必須先把值搬進圖鑑，否則舊存檔的道具說明會整批消失。
+ *
+ * @param base 既有圖鑑。先寫先贏：已經在圖鑑裡的名稱不會被實例覆蓋。
+ *
+ * 參數型別只要求 name / description：吃進來的是**舊存檔裡的實例**，
+ * 還帶著 id / quantity / isEquipped 等欄位，那些這裡一概不看。
+ */
 export function buildCatalogFromItems(
-  items: ItemEntry[],
+  items: readonly Partial<Record<'name' | 'description', string>>[],
   now: number = Date.now(),
+  base: ItemCatalog = {},
 ): ItemCatalog {
-  const catalog: ItemCatalog = {};
+  const catalog: ItemCatalog = { ...base };
   for (const item of items) {
     const name = normalizeItemName(item?.name || '');
     if (!name || catalog[name]) continue;

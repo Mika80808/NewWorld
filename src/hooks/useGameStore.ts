@@ -21,7 +21,7 @@ import {
 } from '../constants';
 
 // ─── Schema 版本 ──────────────────────────────────────────────────────────────
-export const CURRENT_SCHEMA = 7;
+export const CURRENT_SCHEMA = 9;
 
 // ─── 型別：儲存快照 ───────────────────────────────────────────────────────────
 export interface GameSaveData {
@@ -41,7 +41,6 @@ export interface GameSaveData {
   quickOptions: string[];
   timeState: TimeState;
   quests: Quest[];
-  adventureLog: string[];
   currentGoals: string[];
   summaryPool: string[];
   compressCount: number;
@@ -56,8 +55,9 @@ function migrateEquipment(raw: unknown[]): EquipmentItem[] {
     return {
       id:          (item.id          as number)  ?? Date.now(),
       name:        (item.name        as string)  ?? '',
-      description: (item.description as string)  ?? '',
       isEquipped:  (item.isEquipped  as boolean) ?? false,
+      // 沒有 description：說明只存圖鑑一份（schema v9），這裡再補一次就等於
+      // 把剛移除的欄位又長回來
     };
   });
 }
@@ -69,7 +69,7 @@ function migrateItems(raw: unknown[]): ItemEntry[] {
       id:          (item.id          as number) ?? Date.now(),
       name:        (item.name        as string) ?? '',
       quantity:    (item.quantity    as number) ?? 1,
-      description: (item.description as string) ?? '',
+      // 同上：不要補 description 回來
     };
   });
 }
@@ -247,6 +247,70 @@ export function migrateV6toV7(data: Record<string, unknown>): Record<string, unk
   return out;
 }
 
+/**
+ * v7 → v8：拆掉 `adventureLog`，左欄的「冒險摘要」改讀 `summaryPool` 的最後一則。
+ *
+ * 同一份摘要先前存了兩個地方——助理 GM 在同一個 if 區塊裡、相隔三行，
+ * 把同一個 `data.summary` 分別寫進 `adventureLog`（左欄顯示）與 `summaryPool`
+ * （送進 prompt 的前情提要）。`adventureLog` 而且永遠只有一個元素，
+ * 宣告成 string[] 是歷史遺留。
+ *
+ * 兩者唯一真的會分岔的時刻是壓縮：`summaryPool` 滿 10 則會被換成一段壓縮紀錄，
+ * 而 `adventureLog` 還留著壓縮前最後那則原文。所以這裡不能無腦丟掉——
+ * 舊存檔剛好停在那個時間點時，那則原文只存在於 `adventureLog`。
+ * 對不上 pool 尾端才補進去，避免重複。
+ */
+export function migrateV7toV8(data: Record<string, unknown>): Record<string, unknown> {
+  const out = { ...data };
+  const legacy = Array.isArray(out.adventureLog) ? (out.adventureLog as string[]) : [];
+  const pool = Array.isArray(out.summaryPool) ? (out.summaryPool as string[]) : [];
+
+  const latest = legacy.find(x => typeof x === 'string' && x.trim());
+  if (latest && pool[pool.length - 1] !== latest) {
+    out.summaryPool = [...pool, latest];
+  }
+  delete out.adventureLog;
+  return out;
+}
+
+/**
+ * v8 → v9：道具說明只留圖鑑一份。
+ *
+ * 說明先前存三份：`itemCatalog[name].description`（CLAUDE.md 寫明是「全遊戲
+ * 只存一份」的 Master Data）、`ItemEntry.description`、`EquipmentItem.description`。
+ * 而且**沒有任何地方讀圖鑑**——prompt 與 UI 全讀實例上的副本，圖鑑只在
+ * ITEM_ADD 時寫入、複製一份進實例。「先寫先贏」於是只在建立那一刻成立。
+ *
+ * ⚠️ 必須先把實例的說明摺進圖鑑再刪欄位，否則舊存檔的道具說明會整批消失：
+ * - `migrateV3toV4` 當年只從 `items[]` 建圖鑑，**沒有涵蓋 `equipment[]`**，
+ *   所以純裝備的說明很可能只存在實例上
+ * - 先寫先贏：圖鑑已有的名稱不被實例覆蓋；items 先於 equipment
+ */
+export function migrateV8toV9(data: Record<string, unknown>): Record<string, unknown> {
+  const out = { ...data };
+  const items = Array.isArray(out.items) ? (out.items as ItemEntry[]) : [];
+  const equipment = Array.isArray(out.equipment) ? (out.equipment as EquipmentItem[]) : [];
+  const base = (out.itemCatalog && typeof out.itemCatalog === 'object' && !Array.isArray(out.itemCatalog))
+    ? (out.itemCatalog as ItemCatalog)
+    : {};
+
+  const now = Date.now();
+  let catalog = buildCatalogFromItems(items as { name?: string; description?: string }[], now, base);
+  catalog = buildCatalogFromItems(equipment as { name?: string; description?: string }[], now, catalog);
+  out.itemCatalog = catalog;
+
+  // 欄位移除。留著的話下一個人會以為它還是有效來源，然後又寫進去
+  out.items = items.map(i => {
+    const { description: _d, ...rest } = i as ItemEntry & { description?: string };
+    return rest;
+  });
+  out.equipment = equipment.map(e => {
+    const { description: _d, ...rest } = e as EquipmentItem & { description?: string };
+    return rest;
+  });
+  return out;
+}
+
 const MIGRATIONS: Record<number, (d: Record<string, unknown>) => Record<string, unknown>> = {
   0: migrateV0toV1,
   1: migrateV1toV2,
@@ -255,6 +319,8 @@ const MIGRATIONS: Record<number, (d: Record<string, unknown>) => Record<string, 
   4: migrateV4toV5,
   5: migrateV5toV6,
   6: migrateV6toV7,
+  7: migrateV7toV8,
+  8: migrateV8toV9,
 };
 
 function runMigrations(raw: Record<string, unknown>): Record<string, unknown> {
@@ -336,7 +402,6 @@ export function saveDataMapper(raw: Record<string, unknown>): GameSaveData {
     quests:       (Array.isArray(d.quests) ? d.quests as Quest[] : []).map(q => ({ isGoalMet: false, ...q })),
     // `|| []` 擋不掉「型別錯但 truthy」的值（例如助理 GM 回了字串的 goals），
     // 那種值會一路進到 GoalsPanel 的 .map 而白畫面，所以一律用 Array.isArray 驗
-    adventureLog:  Array.isArray(d.adventureLog) ? d.adventureLog as string[] : [],
     currentGoals:  Array.isArray(d.currentGoals) ? d.currentGoals as string[] : [],
     summaryPool:   Array.isArray(d.summaryPool)  ? d.summaryPool  as string[] : [],
     compressCount: (d.compressCount as number)   || 0,
@@ -374,7 +439,6 @@ export function useGameStore() {
   const [itemCatalog,     setItemCatalog]     = useState<ItemCatalog>(DEFAULTS.itemCatalog);
   const [messages,        setMessages]        = useState<Message[]>(DEFAULTS.messages);
   const [quickOptions,    setQuickOptions]    = useState<string[]>(DEFAULTS.quickOptions);
-  const [adventureLog,    setAdventureLog]    = useState<string[]>(DEFAULTS.adventureLog);
   const [currentGoals,    setCurrentGoals]    = useState<string[]>(DEFAULTS.currentGoals);
   const [summaryPool,     setSummaryPool]     = useState<string[]>(DEFAULTS.summaryPool);
   const [compressCount,   setCompressCount]   = useState<number>(DEFAULTS.compressCount);
@@ -403,7 +467,6 @@ export function useGameStore() {
     setQuickOptions(d.quickOptions);
     setTimeState(d.timeState);
     setQuests(d.quests);
-    setAdventureLog(d.adventureLog);
     setCurrentGoals(d.currentGoals);
     setSummaryPool(d.summaryPool);
     setCompressCount(d.compressCount);
@@ -492,7 +555,6 @@ export function useGameStore() {
       quickOptions:    snapshot?.quickOptions    ?? quickOptions,
       timeState:       snapshot?.timeState       ?? timeState,
       quests:          snapshot?.quests          ?? quests,
-      adventureLog:    snapshot?.adventureLog    ?? adventureLog,
       currentGoals:    snapshot?.currentGoals    ?? currentGoals,
       summaryPool:     snapshot?.summaryPool     ?? summaryPool,
       compressCount:   snapshot?.compressCount   ?? compressCount,
@@ -520,7 +582,6 @@ export function useGameStore() {
     itemCatalog, setItemCatalog,
     messages, setMessages,
     quickOptions, setQuickOptions,
-    adventureLog, setAdventureLog,
     currentGoals, setCurrentGoals,
     summaryPool, setSummaryPool,
     compressCount, setCompressCount,

@@ -1,8 +1,11 @@
 import React from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { EquipmentItem } from '../../types';
+import { EquipmentItem, ItemCatalog } from '../../types';
+import { describeItem } from '../../utils/itemCatalog';
 
 interface EquipmentListProps {
+  /** 道具說明的唯一來源（實例上不再有 description，見 types.ts） */
+  itemCatalog: ItemCatalog;
   equipment: EquipmentItem[];
   selectedId: number | null;
   onSelect: (id: number | null) => void;
@@ -22,6 +25,7 @@ const dangerBgHover = 'color-mix(in srgb, var(--color-rose) 20%, transparent)';
  * 桌面浮動面板與手機 inline 展開共用——兩邊只有外層容器不同。
  */
 export const EquipmentList: React.FC<EquipmentListProps> = ({
+  itemCatalog,
   equipment,
   selectedId,
   onSelect,
@@ -45,7 +49,7 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({
           <div className="flex justify-between items-center mb-1">
             <span className="text-sm font-medium" style={{ color: 'var(--text-title)' }}>{item.name}</span>
           </div>
-          <div className="text-sm leading-relaxed" style={{ color: 'color-mix(in srgb, var(--text-body) 80%, transparent)' }}>{item.description}</div>
+          <div className="text-sm leading-relaxed" style={{ color: 'color-mix(in srgb, var(--text-body) 80%, transparent)' }}>{describeItem(itemCatalog, item.name)}</div>
           <AnimatePresence>
             {selectedId === item.id && (
               <motion.div

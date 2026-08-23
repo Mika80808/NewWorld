@@ -1,8 +1,11 @@
 import React from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { ItemEntry } from '../../types';
+import { ItemEntry, ItemCatalog } from '../../types';
+import { describeItem } from '../../utils/itemCatalog';
 
 interface ConsumableListProps {
+  /** 道具說明的唯一來源（實例上不再有 description，見 types.ts） */
+  itemCatalog: ItemCatalog;
   items: ItemEntry[];
   selectedId: number | null;
   onSelect: (id: number | null) => void;
@@ -21,6 +24,7 @@ const dropBgHover = 'color-mix(in srgb, var(--color-rose) 20%, transparent)';
  * 桌面浮動面板與手機 inline 展開共用——兩邊只有外層容器不同。
  */
 export const ConsumableList: React.FC<ConsumableListProps> = ({
+  itemCatalog,
   items,
   selectedId,
   onSelect,
@@ -44,7 +48,7 @@ export const ConsumableList: React.FC<ConsumableListProps> = ({
             <span className="text-sm font-medium" style={{ color: 'var(--text-title)' }}>{item.name}</span>
             <span className="text-sm font-mono px-1.5 py-0.5 rounded-[8px]" style={{ background: 'var(--bg-elevated)', color: 'var(--text-body)' }}>x{item.quantity}</span>
           </div>
-          <div className="text-sm leading-relaxed" style={{ color: 'color-mix(in srgb, var(--text-body) 80%, transparent)' }}>{item.description}</div>
+          <div className="text-sm leading-relaxed" style={{ color: 'color-mix(in srgb, var(--text-body) 80%, transparent)' }}>{describeItem(itemCatalog, item.name)}</div>
           <AnimatePresence>
             {selectedId === item.id && (
               <motion.div

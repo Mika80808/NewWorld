@@ -195,14 +195,12 @@ describe('saveDataMapper — 匯入快照（handleImportSave 依賴）', () => {
 // 助理 GM 偶爾會把 goals 回成字串，寫進 state 後 GoalsPanel 的 .map 直接爆炸，
 // 而且它會被存進雲端存檔——之後每次載入都白畫面。陣列欄位一律用 Array.isArray 驗。
 describe('saveDataMapper — 陣列欄位型別防衛', () => {
-  it('非陣列的 currentGoals / adventureLog / summaryPool 退回空陣列', () => {
+  it('非陣列的 currentGoals / summaryPool 退回空陣列', () => {
     const d = saveDataMapper({
       currentGoals: '回應哈德的詢問',
-      adventureLog: { latest: '走進店裡' },
       summaryPool: 'x',
     });
     expect(d.currentGoals).toEqual([]);
-    expect(d.adventureLog).toEqual([]);
     expect(d.summaryPool).toEqual([]);
   });
 
@@ -319,5 +317,83 @@ describe('migrateV6toV7 — 補上任務短 ID', () => {
 
   it('沒有任務的存檔不會壞掉', () => {
     expect(() => saveDataMapper({ schemaVersion: 6, quests: [] })).not.toThrow();
+  });
+});
+
+// v7 → v8：拆掉 adventureLog。同一份摘要先前存兩個地方——助理 GM 在同一個
+// if 區塊裡、相隔三行，把同一個 data.summary 寫進 adventureLog（左欄顯示）
+// 與 summaryPool（送進 prompt）。左欄現在直接讀 summaryPool 的最後一則。
+describe('migrateV7toV8 — 拆掉 adventureLog', () => {
+  const run = (d: Record<string, unknown>) => saveDataMapper({ schemaVersion: 7, ...d });
+
+  it('欄位被移除', () => {
+    const d = run({ adventureLog: ['走進店裡'], summaryPool: ['走進店裡'] });
+    expect((d as unknown as Record<string, unknown>).adventureLog).toBeUndefined();
+  });
+
+  it('內容已經在池尾時不重複追加', () => {
+    const d = run({ adventureLog: ['走進店裡'], summaryPool: ['更早的事', '走進店裡'] });
+    expect(d.summaryPool).toEqual(['更早的事', '走進店裡']);
+  });
+
+  /**
+   * 存檔剛好停在「summaryPool 被壓縮成一段、adventureLog 還留著壓縮前最後
+   * 那則原文」的時間點時，那則原文只存在於 adventureLog。無腦丟掉會少一則。
+   */
+  it('對不上池尾時補進去，不丟資料', () => {
+    const d = run({ adventureLog: ['壓縮前的最後一則'], summaryPool: ['壓縮後的一整段'] });
+    expect(d.summaryPool).toEqual(['壓縮後的一整段', '壓縮前的最後一則']);
+  });
+
+  it('沒有 adventureLog 的存檔不受影響', () => {
+    const d = run({ summaryPool: ['甲', '乙'] });
+    expect(d.summaryPool).toEqual(['甲', '乙']);
+  });
+
+  it('adventureLog 是空的或全是空字串時不會塞垃圾進池子', () => {
+    expect(run({ adventureLog: [], summaryPool: ['甲'] }).summaryPool).toEqual(['甲']);
+    expect(run({ adventureLog: ['', '  '], summaryPool: ['甲'] }).summaryPool).toEqual(['甲']);
+  });
+});
+
+// v8 → v9：道具說明只留圖鑑一份。實例的 description 欄位移除前必須先摺進圖鑑，
+// 否則舊存檔的道具說明會整批消失——尤其是裝備：migrateV3toV4 當年只從 items[]
+// 建圖鑑，沒有涵蓋 equipment[]，純裝備的說明很可能只存在實例上。
+describe('migrateV8toV9 — 道具說明收斂到圖鑑', () => {
+  const run = (d: Record<string, unknown>) => saveDataMapper({ schemaVersion: 8, ...d });
+
+  it('背包實例的說明搬進圖鑑，欄位移除', () => {
+    const d = run({ items: [{ id: 1, name: '草藥', quantity: 2, description: '回復 20 HP' }] });
+    expect(d.itemCatalog['草藥'].description).toBe('回復 20 HP');
+    expect(d.items[0]).not.toHaveProperty('description');
+    expect(d.items[0]).toMatchObject({ name: '草藥', quantity: 2 });
+  });
+
+  /** 這是最會掉資料的一條：舊的建圖鑑遷移根本沒看 equipment[] */
+  it('裝備實例的說明也搬得進去', () => {
+    const d = run({ equipment: [{ id: 1, name: '鐵劍', isEquipped: true, description: '一把舊劍' }] });
+    expect(d.itemCatalog['鐵劍'].description).toBe('一把舊劍');
+    expect(d.equipment[0]).not.toHaveProperty('description');
+    expect(d.equipment[0]).toMatchObject({ name: '鐵劍', isEquipped: true });
+  });
+
+  it('先寫先贏：圖鑑既有的定義不被實例覆蓋', () => {
+    const d = run({
+      itemCatalog: { 草藥: { name: '草藥', description: '圖鑑版', createdAt: '4/1', lastUsedAt: 1 } },
+      items: [{ id: 1, name: '草藥', quantity: 1, description: '實例版' }],
+    });
+    expect(d.itemCatalog['草藥'].description).toBe('圖鑑版');
+  });
+
+  it('背包與裝備同名時以背包為準（items 先跑）', () => {
+    const d = run({
+      items: [{ id: 1, name: '鐵劍', quantity: 1, description: '背包裡的' }],
+      equipment: [{ id: 2, name: '鐵劍', isEquipped: false, description: '裝備上的' }],
+    });
+    expect(d.itemCatalog['鐵劍'].description).toBe('背包裡的');
+  });
+
+  it('沒有道具的存檔不會壞掉', () => {
+    expect(() => run({})).not.toThrow();
   });
 });
