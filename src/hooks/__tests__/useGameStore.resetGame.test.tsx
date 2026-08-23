@@ -51,7 +51,6 @@ const PLAYED: Record<string, unknown> = {
   ],
   currentLocation: '月湖鎮',
   timeState: { year: 1024, month: 7, day: 3, hour: 14, minute: 20, weather: '下雨' },
-  adventureLog: ['第一章'],
   currentGoals: ['找到回家的方法'],
   summaryPool: ['前情提要一'],
   compressCount: 4,
@@ -86,7 +85,6 @@ describe('useGameStore.resetGame — 清進度', () => {
 
   it('助理 GM 的中期記憶與目標清空', () => {
     const { store } = setup();
-    expect(store.adventureLog).toEqual([]);
     expect(store.currentGoals).toEqual([]);
     expect(store.summaryPool).toEqual([]);
     expect(store.compressCount).toBe(0);

@@ -195,14 +195,12 @@ describe('saveDataMapper — 匯入快照（handleImportSave 依賴）', () => {
 // 助理 GM 偶爾會把 goals 回成字串，寫進 state 後 GoalsPanel 的 .map 直接爆炸，
 // 而且它會被存進雲端存檔——之後每次載入都白畫面。陣列欄位一律用 Array.isArray 驗。
 describe('saveDataMapper — 陣列欄位型別防衛', () => {
-  it('非陣列的 currentGoals / adventureLog / summaryPool 退回空陣列', () => {
+  it('非陣列的 currentGoals / summaryPool 退回空陣列', () => {
     const d = saveDataMapper({
       currentGoals: '回應哈德的詢問',
-      adventureLog: { latest: '走進店裡' },
       summaryPool: 'x',
     });
     expect(d.currentGoals).toEqual([]);
-    expect(d.adventureLog).toEqual([]);
     expect(d.summaryPool).toEqual([]);
   });
 
@@ -319,5 +317,41 @@ describe('migrateV6toV7 — 補上任務短 ID', () => {
 
   it('沒有任務的存檔不會壞掉', () => {
     expect(() => saveDataMapper({ schemaVersion: 6, quests: [] })).not.toThrow();
+  });
+});
+
+// v7 → v8：拆掉 adventureLog。同一份摘要先前存兩個地方——助理 GM 在同一個
+// if 區塊裡、相隔三行，把同一個 data.summary 寫進 adventureLog（左欄顯示）
+// 與 summaryPool（送進 prompt）。左欄現在直接讀 summaryPool 的最後一則。
+describe('migrateV7toV8 — 拆掉 adventureLog', () => {
+  const run = (d: Record<string, unknown>) => saveDataMapper({ schemaVersion: 7, ...d });
+
+  it('欄位被移除', () => {
+    const d = run({ adventureLog: ['走進店裡'], summaryPool: ['走進店裡'] });
+    expect((d as unknown as Record<string, unknown>).adventureLog).toBeUndefined();
+  });
+
+  it('內容已經在池尾時不重複追加', () => {
+    const d = run({ adventureLog: ['走進店裡'], summaryPool: ['更早的事', '走進店裡'] });
+    expect(d.summaryPool).toEqual(['更早的事', '走進店裡']);
+  });
+
+  /**
+   * 存檔剛好停在「summaryPool 被壓縮成一段、adventureLog 還留著壓縮前最後
+   * 那則原文」的時間點時，那則原文只存在於 adventureLog。無腦丟掉會少一則。
+   */
+  it('對不上池尾時補進去，不丟資料', () => {
+    const d = run({ adventureLog: ['壓縮前的最後一則'], summaryPool: ['壓縮後的一整段'] });
+    expect(d.summaryPool).toEqual(['壓縮後的一整段', '壓縮前的最後一則']);
+  });
+
+  it('沒有 adventureLog 的存檔不受影響', () => {
+    const d = run({ summaryPool: ['甲', '乙'] });
+    expect(d.summaryPool).toEqual(['甲', '乙']);
+  });
+
+  it('adventureLog 是空的或全是空字串時不會塞垃圾進池子', () => {
+    expect(run({ adventureLog: [], summaryPool: ['甲'] }).summaryPool).toEqual(['甲']);
+    expect(run({ adventureLog: ['', '  '], summaryPool: ['甲'] }).summaryPool).toEqual(['甲']);
   });
 });

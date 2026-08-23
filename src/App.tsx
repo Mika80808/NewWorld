@@ -225,10 +225,13 @@ ${lastMessages}`;
       }
 
       // 摘要加入暫存池（null 表示本輪無實質進展，略過）
+      //
+      // ⚠️ 這裡先前還會同時 `setAdventureLog([data.summary])`，把同一份摘要
+      // 分存兩個地方：左欄讀 adventureLog、prompt 讀 summaryPool。同一個
+      // data.summary、相隔三行寫進兩個 state，之後就各自漂移——玩家改了左欄
+      // 看到的那則，AI 讀到的還是舊的。左欄現在直接讀 summaryPool 的最後一則，
+      // 只留一份（adventureLog 已於 schema v8 移除）。
       if (data.summary && typeof data.summary === 'string') {
-        // 左欄只顯示最新一則
-        setAdventureLog([data.summary]);
-
         // 加入暫存池，達 10 則觸發壓縮（讀 ref 取最新池，避免 await 期間的 stale closure）
         const newPool = [...summaryPoolRef.current, data.summary];
         if (newPool.length >= 10) {
@@ -374,7 +377,6 @@ ${newPool.map((s, i) => `${i + 1}. ${s}`).join('\n')}`;
     itemCatalog, setItemCatalog,
     messages, setMessages,
     quickOptions, setQuickOptions,
-    adventureLog, setAdventureLog,
     currentGoals, setCurrentGoals,
     summaryPool, setSummaryPool,
     compressCount, setCompressCount,
@@ -972,6 +974,28 @@ ${poolText}
     setNpcs(prev => prev.map(n =>
       n.id === npcId ? { ...n, factionIds: [...new Set(factionIds)] } : n
     ));
+  };
+
+  // 左欄顯示的「冒險摘要」＝ summaryPool 的最後一則。
+  // 這是**衍生值**不是另一份 state——先前它是獨立的 adventureLog，同一份摘要
+  // 存兩個地方，改了左欄 AI 讀到的還是舊的（schema v8 已移除）。
+  const latestSummary = summaryPool.length > 0 ? summaryPool[summaryPool.length - 1] : '';
+
+  /**
+   * 手動改寫摘要。改的就是 AI 會讀到的那一則（`[前情提要]` 的最後一項），
+   * 因為現在只有一份。
+   *
+   * ⚠️ 助理 GM 每 3 回合會再往池子裡追加一則，屆時這次的修改會被推到
+   * 倒數第二位、左欄顯示新的那則——這是預期行為（玩家選擇「手改是臨時的」）。
+   * 修改仍留在池子裡，AI 讀得到，只是不再是最新那則。
+   */
+  const handleEditSummary = (next: string) => {
+    setSummaryPool(prev => {
+      if (prev.length === 0) return next ? [next] : [];
+      // 清空內容視為刪掉這一則，而不是留一個空字串在 prompt 裡
+      if (!next) return prev.slice(0, -1);
+      return [...prev.slice(0, -1), next];
+    });
   };
 
   // 主題切換的唯一入口：套用到 <html> 並寫回 localStorage。
@@ -1906,10 +1930,12 @@ ${recentContext}
 
           <GoalsPanel
             currentGoals={currentGoals}
-            adventureLog={adventureLog}
+            summary={latestSummary}
             isUpdatingLog={isUpdatingLog}
             summaryCollapsed={summaryCollapsed}
             onToggleSummary={() => setSummaryCollapsed(prev => !prev)}
+            onEditGoals={setCurrentGoals}
+            onEditSummary={handleEditSummary}
           />
 
           {/* ── Widget: Quest Log ── */}
@@ -2634,10 +2660,12 @@ ${recentContext}
 
                 <GoalsPanel
                   currentGoals={currentGoals}
-                  adventureLog={adventureLog}
+                  summary={latestSummary}
                   isUpdatingLog={isUpdatingLog}
                   summaryCollapsed={summaryCollapsed}
                   onToggleSummary={() => setSummaryCollapsed(prev => !prev)}
+                  onEditGoals={setCurrentGoals}
+                  onEditSummary={handleEditSummary}
                 />
 
                 {/* ── Widget: 裝備（inline expand）── */}
