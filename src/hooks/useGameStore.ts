@@ -21,7 +21,7 @@ import {
 } from '../constants';
 
 // ─── Schema 版本 ──────────────────────────────────────────────────────────────
-export const CURRENT_SCHEMA = 9;
+export const CURRENT_SCHEMA = 10;
 
 // ─── 型別：儲存快照 ───────────────────────────────────────────────────────────
 export interface GameSaveData {
@@ -198,9 +198,11 @@ export function migrateV5toV6(data: Record<string, unknown>): Record<string, unk
 
   // id 從既有最大值往上長，避免與現有 NPC 撞號
   let nextId = Math.max(0, ...npcs.map(n => n.id)) + 1;
+  // 這裡產出的是**當時**的 Npc 形狀（身分欄位還在上面），之後會被 v9→v10
+  // 摺進設定集並移除。不要把它改成現在的 Npc 型別——遷移鏈必須照當年的樣子走
   out.npcs = [
     ...npcs,
-    ...missing.map((e): Npc => ({
+    ...missing.map((e): Record<string, unknown> => ({
       id: nextId++,
       name: e.title,
       job: e.job ?? '',
@@ -311,6 +313,73 @@ export function migrateV8toV9(data: Record<string, unknown>): Record<string, unk
   return out;
 }
 
+/** v10 遷移要搬的身分欄位。`Npc` 上這些副本已於 v10 移除 */
+const NPC_IDENTITY_FIELDS = [
+  'gender', 'race', 'age', 'job', 'appearance', 'personality', 'backstory', 'other',
+] as const;
+
+/**
+ * v9 → v10：NPC 身分設定只留設定集一份。
+ *
+ * 性別／種族／年齡／職業／外貌／個性／背景／備註原本 `Npc` 與 `LorebookEntry`
+ * 兩邊都有，`NPC_NEW` 還會在同一個區塊裡把同一份值寫進兩邊。但**角色卡的編輯
+ * 只寫設定集那份**（`NpcModal` → `onUpdateLorebook`），所以 `Npc` 上的副本是
+ * 「建檔時寫一次、之後永遠不再更新」——與舊的 `Npc.affectionLabel` 同一個病。
+ *
+ * ⚠️ 搬移方向是 Npc → Lorebook，而且**設定集已有值的欄位不覆蓋**：那與
+ * `resolveNpcProfile` 當時的優先序一致（lore 優先、空字串視為沒填），
+ * 所以遷移前後玩家看到的內容不變。
+ *
+ * 沒有對應設定集條目的 NPC 會補建一條——只有 `npcs[]` 紀錄的角色進不了
+ * prompt（CLAUDE.md 注意事項 20），身分欄位直接刪掉的話那些設定就真的沒了。
+ */
+export function migrateV9toV10(data: Record<string, unknown>): Record<string, unknown> {
+  const out = { ...data };
+  const npcs = Array.isArray(out.npcs) ? (out.npcs as Record<string, unknown>[]) : [];
+  if (npcs.length === 0) return out;
+
+  const entries = Array.isArray(out.lorebookEntries)
+    ? [...(out.lorebookEntries as LorebookEntry[])]
+    : [];
+  let nextId = Math.max(0, ...entries.map(e => Number(e.id) || 0)) + 1;
+
+  const nonEmpty = (v: unknown) => typeof v === 'string' && v.trim() !== '';
+
+  for (const npc of npcs) {
+    const name = npc.name as string;
+    if (!name) continue;
+
+    const idx = entries.findIndex(e => e.category === 'NPC' && e.title === name);
+    const carried: Record<string, string> = {};
+    for (const f of NPC_IDENTITY_FIELDS) {
+      if (nonEmpty(npc[f])) carried[f] = npc[f] as string;
+    }
+
+    if (idx === -1) {
+      entries.push({
+        id: nextId++, title: name, content: '', category: 'NPC', isActive: true,
+        ...carried,
+      } as LorebookEntry);
+    } else {
+      const e = entries[idx] as unknown as Record<string, unknown>;
+      const merged = { ...e };
+      for (const [f, v] of Object.entries(carried)) {
+        if (!nonEmpty(merged[f])) merged[f] = v;   // 設定集已有值就不覆蓋
+      }
+      entries[idx] = merged as unknown as LorebookEntry;
+    }
+  }
+
+  out.lorebookEntries = entries;
+  // 欄位移除。留著只會讓人以為它還是有效來源，然後又寫一份永遠不更新的副本
+  out.npcs = npcs.map(npc => {
+    const rest = { ...npc };
+    for (const f of NPC_IDENTITY_FIELDS) delete rest[f];
+    return rest;
+  });
+  return out;
+}
+
 const MIGRATIONS: Record<number, (d: Record<string, unknown>) => Record<string, unknown>> = {
   0: migrateV0toV1,
   1: migrateV1toV2,
@@ -321,6 +390,7 @@ const MIGRATIONS: Record<number, (d: Record<string, unknown>) => Record<string, 
   6: migrateV6toV7,
   7: migrateV7toV8,
   8: migrateV8toV9,
+  9: migrateV9toV10,
 };
 
 function runMigrations(raw: Record<string, unknown>): Record<string, unknown> {

@@ -3,7 +3,7 @@ import { Users, BookPlus, Pin, Star, Trash2, Lock, ChevronDown, ChevronUp, Edit2
 import { Npc, NpcMemory, LorebookEntry, Faction } from '../types';
 import { affectionColor } from '../utils/affectionColor';
 import { relationText } from '../utils/affectionLabel';
-import { resolveNpcProfile } from '../utils/npcProfile';
+import { resolveNpcProfile, findNpcLore } from '../utils/npcProfile';
 
 const SOURCE_LABEL: Record<NpcMemory['source'], string> = {
   manual:    '手動',
@@ -79,14 +79,16 @@ export const NpcModal: React.FC<NpcModalProps> = ({
     setShowDeleteConfirm(false);
     setActiveTab('info');
     setMemoryPage(0);
-    if (selectedNpc?.name === '新角色' && !selectedNpc.job && !selectedNpc.appearance) {
+    // 判斷「剛建好、還沒填過」——身分欄位在設定集那份上（schema v10）
+    const fresh = findNpcLore(lorebookEntries, selectedNpc?.name ?? '');
+    if (selectedNpc?.name === '新角色' && !fresh?.job && !fresh?.appearance) {
       setIsEditing(true);
       setEditName('新角色');
       // homeLocation 帶入既有值（handleAddNpc 會預設為當前所在地），
       // 不像其他欄位清成空字串——清掉等於把新角色變成 GM 讀不到的狀態
       setEditFields({
         gender: '', race: '', age: '', job: '', appearance: '', personality: '', backstory: '', other: '',
-        homeLocation: lorebookEntries.find(e => e.category === 'NPC' && e.title === selectedNpc.name)?.homeLocation ?? '',
+        homeLocation: findNpcLore(lorebookEntries, selectedNpc.name)?.homeLocation ?? '',
       });
     } else {
       setIsEditing(false);
@@ -107,10 +109,10 @@ export const NpcModal: React.FC<NpcModalProps> = ({
 
   if (!selectedNpc) return null;
 
-  const lore = lorebookEntries.find(e => e.category === 'NPC' && e.title === selectedNpc.name);
+  const lore = findNpcLore(lorebookEntries, selectedNpc.name);
   // 與 promptBuilder 共用同一個解析入口，確保「玩家看到的」等於「AI 讀到的」。
   // 先前兩邊各寫各的：這裡會 fallback 到 Npc、promptBuilder 只讀設定集條目
-  const profile = resolveNpcProfile(selectedNpc, lore);
+  const profile = resolveNpcProfile(lore);
   // 設定集裡已建立的地點，供「主場地點」下拉選單使用
   const knownLocations = lorebookEntries
     .filter(e => e.category === '地點')

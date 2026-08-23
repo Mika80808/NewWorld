@@ -658,14 +658,12 @@ export const LorebookModal: React.FC<LorebookModalProps> = ({
           const relationship = npcData?.relationship ?? '';
 
           const handleCardClick = () => {
+            // 只帶執行狀態。身分欄位角色卡自己會從設定集查（schema v10 起
+            // Npc 上沒有那些欄位了），這裡不需要也不能再複製一份
             const fallbackNpc: Npc = {
               id: -(entry.id),
               name: entry.title,
-              job: entry.job ?? '',
               affection: 0,
-              appearance: entry.appearance ?? '',
-              personality: entry.personality ?? '',
-              other: entry.other ?? '',
               isPinned: false,
               memories: [],
               thoughts: [],
@@ -695,7 +693,7 @@ export const LorebookModal: React.FC<LorebookModalProps> = ({
 
                   {/* 中：職業 */}
                   <span className="text-sm overflow-hidden flex-1 whitespace-nowrap text-ellipsis" style={{ color: 'var(--text-main)' }}>
-                    {entry.job ?? npcData?.job ?? ''}
+                    {entry.job ?? ''}
                   </span>
 
                   {/* 右：好感度 */}

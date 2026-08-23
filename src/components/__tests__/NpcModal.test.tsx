@@ -9,19 +9,24 @@ import { Npc, LorebookEntry } from '../../types';
 const makeNpc = (overrides: Partial<Npc> = {}): Npc => ({
   id: 1,
   name: '芬里爾',
-  job: '獵人',
   affection: 70,
-  appearance: '銀髮高挑',
-  personality: '冷靜寡言',
   category: 'NPC',
   isActive: true,
   memories: [],
   ...overrides,
 });
 
-/** 「新角色」的定義：名字是新角色，且 job / appearance 都還沒填 */
+/**
+ * 「新角色」的定義：名字是新角色，且**設定集條目上的** job / appearance
+ * 都還沒填。身分欄位 schema v10 起只在設定集那份上，不在 Npc 上。
+ */
 const makeBlankNpc = (overrides: Partial<Npc> = {}): Npc =>
-  makeNpc({ id: 99, name: '新角色', job: '', appearance: '', personality: '', affection: 0, ...overrides });
+  makeNpc({ id: 99, name: '新角色', affection: 0, ...overrides });
+
+const blankLore = (over: Partial<LorebookEntry> = {}): LorebookEntry => ({
+  id: 1, title: '新角色', category: 'NPC', content: '', isActive: true,
+  job: '', appearance: '', personality: '', ...over,
+});
 
 const noopProps = {
   lorebookEntries: [] as LorebookEntry[],
@@ -64,8 +69,14 @@ describe('NpcModal — 切換 NPC 時的重置（render 期間比對 prevNpcId�
   });
 
   // 名字叫「新角色」但已經有資料的（例如玩家建完沒改名），不該每次開啟都跳進編輯模式
-  it('名為「新角色」但已有 job／appearance 時不進入編輯模式', () => {
-    render(<NpcModal {...noopProps} selectedNpc={makeBlankNpc({ job: '鐵匠' })} />);
+  it('名為「新角色」但設定集已填 job 時不進入編輯模式', () => {
+    render(
+      <NpcModal
+        {...noopProps}
+        lorebookEntries={[blankLore({ job: '鐵匠' })]}
+        selectedNpc={makeBlankNpc()}
+      />
+    );
     expect(isEditing()).toBe(false);
   });
 

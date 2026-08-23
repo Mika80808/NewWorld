@@ -527,18 +527,12 @@ export function reduceCommands(
         const name = cmd.parsed.name as string;
         // 已存在則不重複建立
         if (workingNpcs.some(n => n.name === name)) break;
+        // 只建執行狀態。身分設定寫在下面的設定集條目，那是唯一來源
+        // （先前這裡也寫一份，但角色卡的編輯只改設定集，於是這份永遠停在建檔當下）
         const newNpc: Npc = {
           id: Math.max(...workingNpcs.map(n => n.id), 0) + 1,
           name,
-          job: cmd.parsed.job as string || '',
           affection: 0,
-          appearance: cmd.parsed.appearance as string || '',
-          personality: cmd.parsed.personality as string || '',
-          gender: cmd.parsed.gender as string || '',
-          race: cmd.parsed.race as string || '',
-          age: cmd.parsed.age as string || '',
-          backstory: cmd.parsed.backstory as string || '',
-          other: cmd.parsed.other as string || '',
           category: '登場人物',
           isActive: true,
           memories: [],

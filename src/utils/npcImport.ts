@@ -373,18 +373,11 @@ export function mergeImportedNpcs(
       importance: 'normal',
     }));
 
+    // 只建執行狀態。身分欄位寫進下面的設定集條目——那是唯一來源（schema v10）
     newNpcs.push({
       id: nextNpcId++,
       name: src.name,
-      job: src.job ?? '',
       affection: src.affection ?? 0,
-      appearance: src.appearance ?? '',
-      personality: src.personality ?? '',
-      gender: src.gender,
-      race: src.race,
-      age: src.age,
-      backstory: src.backstory,
-      other: src.other,
       relationship: src.relationship || undefined,
       location: src.homeLocation || undefined,
       isPinned: src.isPinned,
@@ -480,14 +473,15 @@ export function buildNpcExport(
         | 'personality' | 'backstory' | 'other' | 'relationship' | 'homeLocation';
       const put = (k: StrKey, v: string) => { if (v) out[k] = v; };
 
-      put('gender', pick(lore?.gender, n.gender));
-      put('race', pick(lore?.race, n.race));
-      put('age', pick(lore?.age, n.age));
-      put('job', pick(lore?.job, n.job));
-      put('appearance', pick(lore?.appearance, n.appearance));
-      put('personality', pick(lore?.personality, n.personality));
-      put('backstory', pick(lore?.backstory, n.backstory));
-      put('other', pick(lore?.other, n.other));
+      // 身分欄位只從設定集條目取——schema v10 起 Npc 上沒有這些欄位了
+      put('gender', pick(lore?.gender));
+      put('race', pick(lore?.race));
+      put('age', pick(lore?.age));
+      put('job', pick(lore?.job));
+      put('appearance', pick(lore?.appearance));
+      put('personality', pick(lore?.personality));
+      put('backstory', pick(lore?.backstory));
+      put('other', pick(lore?.other));
       put('relationship', pick(n.relationship, ''));
       put('homeLocation', pick(lore?.homeLocation, n.location));
 

@@ -223,7 +223,8 @@ describe('migrateV5toV6 — 補建缺少的 npcs[] 紀錄', () => {
     const d = run([{ id: 1, title: '凱爾', category: 'NPC', content: '', isActive: true, job: '嚮導' }]);
     const kyle = d.npcs.find(n => n.name === '凱爾');
     expect(kyle).toBeDefined();
-    expect(kyle!.job).toBe('嚮導');
+    // 身分欄位留在設定集條目上（schema v10），不再複製到 npcs[]
+    expect(kyle).not.toHaveProperty('job');
     expect(kyle!.affection).toBe(0);
     expect(kyle!.memories).toEqual([]);
   });
@@ -255,16 +256,26 @@ describe('migrateV5toV6 — 補建缺少的 npcs[] 紀錄', () => {
     expect(d.npcs).toHaveLength(0);
   });
 
-  it('設定集的身分欄位一併帶過去（GM 讀得到的那幾個）', () => {
+  /**
+   * v5→v6 當年會把設定集的身分欄位複製一份到新建的 `npcs[]` 紀錄上。
+   * schema v10 之後身分欄位的唯一來源就是設定集，那份副本會被 v9→v10 摺回去，
+   * 所以這裡改成釘住「紀錄建起來了，而設定仍在設定集那邊」。
+   */
+  it('補建紀錄後，身分設定仍留在設定集條目上', () => {
     const d = run([{
       id: 1, title: '凱爾', category: 'NPC', content: '', isActive: true,
       gender: '女', race: '人類', appearance: '淺棕色短髮', personality: '活潑',
     }]);
     const kyle = d.npcs.find(n => n.name === '凱爾')!;
-    expect(kyle.gender).toBe('女');
-    expect(kyle.race).toBe('人類');
-    expect(kyle.appearance).toBe('淺棕色短髮');
-    expect(kyle.personality).toBe('活潑');
+    expect(kyle).toBeDefined();
+    expect(kyle.affection).toBe(0);
+    expect(kyle).not.toHaveProperty('gender');
+
+    const lore = d.lorebookEntries.find(e => e.category === 'NPC' && e.title === '凱爾')!;
+    expect(lore.gender).toBe('女');
+    expect(lore.race).toBe('人類');
+    expect(lore.appearance).toBe('淺棕色短髮');
+    expect(lore.personality).toBe('活潑');
   });
 
   it('已是最新版的存檔不受影響', () => {
@@ -395,5 +406,86 @@ describe('migrateV8toV9 — 道具說明收斂到圖鑑', () => {
 
   it('沒有道具的存檔不會壞掉', () => {
     expect(() => run({})).not.toThrow();
+  });
+});
+
+// v9 → v10：NPC 身分設定只留設定集一份。
+// 性別／種族／年齡／職業／外貌／個性／背景／備註原本兩邊都有，NPC_NEW 還會在
+// 同一個區塊裡把同一份值寫進兩邊。但角色卡的編輯只寫設定集那份，所以 Npc 上的
+// 副本是「建檔時寫一次、之後永遠不再更新」——與舊的 Npc.affectionLabel 同病。
+describe('migrateV9toV10 — NPC 身分設定收斂到設定集', () => {
+  const run = (npcs: Record<string, unknown>[], entries: Record<string, unknown>[] = []) =>
+    saveDataMapper({ schemaVersion: 9, npcs, lorebookEntries: entries });
+
+  const legacyNpc = (over: Record<string, unknown> = {}) => ({
+    id: 1, name: '芬里爾', affection: 60, category: 'NPC', isActive: true, memories: [] as unknown[],
+    gender: '男', race: '精靈', job: '獵人', appearance: '銀髮高挑', personality: '冷靜寡言',
+    ...over,
+  });
+
+  it('Npc 上的身分欄位被移除', () => {
+    const d = run([legacyNpc()]);
+    const npc = d.npcs[0] as unknown as Record<string, unknown>;
+    for (const f of ['gender', 'race', 'age', 'job', 'appearance', 'personality', 'backstory', 'other']) {
+      expect(npc).not.toHaveProperty(f);
+    }
+    // 執行狀態原封不動
+    expect(d.npcs[0]).toMatchObject({ name: '芬里爾', affection: 60 });
+  });
+
+  it('沒有設定集條目時補建一條，設定不會消失', () => {
+    const d = run([legacyNpc()]);
+    const lore = d.lorebookEntries.find(e => e.category === 'NPC' && e.title === '芬里爾')!;
+    expect(lore.gender).toBe('男');
+    expect(lore.job).toBe('獵人');
+    expect(lore.appearance).toBe('銀髮高挑');
+  });
+
+  /**
+   * 搬移方向是 Npc → Lorebook，且**設定集已有值的欄位不覆蓋**——那與
+   * `resolveNpcProfile` 當時的優先序一致（設定集優先），所以遷移前後
+   * 玩家看到的內容不變。
+   */
+  it('設定集已有值時不被 Npc 上的舊副本覆蓋', () => {
+    const d = run(
+      [legacyNpc({ job: '建檔當下的舊職業' })],
+      [{ id: 1, title: '芬里爾', category: 'NPC', content: '', isActive: true, job: '玩家後來改的職業' }],
+    );
+    const lore = d.lorebookEntries.find(e => e.title === '芬里爾')!;
+    expect(lore.job).toBe('玩家後來改的職業');
+  });
+
+  it('設定集缺的欄位才由 Npc 補上', () => {
+    const d = run(
+      [legacyNpc()],
+      [{ id: 1, title: '芬里爾', category: 'NPC', content: '', isActive: true, job: '玩家改過的' }],
+    );
+    const lore = d.lorebookEntries.find(e => e.title === '芬里爾')!;
+    expect(lore.job).toBe('玩家改過的');      // 已有 → 不動
+    expect(lore.gender).toBe('男');            // 缺 → 補
+  });
+
+  /** 空字串等於沒填，不該把設定集裡真正有值的欄位蓋成空的 */
+  it('Npc 上的空字串不會蓋掉設定集的值', () => {
+    const d = run(
+      [legacyNpc({ gender: '', job: '   ' })],
+      [{ id: 1, title: '芬里爾', category: 'NPC', content: '', isActive: true, gender: '女', job: '鐵匠' }],
+    );
+    const lore = d.lorebookEntries.find(e => e.title === '芬里爾')!;
+    expect(lore.gender).toBe('女');
+    expect(lore.job).toBe('鐵匠');
+  });
+
+  it('補建的條目 id 不與既有條目撞號', () => {
+    const d = run(
+      [legacyNpc({ name: '萊尼' })],
+      [{ id: 7, title: '月湖鎮', category: '地點', content: '', isActive: true }],
+    );
+    const ids = d.lorebookEntries.map(e => e.id);
+    expect(new Set(ids).size).toBe(ids.length);
+  });
+
+  it('沒有 NPC 的存檔不會壞掉', () => {
+    expect(() => run([])).not.toThrow();
   });
 });

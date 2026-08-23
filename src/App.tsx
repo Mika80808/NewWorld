@@ -949,10 +949,9 @@ ${poolText}
 
   const handleAddNpc = () => {
     const newId = Date.now();
+    // 身分欄位一律寫在下面的設定集條目（唯一來源），這裡只建執行狀態
     const newNpc: Npc = {
-      id: newId, name: '新角色', job: '', affection: 0,
-      appearance: '', personality: '', gender: '', race: '',
-      backstory: '', other: '', relationship: '',
+      id: newId, name: '新角色', affection: 0, relationship: '',
       location: '', lastSeenLocation: '',
       category: 'NPC', isActive: true, isPinned: false, memories: [], thoughts: [],
     };
@@ -1393,20 +1392,17 @@ ${poolText}
       return;
     }
 
+    // 身分欄位不從 npc 複製——它們的唯一來源就是設定集條目本身（schema v10）。
+    // 走到這裡代表這個角色還沒有條目，所以本來就沒有設定可搬；建一張空白的
+    // 給玩家在角色卡上填。
     const newId = lorebookEntries.length > 0 ? Math.max(...lorebookEntries.map(e => e.id)) + 1 : 1;
-    const newEntry = {
+    const newEntry: LorebookEntry = {
       id: newId,
       title: npc.name,
-      gender: npc.gender,
-      race: npc.race,
-      backstory: npc.backstory,
-      job: npc.job,
-      appearance: npc.appearance,
-      personality: npc.personality,
-      other: npc.other,
       category: 'NPC',
       isActive: true,
-      content: ''
+      content: '',
+      homeLocation: currentLocation,
     };
     
     setLorebookEntries(prev => [newEntry, ...prev]);
@@ -2126,7 +2122,7 @@ ${recentContext}
             )}
           </AnimatePresence>
 
-          <PinnedNpcsWidget npcs={npcs} onSelectNpc={setSelectedNpc} />
+          <PinnedNpcsWidget npcs={npcs} lorebookEntries={lorebookEntries} onSelectNpc={setSelectedNpc} />
 
           <div className="flex-1"></div>
 
@@ -2767,7 +2763,7 @@ ${recentContext}
                   </AnimatePresence>
                 </div>
 
-                <PinnedNpcsWidget npcs={npcs} onSelectNpc={setSelectedNpc} />
+                <PinnedNpcsWidget npcs={npcs} lorebookEntries={lorebookEntries} onSelectNpc={setSelectedNpc} />
 
                 <QuickLinksGrid
                   onOpenProfile={() => setIsProfileModalOpen(true)}

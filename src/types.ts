@@ -97,18 +97,22 @@ export interface NpcMemory {
   isNew?: boolean;
 }
 
+/**
+ * NPC 的**執行狀態**：好感度、記憶庫、足跡、釘選、勢力歸屬。
+ *
+ * ⚠️ 身分設定（性別／種族／年齡／職業／外貌／個性／背景／備註）**不在這裡**，
+ * 唯一來源是設定集的 NPC 條目（`LorebookEntry`），讀取一律走
+ * `utils/npcProfile.resolveNpcProfile()`。
+ *
+ * 先前這些欄位兩邊都有，而且 `NPC_NEW` 會在同一個區塊裡把同一份值寫進兩邊。
+ * 但**角色卡的編輯只寫設定集那份**（`NpcModal` → `onUpdateLorebook`），
+ * 所以 `Npc` 上的副本是「建檔時寫一次、之後永遠不再更新」——與舊的
+ * `Npc.affectionLabel` 同一個病。schema v10 移除。
+ */
 export interface Npc {
   id: number;
   name: string;
-  job: string;
   affection: number;
-  appearance: string;
-  personality: string;
-  gender?: string;
-  race?: string;
-  age?: string;
-  backstory?: string;
-  other?: string;
   relationship?: string;
   location?: string;
   lastSeenLocation?: string;

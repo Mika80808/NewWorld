@@ -299,8 +299,7 @@ describe('buildPrompt — {{user}} 佔位符替換', () => {
 // 完全沒有好感度或關係——NPC 沒有依據判斷該怎麼對待玩家。
 describe('buildPrompt — NPC 對玩家的態度', () => {
   const npc = (over: Partial<Npc> = {}): Npc => ({
-    id: 1, name: '芬里爾', job: '獵人', affection: 90,
-    appearance: '銀髮高挑', personality: '冷靜寡言',
+    id: 1, name: '芬里爾', affection: 90,
     category: 'NPC', isActive: true, memories: [],
     ...over,
   });
@@ -355,12 +354,13 @@ describe('buildPrompt — NPC 對玩家的態度', () => {
 // 玩家回報「人物設定寫女的，故事裡變成男的」。兩個獨立成因，各釘一條。
 describe('buildPrompt NPC 性別注入', () => {
   const npc = (over: Partial<Npc> = {}): Npc => ({
-    id: 1, name: '凱爾', job: '嚮導', affection: 10,
-    appearance: '', personality: '', category: 'NPC', isActive: true, memories: [], ...over,
+    id: 1, name: '凱爾', affection: 10,
+    category: 'NPC', isActive: true, memories: [], ...over,
   });
+  // 職業從 Npc 搬到這裡：身分欄位的唯一來源是設定集條目（schema v10）
   const loreNpc = (over: Partial<LorebookEntry> = {}): LorebookEntry => ({
     id: 1, title: '凱爾', content: '', category: 'NPC', isActive: true,
-    homeLocation: '月湖鎮', ...over,
+    job: '嚮導', homeLocation: '月湖鎮', ...over,
   });
   const build = (over: Partial<BuildPromptDeps>) =>
     buildPrompt({ ...deps([], () => false), ...over }, '測試輸入', messages).prompt;
@@ -381,33 +381,58 @@ describe('buildPrompt NPC 性別注入', () => {
 
   it('候選名單在完全沒有身分資訊時只印名字，不留空括號', () => {
     const prompt = build({
-      npcs: [npc({ job: '' })],
-      lorebookEntries: [loreNpc()],
+      npcs: [npc()],
+      lorebookEntries: [loreNpc({ job: '' })],
     });
     expect(prompt).toContain('凱爾\n以上為可能在場的角色');
     expect(prompt).not.toContain('凱爾（）');
   });
 
   /**
-   * 第二個成因：[Scene Lorebook] 先前只讀設定集條目的 gender，
-   * 而角色卡顯示時會退回 Npc.gender——玩家看到「女」，AI 拿到空字串。
+   * 第二個成因：[Scene Lorebook] 先前只讀設定集條目的 gender，而角色卡顯示時
+   * 會退回 `Npc.gender`——玩家看到「女」，AI 拿到空字串，於是自己編一個。
+   *
+   * 當時的修法是統一走 `resolveNpcProfile`（雙來源、設定集優先）。schema v10
+   * 起連資料本身也收成一份：身分欄位只在設定集條目上，`Npc` 沒有那些欄位了，
+   * 所以「兩邊不一致」在型別層面就不可能發生。這兩條改成釘住
+   * 「設定集的值會出現在 prompt 裡」。
    */
-  it('[Scene Lorebook] 在設定集沒填性別時退回 Npc.gender', () => {
+  it('[Scene Lorebook] 性別來自設定集條目', () => {
     const prompt = build({
-      npcs: [npc({ gender: '女' })],
+      npcs: [npc()],
       appearingNpcs: ['凱爾'],
-      lorebookEntries: [loreNpc({ gender: '' })],
+      lorebookEntries: [loreNpc({ gender: '女' })],
     });
     expect(prompt).toContain('[NPC] 凱爾｜性別：女');
   });
 
-  it('[Pinned NPCs] 同樣會退回 Npc.gender', () => {
+  /**
+   * 釘選的 NPC 若有設定集條目，會走 [Scene Lorebook]（見 promptBuilder 的
+   * `relevantLorebookNpcTitles` 去重）。所以 [Pinned NPCs] 這一段實際上只會
+   * 收到**沒有設定集條目**的角色——而 schema v10 之後那種角色身上沒有任何
+   * 身分欄位可印，只剩名字與好感度。
+   *
+   * ⚠️ 正常流程不會產生這種角色：v9→v10 遷移會替每個 Npc 補一條設定集條目，
+   * `NPC_NEW` / `handleAddNpc` / `mergeImportedNpcs` 也都是兩份一起建
+   * （CLAUDE.md 注意事項 20）。這條釘的是「即使真的缺條目也不要壞掉」。
+   */
+  it('[Pinned NPCs] 收的是沒有設定集條目的釘選角色，只印得出名字', () => {
     const prompt = build({
-      npcs: [npc({ gender: '女', isPinned: true })],
+      npcs: [npc({ isPinned: true })],
       lorebookEntries: [],
     });
     expect(prompt).toContain('[Pinned NPCs]');
-    expect(prompt).toContain('凱爾（女・嚮導）');
+    expect(prompt).toContain('凱爾');
+    expect(prompt).not.toContain('凱爾（）');
+  });
+
+  it('釘選角色有設定集條目時改走 [Scene Lorebook]，不重複出現在兩段', () => {
+    const prompt = build({
+      npcs: [npc({ isPinned: true })],
+      lorebookEntries: [loreNpc({ gender: '女' })],
+    });
+    expect(prompt).toContain('[NPC] 凱爾｜性別：女');
+    expect(prompt).not.toContain('[Pinned NPCs]');
   });
 });
 
@@ -420,8 +445,8 @@ describe('buildPrompt NPC 性別注入', () => {
 // 永遠過不了 inScene → GM 讀不到那個角色的任何設定。
 describe('buildPrompt NPC 候選名單的來源', () => {
   const npc = (over: Partial<Npc> = {}): Npc => ({
-    id: 1, name: '凱爾', job: '嚮導', affection: 10,
-    appearance: '', personality: '', category: 'NPC', isActive: true, memories: [], ...over,
+    id: 1, name: '凱爾', affection: 10,
+    category: 'NPC', isActive: true, memories: [], ...over,
   });
   const loreNpc = (over: Partial<LorebookEntry> = {}): LorebookEntry => ({
     id: 1, title: '凱爾', content: '', category: 'NPC', isActive: true, ...over,
@@ -534,8 +559,8 @@ describe('buildPrompt 助理 GM 設定集提示（loreHints）', () => {
 // （歷史／物品／怪物）都靠關鍵字掃最近對話觸發，只有 NPC 拿不到這個待遇。
 describe('buildPrompt 提及不在場的角色', () => {
   const npc = (over: Partial<Npc> = {}): Npc => ({
-    id: 1, name: '凱爾', job: '嚮導', affection: 30,
-    appearance: '淺棕色短髮', personality: '活潑', category: 'NPC', isActive: true, memories: [], ...over,
+    id: 1, name: '凱爾', affection: 30,
+    category: 'NPC', isActive: true, memories: [], ...over,
   });
   const loreNpc = (over: Partial<LorebookEntry> = {}): LorebookEntry => ({
     id: 1, title: '凱爾', content: '', category: 'NPC', isActive: true,
@@ -680,8 +705,8 @@ describe('buildPrompt 勢力與關係鏈', () => {
     isActive: true, ...over,
   });
   const npc = (over: Partial<Npc> = {}): Npc => ({
-    id: 1, name: '芬里爾', job: '獵人', affection: 10,
-    appearance: '', personality: '', category: 'NPC', isActive: true, memories: [], ...over,
+    id: 1, name: '芬里爾', affection: 10,
+    category: 'NPC', isActive: true, memories: [], ...over,
   });
   const build = (input: string, over: Partial<BuildPromptDeps>) =>
     buildPrompt({ ...deps([], () => false), ...over }, input, messages).prompt;
