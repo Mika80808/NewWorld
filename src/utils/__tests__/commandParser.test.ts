@@ -241,3 +241,63 @@ describe('parseCommandsToAST — 參數防衛', () => {
     expect(commands[0]).toMatchObject({ type: 'GOLD', parsed: { value: 10 } });
   });
 });
+
+// ─── 開閉標記畸形（實際回報） ────────────────────────────────────────────────
+// 玩家回報「AI 輸出的開頭會出現 >>，沒遮蔽到」。模型把 `<<COMMANDS>>` 打成
+// `<<COMMANDS`、收尾只給 `>>`。看得見的是那個 `>>`（markdown 當成引言區塊），
+// 看不見的更嚴重：整個區塊比不到 → 落到裸指令 fallback → 那條路當時只認
+// legacy 冒號格式，`TIME|` 與 `LOCATION|` 兩條**靜默消失**，
+// 該回合的時間與地點完全沒有推進。
+describe('parseCommandsToAST — 畸形的開閉標記', () => {
+  const raw = [
+    '離開了湖畔詩社溫暖的營火。',
+    '',
+    '<<COMMANDS',
+    'TIME|delta=+45m',
+    'ITEM_ADD|name=霧光花|qty=1|desc=一朵散發淡淡藍光的乾花。',
+    'LOCATION|name=鐘塔荒野',
+    'NPC_NEW|name=埃里克|race=人類|gender=男|job=衛兵',
+    'MEMORY_ADD|type=scene|importance=normal|content=前往鐘塔荒野。|locations=鐘塔荒野',
+    '>>',
+  ].join('\n');
+
+  it('開頭少了 >>、收尾只有 >> 時仍解析得到全部指令', () => {
+    const { commands } = parseCommandsToAST(raw);
+    const types = commands.map(c => c.type);
+    expect(types).toContain('TIME');
+    expect(types).toContain('LOCATION');
+    expect(types).toContain('ITEM_ADD');
+    expect(types).toContain('NPC_NEW');
+    expect(types).toContain('MEMORY_ADD');
+  });
+
+  /** TIME 是 prompt 明訂每回應必須輸出的指令，丟掉＝遊戲時鐘停擺且無跡象 */
+  it('TIME 的分鐘數正確帶出來', () => {
+    const { commands } = parseCommandsToAST(raw);
+    expect(commands.find(c => c.type === 'TIME')?.parsed.minutes).toBe(45);
+  });
+
+  it('敘事裡不留下 >> 殘骸', () => {
+    const { narrative } = parseCommandsToAST(raw);
+    expect(narrative).not.toContain('>>');
+    expect(narrative).not.toContain('<<COMMANDS');
+    expect(narrative.trim()).toBe('離開了湖畔詩社溫暖的營火。');
+  });
+
+  /**
+   * ⚠️ 先嚴後寬：指令參數裡帶 `>>` 時（desc 寫了箭頭），
+   * 寬鬆版的惰性比對會提早收尾。標記完好時必須走嚴格版。
+   */
+  it('標記完好時不受寬鬆比對影響，參數裡的 >> 不會截斷後面的指令', () => {
+    const ok = [
+      '敘事。',
+      '<<COMMANDS>>',
+      'ITEM_ADD|name=指路石|qty=1|desc=刻著 >> 的石頭',
+      'TIME|delta=+10m',
+      '<</COMMANDS>>',
+    ].join('\n');
+    const { commands, narrative } = parseCommandsToAST(ok);
+    expect(commands.map(c => c.type)).toEqual(['ITEM_ADD', 'TIME']);
+    expect(narrative.trim()).toBe('敘事。');
+  });
+});
