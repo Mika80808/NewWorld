@@ -8,10 +8,7 @@ import { Npc } from '../../types';
 const npc = (name: string, over: Partial<Npc> = {}): Npc => ({
   id: Math.floor(Math.random() * 1e6),
   name,
-  job: '獵人',
   affection: 30,
-  appearance: '',
-  personality: '',
   category: 'NPC',
   isActive: true,
   memories: [],

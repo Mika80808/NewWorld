@@ -436,7 +436,7 @@ Personality: ${profile.personality}${profile.other ? `\nOther: ${profile.other}`
     // 故事裡是男的」。性別與種族只多幾個字，遠比事後救回便宜。
     `[當前場景可能出現的角色]\n${npcCandidates.length > 0
       ? npcCandidates.map(e => {
-          const brief = npcIdentityBrief(npcs.find(n => n.name === e.title), e)
+          const brief = npcIdentityBrief(e)
           return brief ? `${e.title}（${brief}）` : e.title
         }).join('、') + '\n以上為可能在場的角色，非必須出場。若故事需要新角色請自由創造。'
       : '無已知角色在附近。若故事需要新角色請自由創造。'}`,
@@ -461,10 +461,10 @@ Personality: ${profile.personality}${profile.other ? `\nOther: ${profile.other}`
         memoriesText = `｜[記憶庫] ${toInject.map(m => `(${m.createdAt})${m.text}`).join(' / ')}`
       }
     }
-    // 欄位一律走 resolveNpcProfile：設定集條目沒填時退回 Npc 那份。
+    // 欄位一律走 resolveNpcProfile：身分設定的唯一來源是設定集條目。
     // 先前只讀 e.*，但角色卡顯示時是有 fallback 的——玩家看到「女」，
     // AI 拿到空字串，於是自己編一個性別出來
-    const prof = resolveNpcProfile(npcData, e)
+    const prof = resolveNpcProfile(e)
     const raceText = prof.race ? `｜種族：${prof.race}` : ''
     const ageText = prof.age ? `｜年齡：${prof.age}` : ''
     const backstoryText = (npcData?.affection ?? 0) >= 20 && prof.backstory ? `｜背景：${prof.backstory}` : ''
@@ -490,7 +490,7 @@ Personality: ${profile.personality}${profile.other ? `\nOther: ${profile.other}`
           return `[${e.category}] ${e.title}：${e.content}`
         }
         const npcData = npcs.find(n => n.name === e.title)
-        const prof = resolveNpcProfile(npcData, e)
+        const prof = resolveNpcProfile(e)
         const where = npcData?.lastSeenLocation ? `｜最後出現於：${npcData.lastSeenLocation}` : ''
         const rel = npcData
           ? `｜對玩家：${relationText(npcData.relationship, npcData.affection)}（好感度 ${npcData.affection}）`
@@ -525,7 +525,7 @@ Personality: ${profile.personality}${profile.other ? `\nOther: ${profile.other}`
   return (() => {
     const lorePinned = lorebookEntries.find(e => e.category === 'NPC' && e.title === n.name)
     // 同 [Scene Lorebook]：設定集沒填時退回 Npc 那份，避免與角色卡顯示的不一致
-    const profPinned = resolveNpcProfile(n, lorePinned)
+    const profPinned = resolveNpcProfile(lorePinned)
     const genderPinned = profPinned.gender ? `${profPinned.gender}・` : ''
     const racePinned = profPinned.race ? `種族：${profPinned.race}｜` : ''
     const agePinned = profPinned.age ? `年齡：${profPinned.age}｜` : ''
@@ -534,7 +534,12 @@ Personality: ${profile.personality}${profile.other ? `\nOther: ${profile.other}`
     const factionPinned = getNpcFactionText(n.factionIds)
     // 原本只給裸數字，模型得自己猜 37 分算friendly還是冷淡；補上語意標籤與明確關係
     const relPinned = relationText(n.relationship, n.affection)
-    const lines: string[] = [`- ${n.name}（${genderPinned}${jobPinned}）${racePinned}${agePinned}對玩家：${relPinned}（好感度 ${n.affection}）${backstoryPinned}${factionPinned}${thoughtsText}`]
+    // 兩者都沒有時整組括號省略，不要輸出「凱爾（）」——這一段收的是**沒有
+    // 設定集條目**的釘選角色（有條目的會走 [Scene Lorebook]），身分欄位
+    // schema v10 起只存在條目上，所以這裡拿到空值是正常情況而非異常
+    const identPinned = `${genderPinned}${jobPinned}`
+    const namePinned = identPinned ? `${n.name}（${identPinned}）` : n.name
+    const lines: string[] = [`- ${namePinned}${racePinned}${agePinned}對玩家：${relPinned}（好感度 ${n.affection}）${backstoryPinned}${factionPinned}${thoughtsText}`]
     // 好感度 ≥ 60 且有記憶才注入
     if (n.affection >= 60 && n.memories && n.memories.length > 0) {
       const MAX_NORMAL = 5
@@ -636,7 +641,10 @@ NPC_RELATION|npc=NPC名|type=family/ally/rival/enemy/acquaintance/romantic|targe
 - TIME：每次回應必須輸出。依行動性質推進。
 - ITEM_ADD：玩家獲得道具時。說明需詳細描述外觀與效果（玩家使用時 AI 依此生成劇情）。若道具已列於【已知物品】清單，name 必須沿用完全相同的名稱（勿創同義新名），desc 可省略（系統自動沿用圖鑑既有定義）。
 - ITEM_USE：玩家主動使用道具時（前端扣數量）。ITEM_REMOVE：道具消耗/丟失。
-- QUEST_ADD：NPC 正式委託或玩家接布告欄任務時。後四欄可留空。
+- QUEST_ADD：NPC 正式委託或玩家接布告欄任務時。
+  **giver 與 gold 必填**：giver 寫委託人姓名（布告欄、公會等無名委託寫來源名稱），
+  gold 依任務難度給一個合理數字。這兩欄玩家在任務欄看得到，留空會顯示成「—」與「無」。
+  items（額外的物品報酬）與 deadline（天數）沒有就省略該欄，不要填空值。
 - QUEST_GOAL_MET：玩家已完成目標但未回報時靜默輸出（前端標記「待回報」）。
 - QUEST_COMPLETE：玩家向委託人回報結案時。
 - QUEST_GOAL_MET / QUEST_COMPLETE 的 id 必須**原樣抄寫**【進行中任務】清單裡該任務前面的短 ID（例如清單寫「#k3p 找回失竊的聖遺物」，就輸出 id=k3p）。

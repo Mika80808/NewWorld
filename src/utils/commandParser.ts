@@ -13,6 +13,33 @@
 
 export const COMMANDS_VERSION = 'v1';
 
+/**
+ * 所有已知的指令名稱——**指令詞彙的唯一來源**。
+ *
+ * ⚠️ 這份清單原本存在三個地方各寫各的：這裡的 `extractBareCommands`、
+ * `markdownParser` 的 `CMD_NAMES`、以及下方 `parseSingleCommand` 的 switch。
+ * 前兩者一旦漏掉某個指令名，症狀是**靜默的**：
+ *
+ * - 漏在 `extractBareCommands`：COMMANDS 區塊格式跑掉而落到 fallback 時，
+ *   那條指令直接消失。實際發生過——這裡原本只認 legacy 的 `TIME:` / `LOCATION:`
+ *   冒號寫法，pipe 格式的 `TIME|delta=+45m` 一條都比不到，
+ *   於是「模型把 `<<COMMANDS>>` 打成 `<<COMMANDS`」的那一輪，
+ *   時間與地點完全沒有推進，而且沒有任何 log
+ * - 漏在 `markdownParser`：那條指令會原封不動印在故事裡給玩家看
+ *
+ * 新增指令時只改這裡。
+ */
+export const COMMAND_NAMES = [
+  'STAT', 'HP', 'MP', 'GOLD', 'AFFINITY', 'LOCATION', 'TIME',
+  'ITEM_ADD', 'ITEM_REMOVE', 'ITEM_USE',
+  'QUEST_ADD', 'QUEST_GOAL_MET', 'QUEST_COMPLETE',
+  'NPC_NEW', 'NPC_HOME', 'NPC_LOCATION', 'NPC_THOUGHT',
+  'NPC_RELATIONSHIP', 'NPC_RELATION',
+  'LOCATION_DISCOVER', 'MEMORY_ADD',
+  'STATUS_ADD', 'STATUS_REMOVE', 'STATUS_CLEAR',
+  'FACTION_NEW', 'FACTION_JOIN', 'FACTION_RELATION',
+] as const;
+
 export interface CommandAST {
   type: string;
   raw: string;
@@ -98,11 +125,27 @@ export function parseCommandsToAST(rawText: string): ParseResult {
   // 結尾容忍 <</COMMANDS>> 與 </COMMANDS>> 兩種寫法；
   // 舊 regex 只吃掉 </COMMANDS>>，殘留的 < 會被誤解析成一條 UNKNOWN 指令
   const commandBlockRegex = /<<COMMANDS>>([\s\S]*?)<{1,2}\/COMMANDS>>/i;
-  const blockMatch = rawText.match(commandBlockRegex);
+
+  /**
+   * 寬鬆版：開頭的 `>>` 可省、結尾接受單獨一行的 `>>`。
+   *
+   * ⚠️ **先嚴後寬**，不要直接把寬鬆版當唯一 regex：指令參數裡可能帶 `>>`
+   * （例如 desc 寫了箭頭），惰性比對會提早收尾而截掉後半段指令。
+   * 嚴格版比中時代表標記完好，就不必冒這個險。
+   *
+   * 這條 fallback 是實際踩到的：模型把 `<<COMMANDS>>` 打成 `<<COMMANDS`、
+   * 收尾只給 `>>`，整個區塊比不到，於是落到裸指令 fallback；那條路當時
+   * 只認 legacy 冒號格式，`TIME|` 與 `LOCATION|` 直接消失，而殘留的 `>>`
+   * 被 markdown 當成引言區塊印在故事開頭。
+   */
+  const looseBlockRegex = /<<COMMANDS>{0,2}\s*\n([\s\S]*?)\n\s*(?:<{1,2}\/COMMANDS>{0,2}|>>)\s*$/i;
+
+  const blockMatch = rawText.match(commandBlockRegex) ?? rawText.match(looseBlockRegex);
+  const matchedRegex = rawText.match(commandBlockRegex) ? commandBlockRegex : looseBlockRegex;
 
   if (blockMatch && blockMatch[1]) {
     const commandText = blockMatch[1];
-    narrative = rawText.replace(commandBlockRegex, '').trim();
+    narrative = rawText.replace(matchedRegex, '').trim();
 
     const lines = commandText.split('\n');
     for (const line of lines) {
@@ -532,9 +575,22 @@ function parseLegacyMemoryAdd(trimmed: string): CommandAST | null {
 
 // ─── Bare Command Extractor ───────────────────────────────────────────────────
 
+/**
+ * 認得 pipe（`TIME|delta=+45m`）與 legacy 冒號（`TIME:+45m`）兩種寫法。
+ *
+ * ⚠️ 這裡原本只列了冒號形式的 `LOCATION:` / `TIME:`，而 prompt 早就改教 AI
+ * 輸出 pipe。COMMANDS 區塊的開閉標記一旦被模型打壞（例如 `<<COMMANDS` 少了
+ * `>>`），解析就落到這條 fallback——`TIME|` 與 `LOCATION|` 兩條在此比不到，
+ * 整輪的時間與地點靜默消失。指令名一律取自 `COMMAND_NAMES`，不要再手抄一份。
+ */
+const BARE_COMMAND_PATTERN = new RegExp(
+  `^(?:${COMMAND_NAMES.join('|')})(?:\\||:)`,
+  'i',
+);
+
 function extractBareCommands(text: string): string[] {
   const commands: string[] = [];
-  const barePattern = /^(HP:|MP:|GOLD:|LOCATION:|TIME:|AFFINITY:|QUEST_|NPC_|ITEM_|STAT\||STATUS_|FACTION_|MEMORY_ADD|LOCATION_DISCOVER)/im;
+  const barePattern = BARE_COMMAND_PATTERN;
   const lines = text.split('\n');
   for (const line of lines) {
     const trimmed = line.trim();

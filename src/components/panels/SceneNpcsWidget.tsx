@@ -61,7 +61,7 @@ export const SceneNpcsWidget: React.FC<SceneNpcsWidgetProps> = ({
             {displayedNpcs.map(npc => {
               const lore = npcLoreByTitle.get(npc.name);
               // 走共用入口：設定集條目沒填時退回 Npc 那份（與角色卡、prompt 一致）
-              const { job: displayJob, gender: displayGender } = resolveNpcProfile(npc, lore);
+              const { job: displayJob, gender: displayGender } = resolveNpcProfile(lore);
               return (
                 <div
                   key={npc.id}

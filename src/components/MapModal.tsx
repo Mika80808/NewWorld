@@ -2,6 +2,7 @@ import React, { useState, useRef, useCallback } from 'react';
 import { X, Search } from 'lucide-react';
 import { LorebookEntry, Profile, MemoryEntry, Faction, Npc } from '../types';
 import { factionTypeLabel, factionRelationLabel } from '../utils/factionLabel';
+import { resolveNpcProfile, findNpcLore } from '../utils/npcProfile';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 /** 勢力名稱標籤的估算字寬（fontSize 11 的中日韓全形字約等寬），用於錯開同據點的節點 */
@@ -980,7 +981,7 @@ export const MapModal: React.FC<MapModalProps> = ({
                                   onMouseLeave={e => { e.currentTarget.style.background = 'var(--bg-ui-card)'; }}
                                 >
                                   {npc.name}
-                                  <span className="text-xs ml-1.5" style={{ color: 'var(--text-muted)' }}>{npc.job}</span>
+                                  <span className="text-xs ml-1.5" style={{ color: 'var(--text-muted)' }}>{resolveNpcProfile(findNpcLore(lorebookEntries, npc.name)).job}</span>
                                 </button>
                               ))}
                             </div>

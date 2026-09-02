@@ -4,8 +4,8 @@ import { reduceCommands, CurrentState, isMergeable } from '../commandReducer';
 import { Npc, NpcMemory, Quest, ItemEntry, StatusEffect, LorebookEntry } from '../../types';
 
 const npc = (over: Partial<Npc> = {}): Npc => ({
-  id: 1, name: '芬里爾', job: '獵人', affection: 10,
-  appearance: '', personality: '', category: 'NPC', isActive: true, memories: [],
+  id: 1, name: '芬里爾', affection: 10,
+  category: 'NPC', isActive: true, memories: [],
   ...over,
 });
 

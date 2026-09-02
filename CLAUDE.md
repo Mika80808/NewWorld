@@ -356,17 +356,22 @@ interface LorebookEntry {
 ```
 
 ### Npc[]（NPC 執行狀態）
+
+⚠️ **身分設定不在這裡**。性別／種族／年齡／職業／外貌／個性／背景／備註的唯一來源是
+設定集的 NPC 條目（`LorebookEntry`），讀取一律走 `utils/npcProfile.resolveNpcProfile(lore)`，
+查條目走 `findNpcLore(entries, name)`。
+
+先前這些欄位兩邊都有，`NPC_NEW` 還會在同一個區塊裡把同一份值寫進兩邊。但**角色卡的
+編輯只寫設定集那份**（`NpcModal` → `onUpdateLorebook`），所以 `Npc` 上的副本是
+「建檔時寫一次、之後永遠不再更新」——與舊的 `Npc.affectionLabel` 同一個病。schema v10 移除。
+
 ```typescript
 interface Npc {
   id: number
   name: string
-  job: string
   affection: number
   // 註：舊的 affectionLabel 欄位已移除——它只在建檔時寫入、之後永不更新。
   // 標籤改由 affectionLabel(affection) 現算，見下方「好感度顏色」段。
-  appearance: string
-  personality: string
-  other?: string
   relationship?: string
   location?: string
   lastSeenLocation?: string
@@ -374,6 +379,7 @@ interface Npc {
   thoughts?: { text: string; createdAt: string }[]  // 最多 10 則，滿了寫入 memories
   isPinned?: boolean
   memories: NpcMemory[]
+  factionIds?: number[]
 }
 
 interface NpcMemory {
@@ -561,7 +567,9 @@ FACTION_NEW|name=黑牙氏族|type=criminal|desc=盤據東境的盜賊團
 
     只有名稱、沒有定義的勢力（舊檔案）維持原行為：收集進 `unknownFactions` 回報，不靜默丟棄、也不建立。既有同名勢力一律先寫先贏，連 `description`／`color`／`relations` 都不覆蓋——玩家調過的關係圖不該被一次匯入洗掉。地點查無時 `homeId` 留空，**不會**順手建立地點條目
 
-20. **「把 NPC 加進遊戲」一律要建兩份資料**：`npcs[]`（好感度／記憶庫／釘選／足跡）＋ `lorebookEntries` 的 NPC 條目（注入 prompt 的靜態設定）。`NPC_NEW`、`handleAddNpc`、`mergeImportedNpcs` 三個入口都是這樣做的。只建設定集條目的話，角色進得了 prompt 但沒有好感度、開不了記憶庫；只建 `npcs[]` 的話則不會出現在 Phase 1 的地點候選名單裡
+20. **「把 NPC 加進遊戲」一律要建兩份資料**：`npcs[]`（好感度／記憶庫／釘選／足跡）＋ `lorebookEntries` 的 NPC 條目（注入 prompt 的靜態設定）。`NPC_NEW`、`handleAddNpc`、`mergeImportedNpcs` 三個入口都是這樣做的。只建設定集條目的話，角色進得了 prompt 但沒有好感度、開不了記憶庫；只建 `npcs[]` 的話則不會出現在 Phase 1 的地點候選名單裡，**而且身分設定無處可存**（schema v10 起 `Npc` 上沒有那些欄位）
+
+21. **NPC 身分設定的唯一來源是設定集條目**（性別／種族／年齡／職業／外貌／個性／背景／備註）。讀取一律 `resolveNpcProfile(findNpcLore(entries, name))`，不要自己 `find(e => e.category === 'NPC' && ...)`。`Npc` 上只有執行狀態。舊的雙來源留下的教訓：角色卡的編輯只寫設定集，`Npc` 那份從建檔之後就再也沒更新過
 
 ---
 
@@ -585,6 +593,7 @@ FACTION_NEW|name=黑牙氏族|type=criminal|desc=盤據東境的盜賊團
 | `useGameStore` `buildSaveSnapshot(partial?)` | 組裝存檔快照，供 `saveToCloud` 上傳 |
 | `useGameStore` `loadFromData(data)` | 匯入存檔並自動 migrate 舊格式（`saveDataMapper` + `runMigrations`）|
 | `useAuth` `saveToCloud / loadFromCloud / listCloudSaves / deleteCloudSave` | Supabase `saves` 表 CRUD |
+| `utils/npcProfile.ts` `resolveNpcProfile / findNpcLore / npcIdentityBrief` | NPC 身分設定的唯一讀取入口（來源是設定集條目，`Npc` 上沒有那些欄位） |
 | `utils/affectionColor.ts` `affectionColor(affection)` | 回傳好感度對應 CSS 變數字串（唯一入口） |
 | `utils/affectionLabel.ts` `affectionLabel / relationText` | 好感度語意標籤（衍生值，不存檔）；`relationText` 為顯示與 prompt 注入的共用入口 |
 | `utils/itemCatalog.ts` `registerItemDef / touchItemDef / pruneItemCatalog / selectKnownItemNames` | 道具圖鑑：先寫先贏登錄、更新使用時間、LOD 淘汰、prompt 名稱切片 |

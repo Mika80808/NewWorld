@@ -10,8 +10,8 @@ const faction = (over: Partial<Faction> = {}): Faction => ({
 });
 
 const existingNpc = (over: Partial<Npc> = {}): Npc => ({
-  id: 1, name: '芬里爾', job: '獵人', affection: 75,
-  appearance: '銀髮', personality: '寡言', category: '登場人物', isActive: true,
+  id: 1, name: '芬里爾', affection: 75,
+  category: '登場人物', isActive: true,
   memories: [{ id: 'm1', text: '一起打過狼', createdAt: '4/1', source: 'manual', importance: 'normal' }],
   ...over,
 });
@@ -108,8 +108,12 @@ describe('mergeImportedNpcs — 同時建立兩份資料', () => {
     const r = mergeImportedNpcs([imported({ job: '酒館老闆娘' })], [], [], '4/15');
     expect(r.npcs).toHaveLength(1);
     expect(r.lorebookEntries).toHaveLength(1);
-    expect(r.npcs[0]).toMatchObject({ name: '萊尼', job: '酒館老闆娘', category: '登場人物', isActive: true });
-    expect(r.lorebookEntries[0]).toMatchObject({ title: '萊尼', category: 'NPC', isActive: true });
+    // Npc 只有執行狀態；職業等身分欄位寫進設定集條目（schema v10）
+    expect(r.npcs[0]).toMatchObject({ name: '萊尼', category: '登場人物', isActive: true });
+    expect(r.npcs[0]).not.toHaveProperty('job');
+    expect(r.lorebookEntries[0]).toMatchObject({
+      title: '萊尼', category: 'NPC', isActive: true, job: '酒館老闆娘',
+    });
   });
 
   it('id 接續現有最大值，不與既有條目衝突', () => {
@@ -141,7 +145,9 @@ describe('mergeImportedNpcs — 同名先寫先贏', () => {
     expect(r.addedNames).toEqual([]);
     expect(r.skippedNames).toEqual(['芬里爾']);
     expect(r.npcs).toHaveLength(1);
-    expect(r.npcs[0].job).toBe('獵人');
+    // 整筆跳過：既有紀錄原封不動，匯入檔的職業沒有寫進任何地方
+    expect(r.npcs[0].affection).toBe(75);
+    expect(r.lorebookEntries.find(e => e.title === '芬里爾')?.job).not.toBe('冒牌貨');
   });
 
   // 玩家累積的好感度與記憶不能被一次匯入洗掉
@@ -246,10 +252,12 @@ describe('mergeImportedNpcs — 勢力以名稱解析', () => {
 });
 
 describe('buildNpcExport — 與匯入格式來回', () => {
-  it('欄位優先取設定集、退回 npcs[]（與 NpcModal 顯示規則一致）', () => {
+  // 身分欄位的唯一來源是設定集條目（schema v10）。先前這條釘的是
+  // 「優先取設定集、退回 npcs[]」的雙來源規則，現在只剩一個來源。
+  it('身分欄位取自設定集條目', () => {
     const out = buildNpcExport(
-      [existingNpc({ name: '芬里爾', appearance: '舊的外貌', personality: '寡言' })],
-      [existingLore({ title: '芬里爾', appearance: '設定集裡改過的外貌' })],
+      [existingNpc({ name: '芬里爾' })],
+      [existingLore({ title: '芬里爾', appearance: '設定集裡改過的外貌', personality: '寡言' })],
     );
     expect(out.npcs[0].appearance).toBe('設定集裡改過的外貌');
     expect(out.npcs[0].personality).toBe('寡言');
@@ -268,7 +276,7 @@ describe('buildNpcExport — 與匯入格式來回', () => {
   });
 
   it('空字串與空陣列一律省略，不塞滿 ""', () => {
-    const out = buildNpcExport([existingNpc({ name: 'A', job: '', appearance: '', personality: '', memories: [] })], []);
+    const out = buildNpcExport([existingNpc({ name: 'A', memories: [] })], []);
     expect(out.npcs[0]).toEqual({ name: 'A', affection: 75 });
   });
 

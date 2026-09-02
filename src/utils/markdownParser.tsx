@@ -1,4 +1,5 @@
 import React from 'react'
+import { COMMAND_NAMES } from './commandParser'
 
 export const FONT_CLASS_MAP: Record<string, string> = {
   sans:  'font-game-sans',
@@ -11,21 +12,15 @@ export const FONT_CLASS_MAP: Record<string, string> = {
 // ⚠️ 這裡必須跟著 COMMANDS 版本走。舊版只列了 legacy 冒號格式，但 promptBuilder
 // 早已改教 AI 輸出 pipe（`STAT|field=hp|delta=-10`），漏出來的指令會原封不動
 // 顯示在玩家眼前。pipe 分支要求「已知指令名 + | + key=」，一般敘事不會誤中。
-const CMD_NAMES = [
-  'STAT', 'HP', 'MP', 'GOLD', 'AFFINITY', 'LOCATION', 'TIME',
-  'ITEM_ADD', 'ITEM_REMOVE', 'ITEM_USE',
-  'QUEST_ADD', 'QUEST_GOAL_MET', 'QUEST_COMPLETE',
-  'NPC_NEW', 'NPC_HOME', 'NPC_LOCATION', 'NPC_THOUGHT',
-  'NPC_RELATIONSHIP', 'NPC_RELATION',
-  'LOCATION_DISCOVER', 'MEMORY_ADD',
-  'STATUS_ADD', 'STATUS_REMOVE', 'STATUS_CLEAR',
-  'FACTION_NEW', 'FACTION_JOIN', 'FACTION_RELATION',
-].join('|')
+const CMD_NAMES = COMMAND_NAMES.join('|')
 
 export const BARE_CMD_PATTERN = new RegExp(
   '^(?:' +
     // COMMANDS 區塊殘骸（開閉標記沒配對成功時 parseCommandsToAST 不會吃掉）
     '<{1,2}\\/?COMMANDS>{0,2}' +
+    // 單獨一行的 `>>`：模型偶爾用它當 COMMANDS 的收尾。留著會被 markdown
+    // 當成巢狀引言區塊，在故事開頭印出一個空的引言框
+    '|>{2,}' +
     '|COMMANDS\\s+v\\d+' +
     // v1 pipe 格式
     `|(?:${CMD_NAMES})\\|[A-Za-z_]+=.*` +

@@ -90,3 +90,26 @@ describe('stripOrphanFontTags — 未成對的 FONT 標記', () => {
     expect(stripOrphanFontTags('[布告欄] 徵求護衛')).toBe('[布告欄] 徵求護衛');
   });
 });
+
+// 玩家回報「AI 輸出的開頭會出現 >>，沒遮蔽到」——模型用單獨一行的 `>>`
+// 收尾 COMMANDS 區塊。markdown 會把它當成巢狀引言區塊，在故事開頭印出一個空框。
+// 標籤是給程式讀的，任何一種漏網都會直接印在故事裡（CLAUDE.md 的三件事之 ③）。
+describe('cleanNarrative — COMMANDS 收尾殘骸', () => {
+  it('單獨一行的 >> 會被清掉', () => {
+    expect(cleanNarrative('故事內容。\n\n>>')).toBe('故事內容。');
+    expect(cleanNarrative('>>\n故事內容。')).toBe('故事內容。');
+  });
+
+  it('三個以上的 > 也清得掉', () => {
+    expect(cleanNarrative('故事內容。\n>>>')).toBe('故事內容。');
+  });
+
+  /** 單一個 `>` 是合法的 markdown 引言，不能誤殺 */
+  it('不會誤殺正常的引言區塊', () => {
+    expect(cleanNarrative('> 這是一句引言')).toBe('> 這是一句引言');
+  });
+
+  it('開頭殘留的 <<COMMANDS（少了 >>）也清得掉', () => {
+    expect(cleanNarrative('故事內容。\n<<COMMANDS')).toBe('故事內容。');
+  });
+});
