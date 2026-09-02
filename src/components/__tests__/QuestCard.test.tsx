@@ -75,15 +75,21 @@ describe('QuestCard 欄位', () => {
 /**
  * AI 漏掉 `QUEST_COMPLETE` 時任務會永遠掛在「進行中」，玩家先前完全沒有辦法
  * 自己收掉。短 ID 讓 AI 更容易指對任務，但它沒輸出指令時仍需要人工出口。
+ *
+ * ⚠️ 出口的**措辭必須分兩種**。第一版對任何進行中的任務都顯示「回報完成」，
+ * 而那個鈕照發全額獎勵——接任務、按一下、領錢，任務系統變成無限金幣按鈕。
+ * 只有 `isGoalMet`（AI 的 QUEST_GOAL_MET 寫入、玩家改不到）才是「目標確實
+ * 達成過」的憑據，也只有它該叫「回報完成」。沒有憑據時是「強制結案」。
  */
 describe('QuestCard 手動操作', () => {
-  it('進行中的任務有回報完成與放棄', async () => {
+  it('待回報的任務才是「回報完成」', async () => {
     const user = userEvent.setup();
     const onComplete = vi.fn();
     const onAbandon = vi.fn();
-    const q = quest();
+    const q = quest({ isGoalMet: true });
     render(<QuestCard quest={q} remaining="4 天" onComplete={onComplete} onAbandon={onAbandon} />);
 
+    expect(screen.queryByText('強制結案')).toBeNull();
     await user.click(screen.getByText('回報完成'));
     expect(onComplete).toHaveBeenCalledWith(q);
 
@@ -91,9 +97,18 @@ describe('QuestCard 手動操作', () => {
     expect(onAbandon).toHaveBeenCalledWith(q);
   });
 
-  it('待回報的任務同樣可以手動收掉', () => {
-    render(<QuestCard quest={quest({ isGoalMet: true })} remaining={null} onComplete={vi.fn()} />);
-    expect(screen.getByText('回報完成')).toBeInTheDocument();
+  it('進行中（GM 未確認）的任務是「強制結案」，不是回報完成', async () => {
+    const user = userEvent.setup();
+    const onComplete = vi.fn();
+    const q = quest({ isGoalMet: false });
+    render(<QuestCard quest={q} remaining="4 天" onComplete={onComplete} onAbandon={vi.fn()} />);
+
+    expect(screen.queryByText('回報完成')).toBeNull();
+    const btn = screen.getByText('強制結案');
+    expect(btn.closest('button')).toHaveAttribute('title', expect.stringContaining('不會發放獎勵'));
+
+    await user.click(btn);
+    expect(onComplete).toHaveBeenCalledWith(q);
   });
 
   /** 已結案的任務不該再出現操作鈕 */
@@ -102,12 +117,14 @@ describe('QuestCard 手動操作', () => {
       <QuestCard quest={quest({ status })} remaining={null} onComplete={vi.fn()} onAbandon={vi.fn()} />
     );
     expect(screen.queryByText('回報完成')).toBeNull();
+    expect(screen.queryByText('強制結案')).toBeNull();
     expect(screen.queryByText('放棄')).toBeNull();
   });
 
   it('沒傳 callback 時完全不顯示操作列', () => {
     render(<QuestCard quest={quest()} remaining="4 天" />);
     expect(screen.queryByText('回報完成')).toBeNull();
+    expect(screen.queryByText('強制結案')).toBeNull();
     expect(screen.queryByText('放棄')).toBeNull();
   });
 });

@@ -40,6 +40,7 @@ import { parseNpcImport, mergeImportedNpcs, mergeImportedFactions } from './util
 import { setFactionRelation, removeFactionRelation } from './utils/factionRelation';
 import { ThemeId, loadTheme, saveTheme, applyTheme } from './utils/theme';
 import { describeItem, registerItemDef, normalizeItemName } from './utils/itemCatalog';
+import { updateNpcFootprints } from './utils/npcPresence';
 import { SaveSlotsModal } from './components/SaveSlotsModal';
 
 export default function App() {
@@ -1016,21 +1017,15 @@ ${poolText}
     return left > 0 ? `${left} 天` : '0 天';
   };
 
-  /**
-   * 手動回報任務完成——AI 漏掉 `QUEST_COMPLETE` 時的人工出口。
-   *
-   * 短 ID 讓 AI 更容易指對任務，但它**沒有輸出指令**時仍然無解：任務會永遠
-   * 掛在「進行中」，玩家先前完全沒有辦法自己收掉。
-   *
-   * 獎勵照發（與 `QUEST_COMPLETE` 一致）——玩家會按這個鈕就是因為劇情上已經
-   * 交差了，只是 AI 沒記錄。少發獎勵等於讓玩家為 AI 的疏漏買單。
-   */
-  const handleCompleteQuest = (quest: Quest) => {
-    const gameDate = `${timeState.month}/${timeState.day}`;
+  /** 把任務標成已完成。`rewarded` 只影響 Toast 文字與是否發獎勵 */
+  const closeQuestAsCompleted = (quest: Quest, gameDate: string) => {
     setQuests(prev => prev.map(q =>
       q.id === quest.id ? { ...q, status: 'completed' as const, isGoalMet: true, completedAt: gameDate } : q
     ));
+  };
 
+  /** 發放任務獎勵（金幣＋道具）。回傳給 Toast 用的獎勵敘述 */
+  const grantQuestReward = (quest: Quest, gameDate: string): string => {
     const gold = quest.reward?.gold ?? 0;
     if (gold > 0) setProfile(prev => ({ ...prev, gold: prev.gold + gold }));
 
@@ -1055,7 +1050,38 @@ ${poolText}
       });
     }
 
-    const rewardText = [gold > 0 ? `${gold} 金幣` : '', ...rewardItems].filter(Boolean).join('、');
+    return [gold > 0 ? `${gold} 金幣` : '', ...rewardItems].filter(Boolean).join('、');
+  };
+
+  /**
+   * 手動收掉任務——AI 漏掉 `QUEST_COMPLETE` 時的人工出口。
+   *
+   * ⚠️ **獎勵只在 `isGoalMet`（待回報）時發放。**
+   * `isGoalMet` 由 AI 的 `QUEST_GOAL_MET` 寫入，玩家改不到，是系統裡唯一
+   * 「目標確實達成過」的憑據。第一版這個鈕對任何進行中的任務都照發全額獎勵，
+   * 於是接任務→按一下→領錢變成無限金幣按鈕，任務系統整個失去意義。
+   *
+   * 沒有這道憑據時仍給得出口，但那是**強制結案**：任務歸檔、不發獎勵，
+   * 而且先跳確認框把這件事講明白，避免玩家以為自己在正常交差。
+   */
+  const handleCompleteQuest = (quest: Quest) => {
+    const gameDate = `${timeState.month}/${timeState.day}`;
+
+    if (!quest.isGoalMet) {
+      setDialogRequest({
+        title: '強制結案',
+        message: `GM 尚未確認「${quest.title}」的目標達成，強制結案不會發放獎勵。仍要結案嗎？`,
+        confirmLabel: '強制結案',
+        onConfirm: () => {
+          closeQuestAsCompleted(quest, gameDate);
+          showToast(`📁 已結案「${quest.title}」（未發放獎勵）`);
+        },
+      });
+      return;
+    }
+
+    closeQuestAsCompleted(quest, gameDate);
+    const rewardText = grantQuestReward(quest, gameDate);
     showToast(rewardText ? `✅ ${quest.title}（獎勵：${rewardText}）` : `✅ ${quest.title} 已完成`);
   };
 
@@ -1618,14 +1644,9 @@ ${recentContext}
         // 該 NPC 的完整檔案會無視地點、每一輪繼續注入 prompt（buildPrompt 的 inScene
         // 判定先於地點過濾），等於跟著玩家跨城鎮，且此狀態會存進存檔。
         setAppearingNpcs(uniqueNames);
-        // 足跡只在真的有人出場時更新
-        if (uniqueNames.length > 0) {
-          setNpcs(prev => prev.map(npc =>
-            uniqueNames.some((n: string) => npc.name.includes(n) || n.includes(npc.name))
-              ? { ...npc, location: sceneLocation, lastSeenLocation: sceneLocation, lastSeenDate: sceneDate }
-              : npc
-          ));
-        }
+        // 足跡只在真的有人出場時更新。判定走共用的 isNpcOnStage
+        // （updateNpcFootprints 內部），不要在這裡再寫一份前後包含的比對
+        setNpcs(prev => updateNpcFootprints(prev, uniqueNames, sceneLocation, sceneDate));
       }
       // 完全沒有標記時不動 appearingNpcs：那是 AI 沒照規矩輸出，維持現狀比誤清安全
       const narrative = rawNarrative.replace(APPEAR_TAG_PATTERN, '').trim();
@@ -1634,16 +1655,11 @@ ${recentContext}
         m.id === aiMessageId ? { ...m, text: narrative } : m
       ));
 
-      setNpcs(prev => prev.map(npc => {
-        if (narrative.includes(npc.name)) {
-          return {
-            ...npc,
-            lastSeenLocation: sceneLocation,
-            lastSeenDate: sceneDate
-          };
-        }
-        return npc;
-      }));
+      // ⚠️ 這裡先前還有一段 `narrative.includes(npc.name)` 的足跡更新：
+      // 只要名字在敘事裡**被提到**就把「最後出現於」寫成當前地點。
+      // 「你聽說芬里爾去了北境」會讓芬里爾被記成在這裡出現過，而那個欄位會
+      // 注入 prompt（[Scene Lorebook] 的「最後出現於」），AI 於是拿到一個
+      // 他從沒去過的地點。已移除——足跡只認 [出場:] 名單。
 
       // 使用 buildPrompt 當時的判定結果，不重跑 isMemoryTriggered——
       // 它含機率擲骰，重跑會讓「被計數的記憶」與「實際注入的記憶」是兩組不同的

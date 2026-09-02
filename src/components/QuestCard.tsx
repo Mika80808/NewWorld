@@ -126,10 +126,18 @@ export const QuestCard: React.FC<QuestCardProps> = ({
         手動結案／放棄。
         AI 漏掉 QUEST_COMPLETE 時任務會永遠掛在「進行中」，玩家先前完全沒有
         辦法自己收掉——短 ID 讓 AI 更容易指對任務，但指令沒輸出時仍需要人工出口。
+
+        ⚠️ **獎勵只在「待回報」時發放**（`isGoalMet`，由 AI 的 QUEST_GOAL_MET
+        寫入，玩家改不到）。那是系統裡唯一「目標確實達成過」的憑據。
+        沒有這道閘門的話，任何進行中的任務都能按一下就領全額獎勵——
+        任務系統直接變成無限金幣按鈕，這是第一版做錯的地方。
+
+        進行中的任務仍給得出口，但是「強制結案」而非「回報完成」：不發獎勵，
+        按鈕樣式也不同，避免玩家以為自己在正常交差。
       */}
       {showActions && (
         <div className="flex items-center gap-2 mt-3 pt-3" style={{ borderTop: '1px solid var(--tint-line)' }}>
-          {onComplete && (
+          {onComplete && (q.isGoalMet ? (
             <button
               onClick={() => onComplete(q)}
               className="flex items-center gap-1 text-xs px-2.5 py-1.5 rounded-[8px] transition"
@@ -137,7 +145,16 @@ export const QuestCard: React.FC<QuestCardProps> = ({
             >
               <Check className="w-3.5 h-3.5" /> 回報完成
             </button>
-          )}
+          ) : (
+            <button
+              onClick={() => onComplete(q)}
+              title="GM 尚未確認目標達成，強制結案不會發放獎勵"
+              className="flex items-center gap-1 text-xs px-2.5 py-1.5 rounded-[8px] transition"
+              style={{ color: 'var(--text-muted)' }}
+            >
+              <Check className="w-3.5 h-3.5" /> 強制結案
+            </button>
+          ))}
           {onAbandon && (
             <button
               onClick={() => onAbandon(q)}
