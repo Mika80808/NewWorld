@@ -2,8 +2,9 @@
 import { RefreshCw, MoreVertical, Book, BookOpen, Package, Beaker, Heart, MapPin, Zap, Coins, Calendar, Shield, CheckSquare, ChevronDown, ChevronRight, Map as MapIcon, Cloud, Sun, CloudRain, Snowflake, Moon, Wind, Brain, X, Pin } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useAIRequest } from './hooks/useAIRequest';
-import { Npc, LorebookEntry, Message, NpcMemory, EquipmentItem, ItemEntry, GMConfig, SubGMConfig, FactionRelation } from './types';
+import { Npc, LorebookEntry, Message, NpcMemory, EquipmentItem, ItemEntry, GMConfig, SubGMConfig, FactionRelation, Quest } from './types';
 import { QuestModal } from './components/QuestModal';
+import { QuestCard } from './components/QuestCard';
 import { ProfileModal } from './components/ProfileModal';
 import { SystemPromptModal } from './components/SystemPromptModal';
 import { MessageCard } from './components/MessageCard';
@@ -38,7 +39,7 @@ import { buildPrompt, BuildPromptDeps, BuildPromptResult } from './utils/promptB
 import { parseNpcImport, mergeImportedNpcs, mergeImportedFactions } from './utils/npcImport';
 import { setFactionRelation, removeFactionRelation } from './utils/factionRelation';
 import { ThemeId, loadTheme, saveTheme, applyTheme } from './utils/theme';
-import { describeItem } from './utils/itemCatalog';
+import { describeItem, registerItemDef, normalizeItemName } from './utils/itemCatalog';
 import { SaveSlotsModal } from './components/SaveSlotsModal';
 
 export default function App() {
@@ -996,6 +997,81 @@ ${poolText}
       // 清空內容視為刪掉這一則，而不是留一個空字串在 prompt 裡
       if (!next) return prev.slice(0, -1);
       return [...prev.slice(0, -1), next];
+    });
+  };
+
+  // 任務面板與 QuestModal 共用的排序與剩餘天數。待回報排最前——那是等著
+  // 玩家去交差的，最需要被看到。
+  const questsForPanel = [
+    ...quests.filter(q => q.status === 'active' && q.isGoalMet),
+    ...quests.filter(q => q.status === 'active' && !q.isGoalMet),
+    ...quests.filter(q => q.status === 'completed'),
+    ...quests.filter(q => q.status === 'failed'),
+  ];
+
+  const questRemaining = (q: Quest): string | null => {
+    if (q.deadline == null) return null;
+    const totalDays = timeState.year * 360 + (timeState.month - 1) * 30 + timeState.day;
+    const left = q.deadline - (totalDays - q.createdAtTotalDays);
+    return left > 0 ? `${left} 天` : '0 天';
+  };
+
+  /**
+   * 手動回報任務完成——AI 漏掉 `QUEST_COMPLETE` 時的人工出口。
+   *
+   * 短 ID 讓 AI 更容易指對任務，但它**沒有輸出指令**時仍然無解：任務會永遠
+   * 掛在「進行中」，玩家先前完全沒有辦法自己收掉。
+   *
+   * 獎勵照發（與 `QUEST_COMPLETE` 一致）——玩家會按這個鈕就是因為劇情上已經
+   * 交差了，只是 AI 沒記錄。少發獎勵等於讓玩家為 AI 的疏漏買單。
+   */
+  const handleCompleteQuest = (quest: Quest) => {
+    const gameDate = `${timeState.month}/${timeState.day}`;
+    setQuests(prev => prev.map(q =>
+      q.id === quest.id ? { ...q, status: 'completed' as const, isGoalMet: true, completedAt: gameDate } : q
+    ));
+
+    const gold = quest.reward?.gold ?? 0;
+    if (gold > 0) setProfile(prev => ({ ...prev, gold: prev.gold + gold }));
+
+    const rewardItems = quest.reward?.items ?? [];
+    if (rewardItems.length > 0) {
+      setItemCatalog(prevCatalog => {
+        let catalog = prevCatalog;
+        for (const raw of rewardItems) {
+          catalog = registerItemDef(catalog, normalizeItemName(raw), '完成任務獲得的獎勵', gameDate).catalog;
+        }
+        return catalog;
+      });
+      setItems(prev => {
+        let next = [...prev];
+        for (const raw of rewardItems) {
+          const name = normalizeItemName(raw);
+          const idx = next.findIndex(i => i.name === name);
+          if (idx !== -1) next[idx] = { ...next[idx], quantity: next[idx].quantity + 1 };
+          else next = [...next, { id: Date.now() + Math.floor(Math.random() * 1000), name, quantity: 1 }];
+        }
+        return next;
+      });
+    }
+
+    const rewardText = [gold > 0 ? `${gold} 金幣` : '', ...rewardItems].filter(Boolean).join('、');
+    showToast(rewardText ? `✅ ${quest.title}（獎勵：${rewardText}）` : `✅ ${quest.title} 已完成`);
+  };
+
+  /** 手動放棄任務。走 failed 而非直接刪除——放棄過什麼也是玩家的紀錄 */
+  const handleAbandonQuest = (quest: Quest) => {
+    setDialogRequest({
+      title: '放棄任務',
+      message: `確定放棄「${quest.title}」嗎？任務會移到失敗清單，獎勵不會發放。`,
+      confirmLabel: '放棄',
+      danger: true,
+      onConfirm: () => {
+        setQuests(prev => prev.map(q =>
+          q.id === quest.id ? { ...q, status: 'failed' as const } : q
+        ));
+        showToast(`已放棄「${quest.title}」`);
+      },
     });
   };
 
@@ -2382,6 +2458,8 @@ ${recentContext}
         onClose={() => setIsQuestModalOpen(false)}
         quests={quests}
         currentTotalDays={timeState.year * 360 + (timeState.month - 1) * 30 + timeState.day}
+        onCompleteQuest={handleCompleteQuest}
+        onAbandonQuest={handleAbandonQuest}
       />
 
       {/* Profile Modal Overlay */}
@@ -2571,34 +2649,19 @@ ${recentContext}
             {/* Quest list */}
             <div className="flex-1 overflow-y-auto p-3 space-y-2 custom-scrollbar">
               {quests.length === 0 && <p className="text-sm text-center py-6" style={{ color: 'var(--text-muted)' }}>尚無任務...</p>}
-              {quests.filter(q=>q.status==='active'&&q.isGoalMet).map(q => (
-                <div key={q.id} className="rounded-[8px] p-3 text-sm" style={{ background: 'var(--bg-quest-pending)', border: '1px solid var(--border-quest-pending)' }}>
-                  <div className="flex items-start justify-between gap-2 mb-1">
-                    <span className="font-bold leading-snug" style={{ color: 'var(--text-title)' }}>{q.title}</span>
-                    <span className="text-xs px-1.5 py-0.5 rounded-full whitespace-nowrap" style={{ color: 'var(--color-amber)', background: 'color-mix(in srgb, var(--color-amber) 15%, transparent)' }}>待回報</span>
-                  </div>
-                  <p className="leading-relaxed" style={{ color: 'var(--text-body)' }}>{q.description}</p>
-                </div>
-              ))}
-              {quests.filter(q=>q.status==='active'&&!q.isGoalMet).map(q => (
-                <div key={q.id} className="rounded-[8px] p-3 text-sm" style={{ background: 'var(--bg-quest-active)', border: '1px solid var(--border-quest-active)' }}>
-                  <div className="flex items-start justify-between gap-2 mb-1">
-                    <span className="font-bold leading-snug" style={{ color: 'var(--text-title)' }}>{q.title}</span>
-                    <span className="text-xs px-1.5 py-0.5 rounded-full whitespace-nowrap" style={{ color: 'var(--color-success)', background: 'color-mix(in srgb, var(--color-success) 15%, transparent)' }}>進行中</span>
-                  </div>
-                  <p className="text-xs mb-1" style={{ color: 'color-mix(in srgb, var(--color-amber) 80%, transparent)' }}>委託：{q.giver||'—'}</p>
-                  <p className="leading-relaxed" style={{ color: 'var(--text-body)' }}>{q.description}</p>
-                </div>
-              ))}
-              {quests.filter(q=>q.status==='completed').map(q => (
-                <div key={q.id} className="rounded-[8px] p-3 text-sm opacity-60" style={{ border: '1px solid color-mix(in srgb, var(--border-default) 30%, transparent)' }}>
-                  <span className="font-bold line-through" style={{ color: 'var(--text-muted)' }}>{q.title}</span>
-                </div>
-              ))}
-              {quests.filter(q=>q.status==='failed').map(q => (
-                <div key={q.id} className="rounded-[8px] p-3 text-sm opacity-60" style={{ background: 'var(--bg-quest-failed)', border: '1px solid var(--border-quest-failed)' }}>
-                  <span className="font-bold" style={{ color: 'var(--color-taupe)' }}>{q.title}</span>
-                </div>
+              {/* 卡片與 QuestModal 共用 QuestCard。
+                  先前這裡是另一份自己寫的 JSX，而且欄位比 Modal 少——待回報的卡
+                  連委託人都沒有、四種狀態全都沒有獎勵。玩家看到的資訊因此取決於
+                  他從哪個入口打開，實際回報的「任務沒有寫委託人跟獎勵」就是這樣來的 */}
+              {questsForPanel.map(q => (
+                <QuestCard
+                  key={q.id}
+                  quest={q}
+                  remaining={questRemaining(q)}
+                  compact
+                  onComplete={handleCompleteQuest}
+                  onAbandon={handleAbandonQuest}
+                />
               ))}
             </div>
           </motion.div>

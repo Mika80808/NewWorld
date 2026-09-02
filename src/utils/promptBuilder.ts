@@ -641,7 +641,10 @@ NPC_RELATION|npc=NPC名|type=family/ally/rival/enemy/acquaintance/romantic|targe
 - TIME：每次回應必須輸出。依行動性質推進。
 - ITEM_ADD：玩家獲得道具時。說明需詳細描述外觀與效果（玩家使用時 AI 依此生成劇情）。若道具已列於【已知物品】清單，name 必須沿用完全相同的名稱（勿創同義新名），desc 可省略（系統自動沿用圖鑑既有定義）。
 - ITEM_USE：玩家主動使用道具時（前端扣數量）。ITEM_REMOVE：道具消耗/丟失。
-- QUEST_ADD：NPC 正式委託或玩家接布告欄任務時。後四欄可留空。
+- QUEST_ADD：NPC 正式委託或玩家接布告欄任務時。
+  **giver 與 gold 必填**：giver 寫委託人姓名（布告欄、公會等無名委託寫來源名稱），
+  gold 依任務難度給一個合理數字。這兩欄玩家在任務欄看得到，留空會顯示成「—」與「無」。
+  items（額外的物品報酬）與 deadline（天數）沒有就省略該欄，不要填空值。
 - QUEST_GOAL_MET：玩家已完成目標但未回報時靜默輸出（前端標記「待回報」）。
 - QUEST_COMPLETE：玩家向委託人回報結案時。
 - QUEST_GOAL_MET / QUEST_COMPLETE 的 id 必須**原樣抄寫**【進行中任務】清單裡該任務前面的短 ID（例如清單寫「#k3p 找回失竊的聖遺物」，就輸出 id=k3p）。

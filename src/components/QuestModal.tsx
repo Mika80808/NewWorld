@@ -1,16 +1,23 @@
 import React from 'react';
-import { Book, X, CheckCircle, XCircle, Clock, Coins, AlertCircle } from 'lucide-react';
+import { Book, X } from 'lucide-react';
 
 import { Quest } from '../types';
+import { QuestCard } from './QuestCard';
 
 interface QuestModalProps {
   isOpen: boolean;
   onClose: () => void;
   quests: Quest[];
   currentTotalDays: number;
+  /** 手動回報完成（AI 漏掉 QUEST_COMPLETE 時的人工出口） */
+  onCompleteQuest?: (quest: Quest) => void;
+  /** 手動放棄 */
+  onAbandonQuest?: (quest: Quest) => void;
 }
 
-export const QuestModal: React.FC<QuestModalProps> = ({ isOpen, onClose, quests, currentTotalDays }) => {
+export const QuestModal: React.FC<QuestModalProps> = ({
+  isOpen, onClose, quests, currentTotalDays, onCompleteQuest, onAbandonQuest,
+}) => {
   if (!isOpen) return null;
 
   const activeQuests    = quests.filter(q => q.status === 'active' && !q.isGoalMet);
@@ -25,12 +32,8 @@ export const QuestModal: React.FC<QuestModalProps> = ({ isOpen, onClose, quests,
     return left > 0 ? `${left} 天` : '0 天';
   };
 
-  const renderReward = (q: Quest) => {
-    const parts: string[] = [];
-    if (q.reward?.gold) parts.push(`${q.reward.gold} 銅`);
-    if (q.reward?.items?.length) parts.push(...q.reward.items);
-    return parts.length > 0 ? parts.join('、') : '無';
-  };
+  // 待回報排最前：那是等著玩家去交差的，最需要被看到
+  const ordered = [...pendingQuests, ...activeQuests, ...completedQuests, ...failedQuests];
 
   return (
     <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-[60] flex items-center justify-center p-4" onClick={onClose}>
@@ -82,121 +85,16 @@ export const QuestModal: React.FC<QuestModalProps> = ({ isOpen, onClose, quests,
           </button>
         </div>
 
-        {/* Quest list */}
+        {/* 卡片與左欄任務面板共用 QuestCard——兩邊不再各寫一份 JSX */}
         <div className="flex-1 overflow-y-auto p-4 space-y-3">
-
-          {/* Pending (goalMet) quests — amber */}
-          {pendingQuests.map(q => {
-            const remaining = getRemaining(q);
-            return (
-              <div key={q.id} className="rounded-[8px] p-4" style={{ background: 'var(--bg-quest-pending)', border: `1px solid var(--border-quest-pending)` }}>
-                <div className="flex items-start justify-between gap-2 mb-1">
-                  <h3 className="font-bold leading-snug" style={{ color: 'var(--text-title)' }}>{q.title}</h3>
-                  <span className="flex-shrink-0 flex items-center gap-1 text-xs px-2 py-0.5 rounded-full" style={{ color: 'var(--color-amber)', background: 'color-mix(in srgb, var(--color-amber) 15%, transparent)', border: `1px solid color-mix(in srgb, var(--color-amber) 30%, transparent)` }}>
-                    <AlertCircle className="w-3 h-3" />
-                    待回報
-                  </span>
-                </div>
-                <p className="text-xs mb-2" style={{ color: 'color-mix(in srgb, var(--color-amber) 80%, transparent)' }}>委託：{q.giver || '—'}</p>
-                <div className="flex items-start gap-2">
-                  <span className="mt-0.5 flex-shrink-0" style={{ color: 'var(--text-primary)' }}>☑</span>
-                  <p className="text-sm leading-relaxed" style={{ color: 'var(--text-body)' }}>{q.description}</p>
-                </div>
-                <div className="flex items-center justify-between mt-3">
-                  <span className="flex items-center gap-1 text-xs" style={{ color: 'var(--text-body)' }}>
-                    <Coins className="w-3 h-3" style={{ color: 'var(--text-primary)' }} />
-                    {renderReward(q)}
-                  </span>
-                  <div className="flex items-center gap-3 text-xs" style={{ color: 'var(--text-body)' }}>
-                    {remaining !== null && (
-                      <span className="flex items-center gap-1 whitespace-nowrap">
-                        <Clock className="w-3 h-3" />
-                        剩 {remaining}
-                      </span>
-                    )}
-                    <span>接受：{q.createdAt}</span>
-                  </div>
-                </div>
-              </div>
-            );
-          })}
-
-          {/* Active quests — green */}
-          {activeQuests.map(q => {
-            const remaining = getRemaining(q);
-            return (
-              <div key={q.id} className="rounded-[8px] p-4" style={{ background: 'var(--bg-quest-active)', border: `1px solid var(--border-quest-active)` }}>
-                <div className="flex items-start justify-between gap-2 mb-1">
-                  <h3 className="font-bold leading-snug" style={{ color: 'var(--text-title)' }}>{q.title}</h3>
-                  <span className="flex-shrink-0 flex items-center gap-1 text-xs px-2 py-0.5 rounded-full" style={{ color: 'var(--color-success)', background: 'color-mix(in srgb, var(--color-success) 15%, transparent)', border: `1px solid color-mix(in srgb, var(--color-success) 30%, transparent)` }}>
-                    <Clock className="w-3 h-3" />
-                    {remaining !== null ? `剩 ${remaining}` : '無期限'}
-                  </span>
-                </div>
-                <p className="text-xs mb-2" style={{ color: 'color-mix(in srgb, var(--color-amber) 80%, transparent)' }}>委託：{q.giver || '—'}</p>
-                <div className="flex items-start gap-2">
-                  <span className="mt-0.5 flex-shrink-0" style={{ color: 'var(--text-body)' }}>☐</span>
-                  <p className="text-sm leading-relaxed" style={{ color: 'var(--text-body)' }}>{q.description}</p>
-                </div>
-                <div className="flex items-center justify-between mt-3">
-                  <span className="flex items-center gap-1 text-xs" style={{ color: 'var(--text-body)' }}>
-                    <Coins className="w-3 h-3" style={{ color: 'var(--text-primary)' }} />
-                    {renderReward(q)}
-                  </span>
-                  <span className="text-xs" style={{ color: 'var(--text-body)' }}>接受：{q.createdAt}</span>
-                </div>
-              </div>
-            );
-          })}
-
-          {/* Completed quests */}
-          {completedQuests.map(q => (
-            <div key={q.id} className="rounded-[8px] p-4 opacity-65" style={{ border: `1px solid color-mix(in srgb, var(--border-default) 20%, transparent)`, background: 'color-mix(in srgb, var(--bg-elevated) 20%, transparent)' }}>
-              <div className="flex items-start justify-between gap-2 mb-1">
-                <h3 className="font-bold line-through leading-snug" style={{ color: 'var(--text-muted)' }}>{q.title}</h3>
-                <span className="flex-shrink-0 flex items-center gap-1 text-xs px-2 py-0.5 rounded-full" style={{ color: 'var(--color-success)', background: 'color-mix(in srgb, var(--color-success) 10%, transparent)', border: `1px solid color-mix(in srgb, var(--color-success) 20%, transparent)` }}>
-                  <CheckCircle className="w-3 h-3" />
-                  完成 {q.completedAt || ''}
-                </span>
-              </div>
-              <p className="text-xs mb-2" style={{ color: 'var(--border-default)' }}>委託：{q.giver || '—'}</p>
-              <div className="flex items-start gap-2">
-                <span className="mt-0.5 flex-shrink-0" style={{ color: 'var(--border-default)' }}>☑</span>
-                <p className="text-sm leading-relaxed line-through" style={{ color: 'var(--text-muted)' }}>{q.description}</p>
-              </div>
-              <div className="flex items-center justify-between mt-3">
-                <span className="flex items-center gap-1 text-xs" style={{ color: 'var(--border-default)' }}>
-                  <Coins className="w-3 h-3" />
-                  {renderReward(q)}
-                </span>
-                <span className="text-xs" style={{ color: 'var(--border-default)' }}>接受：{q.createdAt}</span>
-              </div>
-            </div>
-          ))}
-
-          {/* Failed quests */}
-          {failedQuests.map(q => (
-            <div key={q.id} className="rounded-[8px] p-4 opacity-55" style={{ background: 'var(--bg-quest-failed)', border: `1px solid var(--border-quest-failed)` }}>
-              <div className="flex items-start justify-between gap-2 mb-1">
-                <h3 className="font-bold line-through leading-snug" style={{ color: 'var(--text-muted)' }}>{q.title}</h3>
-                <span className="flex-shrink-0 flex items-center gap-1 text-xs px-2 py-0.5 rounded-full" style={{ color: 'var(--color-rose)', background: 'color-mix(in srgb, var(--color-rose) 10%, transparent)', border: `1px solid color-mix(in srgb, var(--color-rose) 20%, transparent)` }}>
-                  <XCircle className="w-3 h-3" />
-                  期限超過
-                </span>
-              </div>
-              <p className="text-xs mb-2" style={{ color: 'var(--border-default)' }}>委託：{q.giver || '—'}</p>
-              <div className="flex items-start gap-2">
-                <span className="mt-0.5 flex-shrink-0" style={{ color: 'var(--border-default)' }}>☐</span>
-                <p className="text-sm leading-relaxed line-through" style={{ color: 'var(--text-muted)' }}>{q.description}</p>
-              </div>
-              <div className="flex items-center justify-between mt-3">
-                <span className="flex items-center gap-1 text-xs" style={{ color: 'var(--border-default)' }}>
-                  <Coins className="w-3 h-3" />
-                  {renderReward(q)}
-                </span>
-                <span className="text-xs" style={{ color: 'var(--border-default)' }}>接受：{q.createdAt}</span>
-              </div>
-            </div>
+          {ordered.map(q => (
+            <QuestCard
+              key={q.id}
+              quest={q}
+              remaining={getRemaining(q)}
+              onComplete={onCompleteQuest}
+              onAbandon={onAbandonQuest}
+            />
           ))}
 
           {quests.length === 0 && (
