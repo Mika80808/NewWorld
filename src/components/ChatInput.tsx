@@ -1,4 +1,4 @@
-import React, { useState, useRef, useLayoutEffect } from 'react';
+import React, { useState, useRef, useLayoutEffect, useImperativeHandle, forwardRef } from 'react';
 import { Send, X } from 'lucide-react';
 
 interface ChatInputProps {
@@ -8,14 +8,41 @@ interface ChatInputProps {
 }
 
 /**
+ * 外部往輸入框塞草稿用的把手。
+ *
+ * 打字的 state 刻意留在組件內（見下方說明），所以外面不能直接改 value。
+ * 走 ref 而不是把 state 提上去，是為了保住那個「打字不重渲染整個 App」的設計——
+ * 與 `StreamingBubble` 的 handle 同一個做法。
+ */
+export interface ChatInputHandle {
+  /** 把文字接進草稿並聚焦。已有內容時換行接續，不覆蓋玩家寫到一半的字 */
+  appendDraft: (text: string) => void;
+}
+
+/**
  * 輸入框獨立組件：打字 state 內收，避免每個按鍵重渲染整個 App
  */
 /** 輸入框最高長到這裡，再高就內部捲動——不然它會吃掉整個閱讀區 */
 const MAX_HEIGHT = 128;
 
-export const ChatInput: React.FC<ChatInputProps> = ({ isLoading, onSend, onAbort }) => {
+export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(({ isLoading, onSend, onAbort }, ref) => {
   const [text, setText] = useState('');
   const boxRef = useRef<HTMLTextAreaElement>(null);
+
+  useImperativeHandle(ref, () => ({
+    appendDraft: (addition: string) => {
+      setText(prev => (prev.trim() ? `${prev.replace(/\s+$/, '')}\n${addition}` : addition));
+      // 聚焦並把游標放到最後：玩家接著要補「我要怎麼用」，
+      // 落在文字中間或整段被選取都得先多按一下才寫得下去
+      requestAnimationFrame(() => {
+        const el = boxRef.current;
+        if (!el) return;
+        el.focus();
+        el.setSelectionRange(el.value.length, el.value.length);
+        el.scrollTop = el.scrollHeight;
+      });
+    },
+  }));
 
   /**
    * 自動長高一律跟著 `text` 走，不要掛在 onInput 上。
@@ -86,4 +113,6 @@ export const ChatInput: React.FC<ChatInputProps> = ({ isLoading, onSend, onAbort
       )}
     </>
   );
-};
+});
+
+ChatInput.displayName = 'ChatInput';

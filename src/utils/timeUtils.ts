@@ -77,6 +77,52 @@ export function advanceTimeByMinutes(
 }
 
 /**
+ * 校準到某個時刻時，落後多少分鐘以內視為「已經到了」而不推進。
+ * 見 `setClockForward` 的說明。
+ */
+export const CLOCK_SET_TOLERANCE_MINUTES = 60;
+
+/**
+ * 把時鐘**往前**轉到指定時刻（絕對時刻校準）。
+ *
+ * 為什麼需要這個：`TIME|delta=` 只能累加，時鐘與敘事一旦分家就再也合不回來。
+ * AI 寫「你一覺醒來，晨光灑進窗子」卻只給了 `delta=+30m`，時鐘就停在半夜；
+ * 之後每回合 prompt 都把「02:14」餵回去，AI 於是又被拉回夜晚的設定，
+ * 玩家看到的就是「故事是早上、狀態列是半夜」，而且沒有任何辦法修。
+ *
+ * ⚠️ **只會往前，永遠不倒轉。** 時間單調遞增是這個系統的硬前提：任務期限、
+ * 日記時序、NPC 足跡日期全都建立在它上面。要求的時刻早於現在時，解讀成
+ * 「明天的那個時刻」（睡到隔天早上就是這個情況）。
+ *
+ * 唯一的例外是**小幅落後**（`CLOCK_SET_TOLERANCE_MINUTES` 以內）：那多半是
+ * AI 想講「現在大約是八點」而時鐘已經走到 08:30，照「往前轉」的規則會整整
+ * 跳掉 23.5 小時——一句無意義的校準吃掉一天。這種情況視為已經到了，不動。
+ *
+ * @returns 無變更時回傳**原 reference**，呼叫端可用來判斷要不要顯示校準訊息
+ */
+export function setClockForward(
+  timeState: TimeState,
+  hour: number,
+  minute: number
+): TimeState {
+  if (!Number.isInteger(hour) || hour < 0 || hour > 23) {
+    throw new Error(`hour must be an integer in 0..23 (got ${hour})`);
+  }
+  if (!Number.isInteger(minute) || minute < 0 || minute > 59) {
+    throw new Error(`minute must be an integer in 0..59 (got ${minute})`);
+  }
+
+  const nowOfDay = timeState.hour * 60 + timeState.minute;
+  const targetOfDay = hour * 60 + minute;
+  const diff = targetOfDay - nowOfDay;
+
+  if (diff === 0) return timeState;
+  if (diff < 0 && -diff <= CLOCK_SET_TOLERANCE_MINUTES) return timeState;
+
+  return advanceTimeByMinutes(timeState, diff > 0 ? diff : diff + 24 * 60);
+}
+
+/**
  * ═══ 任務期限判定 ═══
  */
 
@@ -146,24 +192,37 @@ export function checkAndFailExpiredQuests(
 
 /**
  * 推進時間並檢查任務期限，返回所有變更
+ *
+ * `setTo` 是可選的**絕對時刻校準**，在累加 `minutes` 之後才套用（見
+ * `setClockForward`）。期限檢查放在最後、對最終時間跑一次——校準可能跨日，
+ * 那一步同樣會讓任務逾期，兩段各檢查一次只是重複工。
+ *
  * @param timeState 當前時間狀態
  * @param minutes 推進的分鐘數
  * @param quests 任務列表
- * @returns { newTimeState, updatedQuests, cmdResults } 新時間、更新的任務和命令反饋
+ * @param setTo 校準目標時刻；不需要校準時省略
+ * @returns { newTimeState, updatedQuests, cmdResults, calibrated } 新時間、更新的任務、
+ *          命令反饋，以及校準是否真的改變了時間（沒變就不必通知玩家）
  */
 export function advanceTimeAndResolveQuestDeadlines(
   timeState: TimeState,
   minutes: number,
-  quests: Quest[]
+  quests: Quest[],
+  setTo?: { hour: number; minute: number } | null
 ): {
   newTimeState: TimeState;
   updatedQuests: Quest[];
   cmdResults: string[];
+  calibrated: boolean;
 } {
   const cmdResults: string[] = [];
 
   // 推進時間
-  const newTimeState = advanceTimeByMinutes(timeState, minutes);
+  const advanced = minutes > 0 ? advanceTimeByMinutes(timeState, minutes) : timeState;
+
+  // 再校準到絕對時刻（只往前）
+  const newTimeState = setTo ? setClockForward(advanced, setTo.hour, setTo.minute) : advanced;
+  const calibrated = newTimeState !== advanced;
 
   // 檢查過期任務
   const { updatedQuests, failedQuestTitles } = checkAndFailExpiredQuests(newTimeState, quests);
@@ -173,5 +232,5 @@ export function advanceTimeAndResolveQuestDeadlines(
     cmdResults.push(`⏰ 任務逾期：${title}`);
   });
 
-  return { newTimeState, updatedQuests, cmdResults };
+  return { newTimeState, updatedQuests, cmdResults, calibrated };
 }

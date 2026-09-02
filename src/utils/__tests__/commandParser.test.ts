@@ -301,3 +301,60 @@ describe('parseCommandsToAST — 畸形的開閉標記', () => {
     expect(narrative.trim()).toBe('敘事。');
   });
 });
+
+describe('parseCommandsToAST — TIME set 與 WEATHER', () => {
+  const one = (line: string) =>
+    parseCommandsToAST(`<<COMMANDS>>\n${line}\n<</COMMANDS>>`).commands[0];
+
+  it.each([
+    ['TIME|set=07:00', 7, 0],
+    ['TIME|set=7:30', 7, 30],
+    ['TIME|set=7', 7, 0],
+    ['TIME|set=7點', 7, 0],
+    ['TIME|set=7點30分', 7, 30],
+    ['TIME|set=23:59', 23, 59],
+  ])('%s → %s:%s', (line, hour, minute) => {
+    expect(one(line)?.parsed.setTo).toEqual({ hour, minute });
+  });
+
+  /** 12 小時制在中文敘事裡很自然。「下午3點」讀成 03:00 會把時鐘往回推一整個白天 */
+  it.each([
+    ['TIME|set=下午3點', 15],
+    ['TIME|set=晚上8點', 20],
+    ['TIME|set=早上7點', 7],
+    ['TIME|set=中午12:00', 12],
+  ])('%s 的 12 小時制換算', (line, hour) => {
+    expect((one(line)?.parsed.setTo as { hour: number }).hour).toBe(hour);
+  });
+
+  it('delta 與 set 可以同時給', () => {
+    const cmd = one('TIME|delta=+30m|set=09:00');
+    expect(cmd?.parsed.minutes).toBe(30);
+    expect(cmd?.parsed.setTo).toEqual({ hour: 9, minute: 0 });
+  });
+
+  /** set 猜錯是直接跳到錯誤時刻，寧可不動——與 delta 的寬容策略相反 */
+  it.each(['TIME|set=稍晚', 'TIME|set=25:00', 'TIME|set=12:99'])('認不得的 set 丟棄：%s', (line) => {
+    expect(one(line)).toBeUndefined();
+  });
+
+  it('set 認不得但 delta 有效時，delta 仍然生效', () => {
+    const cmd = one('TIME|delta=+1h|set=稍晚');
+    expect(cmd?.parsed.minutes).toBe(60);
+    expect(cmd?.parsed.setTo).toBeNull();
+  });
+
+  it('只有 delta 時 setTo 為 null（維持原行為）', () => {
+    const cmd = one('TIME|delta=+45m');
+    expect(cmd?.parsed.minutes).toBe(45);
+    expect(cmd?.parsed.setTo).toBeNull();
+  });
+
+  it('WEATHER 解析並收斂同義詞', () => {
+    expect(one('WEATHER|value=大雨')?.parsed.weather).toBe('下雨');
+  });
+
+  it('認不得的 WEATHER 丟棄', () => {
+    expect(one('WEATHER|value=天氣不錯')).toBeUndefined();
+  });
+});

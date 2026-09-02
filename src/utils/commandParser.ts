@@ -11,6 +11,8 @@
  * 未來升 v2 時在 parseCommandsToAST 入口加版本分流即可。
  */
 
+import { normalizeWeather, WEATHER_VALUES } from './weather';
+
 export const COMMANDS_VERSION = 'v1';
 
 /**
@@ -30,7 +32,7 @@ export const COMMANDS_VERSION = 'v1';
  * 新增指令時只改這裡。
  */
 export const COMMAND_NAMES = [
-  'STAT', 'HP', 'MP', 'GOLD', 'AFFINITY', 'LOCATION', 'TIME',
+  'STAT', 'HP', 'MP', 'GOLD', 'AFFINITY', 'LOCATION', 'TIME', 'WEATHER',
   'ITEM_ADD', 'ITEM_REMOVE', 'ITEM_USE',
   'QUEST_ADD', 'QUEST_GOAL_MET', 'QUEST_COMPLETE',
   'NPC_NEW', 'NPC_HOME', 'NPC_LOCATION', 'NPC_THOUGHT',
@@ -92,6 +94,37 @@ function parseTimeDelta(raw: string): number | null {
   }
 
   return minutes > 0 ? minutes : null;
+}
+
+/**
+ * 絕對時刻解析（`TIME|set=`）。支援 `07:00`、`7:00`、`7`、`7點`、`7點30分`，
+ * 也容忍 AI 加上的「早上／下午／晚上」前綴——12 小時制在中文敘事裡很自然，
+ * 而「下午3點」若被讀成 03:00 會把時鐘往回推一整個白天。
+ *
+ * 認不得回 `null`（呼叫端丟棄）。這裡與 `parseTimeDelta` 的寬容策略相反：
+ * delta 猜錯只是時鐘略偏，set 猜錯是直接跳到錯誤的時刻，寧可不動。
+ */
+function parseClockTime(raw: string): { hour: number; minute: number } | null {
+  const s = raw.trim();
+  if (!s) return null;
+
+  const pm = /下午|傍晚|晚上|夜裡|夜間|凌晨?後|p\.?m\.?/i.test(s);
+  const am = /上午|早上|清晨|凌晨|a\.?m\.?/i.test(s);
+
+  const m = s.match(/(\d{1,2})\s*(?::|點|时|時)?\s*(\d{1,2})?\s*分?/);
+  if (!m) return null;
+
+  let hour = parseInt(m[1]);
+  const minute = m[2] !== undefined ? parseInt(m[2]) : 0;
+  if (!Number.isFinite(hour) || !Number.isFinite(minute)) return null;
+  if (minute > 59) return null;
+
+  // 12 小時制換算。只在有明確前綴時動手——沒有前綴的 `set=15:00` 本來就是 24 小時制
+  if (pm && hour < 12) hour += 12;
+  if (am && hour === 12) hour = 0;
+
+  if (hour > 23) return null;
+  return { hour, minute };
 }
 
 /** STAT 支援的欄位。parser 原本照單全收 field，未知欄位會變成幽靈 type 死在 reducer */
@@ -241,11 +274,30 @@ function parseSingleCommand(line: string): CommandAST | null {
       return { type: 'LOCATION', raw: trimmed, parsed: { location } };
     }
 
-    // TIME|delta=+1h  or  TIME|delta=+30m
+    // TIME|delta=+1h、TIME|delta=+30m、TIME|set=07:00（絕對時刻校準）
+    // 兩者可同時出現：先累加 delta，再校準到 set（見 timeUtils.setClockForward）
     case 'TIME': {
-      const minutes = parseTimeDelta(kv.delta || kv.value || '');
-      if (minutes === null) return null;
-      return { type: 'TIME', raw: trimmed, parsed: { minutes } };
+      const rawDelta = kv.delta || kv.value || '';
+      const minutes = rawDelta ? parseTimeDelta(rawDelta) : null;
+      const setTo = kv.set ? parseClockTime(kv.set) : null;
+
+      if (kv.set && !setTo) {
+        console.warn(`[TIME] set 認不得的時刻（"${kv.set}"），已忽略。原始指令：${trimmed}`);
+      }
+      // delta 與 set 都拿不到才整條丟棄
+      if (minutes === null && !setTo) return null;
+
+      return { type: 'TIME', raw: trimmed, parsed: { minutes: minutes ?? 0, setTo } };
+    }
+
+    // WEATHER|value=下雨
+    case 'WEATHER': {
+      const weather = normalizeWeather(kv.value || kv.weather || kv.name || '');
+      if (!weather) {
+        console.warn(`[WEATHER] 認不得的天氣（"${kv.value || kv.weather || kv.name || ''}"），已忽略。可用值：${WEATHER_VALUES.join('／')}。原始指令：${trimmed}`);
+        return null;
+      }
+      return { type: 'WEATHER', raw: trimmed, parsed: { weather } };
     }
 
     // QUEST_ADD|title=任務名|giver=委託人|desc=目標描述|gold=100|items=物品A,物品B|deadline=7

@@ -475,6 +475,8 @@ FACTION_NEW|name=黑牙氏族|type=criminal|desc=盤據東境的盜賊團
 |---|---|---|
 | `TIME\|delta=` | `parseTimeDelta()`：支援 `h`/`m`/中文單位；**缺單位時以分鐘解讀並 warn**，不丟棄 | TIME 是每回應必須輸出的指令，丟棄＝遊戲時鐘停擺且無跡象 |
 | `STAT\|field=` | 白名單 `STAT_FIELDS`（hp/mp/gold），未知欄位丟棄並 warn | 舊版 `type = field.toUpperCase()` 照單全收，未知欄位變幽靈 type 死在 reducer 的 default |
+| `TIME\|set=` | `parseClockTime()`：認不得就丟棄（與 delta 的寬容相反）。校準**只往前**，落後 60 分鐘以內視為已到達 | delta 猜錯只是時鐘略偏，set 猜錯是直接跳到錯誤時刻；不擋回頭的話「現在大約八點」會在 08:30 跳掉 23.5 小時 |
+| `WEATHER\|value=` | `normalizeWeather()`：收斂同義詞，認不得就丟棄並 warn | 天氣不是自由文字。「微風徐徐帶著海鹽味」進了欄位就沒有圖示也沒有天空梯度，而且下回合被 AI 讀回去當事實 |
 | `qty=` | `parseQty()`：非正整數退回 1 | `parseInt(x) \|\| 1` 讓**負數**原樣通過（負數是 truthy），ITEM_ADD 會變成扣庫存 |
 
 認不得的指令在 reducer 的 `UNKNOWN` / `default` 分支會 `console.warn` 並附上原始文字。
@@ -511,6 +513,8 @@ FACTION_NEW|name=黑牙氏族|type=criminal|desc=盤據東境的盜賊團
 | saveToCloud 髒標記 | 快照未變更時跳過整包 JSON 上傳 |
 | 好感度顏色固定 | 語意色不隨主題變動 |
 | `cartFare` 僅 AI 寫入 | 玩家 UI 不顯示馬車費用欄位 |
+| 時間可校準（`TIME\|set=`）、天氣可寫入（`WEATHER`） | 兩者都注入 prompt。時鐘只有 delta 就永遠合不回敘事，天氣沒有指令就永遠是初始值，而 AI 每回合把它們讀回去當事實 |
+| 使用道具只寫進草稿、不直接送出 | 同一瓶藥自己喝或餵給倒地的同伴是完全不同的故事，那句話該由玩家補完；扣數量因此也延後到真的送出時 |
 | 手動結案的獎勵閘門是 `isGoalMet` | `isGoalMet` 由 AI 的 `QUEST_GOAL_MET` 寫入、玩家改不到，是唯一「目標確實達成過」的憑據。沒有它就照發獎勵的話，接任務→按一下→領錢，任務系統變成無限金幣按鈕 |
 
 ---
@@ -595,6 +599,9 @@ FACTION_NEW|name=黑牙氏族|type=criminal|desc=盤據東境的盜賊團
 | `useGameStore` `loadFromData(data)` | 匯入存檔並自動 migrate 舊格式（`saveDataMapper` + `runMigrations`）|
 | `useAuth` `saveToCloud / loadFromCloud / listCloudSaves / deleteCloudSave` | Supabase `saves` 表 CRUD |
 | `utils/npcProfile.ts` `resolveNpcProfile / findNpcLore / npcIdentityBrief` | NPC 身分設定的唯一讀取入口（來源是設定集條目，`Npc` 上沒有那些欄位） |
+| `utils/timeUtils.ts` `setClockForward / advanceTimeAndResolveQuestDeadlines` | 絕對時刻校準（**只往前**，落後 60 分內視為已到達）與時間推進＋期限結算 |
+| `utils/weather.ts` `normalizeWeather / WEATHER_VALUES` | 天氣詞彙的唯一準據（五種），同義詞收斂；狀態列圖示與天空梯度共用 |
+| `utils/itemCatalog.ts` `selectConsumedItems(pending, sentText)` | 送出時決定扣哪些待用道具（名字還在文字裡才扣） |
 | `utils/affectionColor.ts` `affectionColor(affection)` | 回傳好感度對應 CSS 變數字串（唯一入口） |
 | `utils/affectionLabel.ts` `affectionLabel / relationText` | 好感度語意標籤（衍生值，不存檔）；`relationText` 為顯示與 prompt 注入的共用入口 |
 | `utils/itemCatalog.ts` `registerItemDef / touchItemDef / pruneItemCatalog / selectKnownItemNames` | 道具圖鑑：先寫先贏登錄、更新使用時間、LOD 淘汰、prompt 名稱切片 |

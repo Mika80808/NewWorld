@@ -608,6 +608,8 @@ STAT|field=gold|delta=+200
 AFFINITY|npc=角色名|delta=+10
 LOCATION|name=新地點名稱
 TIME|delta=+1h
+TIME|set=07:00
+WEATHER|value=下雨
 ITEM_ADD|name=道具名|qty=1|desc=說明（外觀與效果）
 ITEM_REMOVE|name=道具名|qty=1
 ITEM_USE|name=道具名
@@ -638,7 +640,15 @@ NPC_RELATION|npc=NPC名|type=family/ally/rival/enemy/acquaintance/romantic|targe
 [出場:姓名1,姓名2]（從候選名單選誰實際在場；無人可輸出 [出場:]；可加候選外新角色）
 
 【各指令觸發時機】
-- TIME：每次回應必須輸出。依行動性質推進。
+- TIME：每次回應必須輸出 delta，依行動性質推進。
+- TIME 的 set= 是**絕對時刻校準**，只在敘事的時段與上方 Time 顯示的時鐘對不上時輸出
+  （睡到天亮、長途跋涉、場景直接跳到隔天早市等）。格式為 24 小時制，例如 set=07:00。
+  **時間只能往前**：要求的時刻早於現在時，系統會解讀成「明天的那個時刻」。
+  時段與時鐘一致時不要輸出 set，那只會平白跳掉一整天。
+- WEATHER：天氣實際改變時輸出（放晴、下起雨、起霧、入夜轉冷下雪）。
+  value 只能是這五個之一：晴朗／陰天／下雨／下雪／起霧，其他寫法一律被忽略。
+  天氣沒變就不要輸出。敘事裡的天氣必須與上方 Weather 顯示的一致，
+  想寫成別的天氣就要同時輸出這個指令，否則下一回合你會讀回舊的天氣。
 - ITEM_ADD：玩家獲得道具時。說明需詳細描述外觀與效果（玩家使用時 AI 依此生成劇情）。若道具已列於【已知物品】清單，name 必須沿用完全相同的名稱（勿創同義新名），desc 可省略（系統自動沿用圖鑑既有定義）。
 - ITEM_USE：玩家主動使用道具時（前端扣數量）。ITEM_REMOVE：道具消耗/丟失。
 - QUEST_ADD：NPC 正式委託或玩家接布告欄任務時。
