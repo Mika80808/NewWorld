@@ -125,6 +125,7 @@ export function reduceCommands(
   let goldDelta = 0;
   const affinityUpdates: Array<{ npcName: string; value: number }> = [];
   let timeDeltaMinutes = 0;
+  let clockSetTo: { hour: number; minute: number } | null = null;
 
   const gameDate = `${currentState.timeState.month}/${currentState.timeState.day}`;
 
@@ -166,6 +167,20 @@ export function reduceCommands(
 
       case 'TIME': {
         timeDeltaMinutes += (cmd.parsed.minutes as number) || 0;
+        // 同一回合出現多條校準時後寫覆蓋——最後那條才是 AI 最終想表達的時刻
+        const setTo = cmd.parsed.setTo as { hour: number; minute: number } | null | undefined;
+        if (setTo) clockSetTo = setTo;
+        break;
+      }
+
+      case 'WEATHER': {
+        const weather = cmd.parsed.weather as string;
+        // 與現值相同時不推 cmdResults：AI 每回合都輸出 WEATHER 是常態，
+        // 「☀️ 天氣：晴朗」連刷十回合只是噪音。真的變了才報
+        if (weather !== currentState.timeState.weather) {
+          stateChanges.timeState = { ...(stateChanges.timeState ?? {}), weather };
+          feedback.cmdResults.push(`🌤️ 天氣轉為${weather}`);
+        }
         break;
       }
 
@@ -677,13 +692,25 @@ export function reduceCommands(
     };
   }
 
-  if (timeDeltaMinutes > 0) {
-    const { newTimeState, updatedQuests, cmdResults } = advanceTimeAndResolveQuestDeadlines(
-      currentState.timeState, timeDeltaMinutes, workingQuests
+  // 時間：先累加 delta，再校準到絕對時刻（只往前）。
+  // ⚠️ 合併而非覆寫 stateChanges.timeState——WEATHER 可能已經寫了 weather 進去，
+  // 直接指派會把它蓋掉（同一回合下雨＋過一小時，天氣就默默消失了）
+  if (timeDeltaMinutes > 0 || clockSetTo) {
+    const { newTimeState, updatedQuests, cmdResults, calibrated } = advanceTimeAndResolveQuestDeadlines(
+      currentState.timeState, timeDeltaMinutes, workingQuests, clockSetTo
     );
-    stateChanges.timeState = newTimeState;
+    stateChanges.timeState = { ...newTimeState, ...(stateChanges.timeState ?? {}) };
     workingQuests = updatedQuests;
     feedback.cmdResults.push(...cmdResults);
+
+    // 校準跳掉的時間可能很大（睡到隔天早上＝跳 8 小時），一定要讓玩家看見。
+    // 靜默跳日的話，玩家只會發現任務莫名逾期
+    if (calibrated) {
+      const hh = String(newTimeState.hour).padStart(2, '0');
+      const mm = String(newTimeState.minute).padStart(2, '0');
+      const crossedDay = newTimeState.day !== currentState.timeState.day;
+      feedback.cmdResults.push(`🕐 時刻校準為 ${hh}:${mm}${crossedDay ? `（${newTimeState.month}/${newTimeState.day}）` : ''}`);
+    }
   }
 
   if (affinityUpdates.length > 0) {

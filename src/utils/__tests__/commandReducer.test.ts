@@ -566,3 +566,89 @@ describe('reduceCommands — 任務標題比對', () => {
     expect(stateChanges.quests?.[0].isGoalMet) .toBe(true);
   });
 })
+
+/**
+ * 玩家回報：「時間跟天氣他現在抓不準，故事是早上可是狀態列裡面是半夜，
+ * 天氣也沒有改變，他沒有辦法校準。」
+ *
+ * 兩個獨立的缺口：
+ * - `weather` 注入 prompt、畫在狀態列，但沒有任何指令寫得到它 → 永遠是初始值
+ * - `TIME` 只有 delta，時鐘只能累加，一旦與敘事分家就再也合不回來
+ */
+describe('reduceCommands — WEATHER', () => {
+  it('寫入 stateChanges.timeState.weather', () => {
+    const { stateChanges, feedback } = run('WEATHER|value=下雨');
+    expect(stateChanges.timeState?.weather).toBe('下雨');
+    expect(feedback.cmdResults.some(r => r.includes('下雨'))).toBe(true);
+  });
+
+  it('同義詞收斂成清單上的值', () => {
+    expect(run('WEATHER|value=傾盆大雨').stateChanges.timeState?.weather).toBe('下雨');
+  });
+
+  /** AI 每回合都輸出 WEATHER 是常態，沒變還報一次只是刷版面 */
+  it('與現值相同時不動、也不推訊息', () => {
+    const { stateChanges, feedback } = run('WEATHER|value=晴朗');
+    expect(stateChanges.timeState).toBeUndefined();
+    expect(feedback.cmdResults).toHaveLength(0);
+  });
+
+  /** 認不得的天氣丟棄，與 STAT|field= 的白名單同一個原則 */
+  it('認不得的天氣整條丟棄', () => {
+    const { stateChanges } = run('WEATHER|value=微風徐徐帶著海鹽味');
+    expect(stateChanges.timeState).toBeUndefined();
+  });
+
+  /**
+   * 同一回合同時有 WEATHER 與 TIME 時，時間那段是後寫的。
+   * 直接指派 stateChanges.timeState 會把 weather 蓋掉——下雨過了一小時，
+   * 天氣就默默變回晴朗。
+   */
+  it('與 TIME 同回合時天氣不會被時間覆蓋', () => {
+    const { stateChanges } = run('WEATHER|value=下雨\nTIME|delta=+1h');
+    expect(stateChanges.timeState?.weather).toBe('下雨');
+    expect(stateChanges.timeState?.hour).toBe(13);
+  });
+});
+
+describe('reduceCommands — TIME 絕對時刻校準', () => {
+  const night = () => state({
+    timeState: { year: 1024, month: 4, day: 15, hour: 2, minute: 14, weather: '晴朗' },
+  });
+
+  it('set 把半夜的時鐘校準到早上', () => {
+    const { stateChanges } = run('TIME|set=07:00', night());
+    expect(stateChanges.timeState).toMatchObject({ day: 15, hour: 7, minute: 0 });
+  });
+
+  it('校準時推一則訊息讓玩家看得見', () => {
+    const { feedback } = run('TIME|set=07:00', night());
+    expect(feedback.cmdResults.some(r => r.includes('校準'))).toBe(true);
+  });
+
+  it('delta 與 set 同時出現時，先累加再校準', () => {
+    const { stateChanges } = run('TIME|delta=+30m\nTIME|set=09:00', night());
+    expect(stateChanges.timeState).toMatchObject({ hour: 9, minute: 0 });
+  });
+
+  it('多條 set 以最後一條為準', () => {
+    const { stateChanges } = run('TIME|set=07:00\nTIME|set=10:30', night());
+    expect(stateChanges.timeState).toMatchObject({ hour: 10, minute: 30 });
+  });
+
+  /** 只有 delta 時完全維持原本行為 */
+  it('沒有 set 時不推校準訊息', () => {
+    const { feedback } = run('TIME|delta=+1h', night());
+    expect(feedback.cmdResults.some(r => r.includes('校準'))).toBe(false);
+  });
+
+  /** 跨日的校準要標出日期，否則玩家只會發現任務莫名逾期 */
+  it('跨日校準的訊息帶上日期', () => {
+    const { feedback, stateChanges } = run(
+      'TIME|set=06:00',
+      state({ timeState: { year: 1024, month: 4, day: 15, hour: 23, minute: 0, weather: '晴朗' } })
+    );
+    expect(stateChanges.timeState).toMatchObject({ day: 16, hour: 6 });
+    expect(feedback.cmdResults.some(r => r.includes('4/16'))).toBe(true);
+  });
+});

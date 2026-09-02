@@ -9,8 +9,9 @@ import { ProfileModal } from './components/ProfileModal';
 import { SystemPromptModal } from './components/SystemPromptModal';
 import { MessageCard } from './components/MessageCard';
 import { StreamingBubble, StreamingBubbleHandle } from './components/StreamingBubble';
-import { ChatInput } from './components/ChatInput';
+import { ChatInput, ChatInputHandle } from './components/ChatInput';
 import { ConfirmDialog, DialogRequest } from './components/ConfirmDialog';
+import { TimeWeatherPopover } from './components/TimeWeatherPopover';
 // 桌面欄位與手機抽屜共用的面板組件（原本兩邊各有一份幾乎相同的 JSX）
 import { GoalsPanel } from './components/panels/GoalsPanel';
 import { WorldMemoryWidget } from './components/panels/WorldMemoryWidget';
@@ -39,7 +40,7 @@ import { buildPrompt, BuildPromptDeps, BuildPromptResult } from './utils/promptB
 import { parseNpcImport, mergeImportedNpcs, mergeImportedFactions } from './utils/npcImport';
 import { setFactionRelation, removeFactionRelation } from './utils/factionRelation';
 import { ThemeId, loadTheme, saveTheme, applyTheme } from './utils/theme';
-import { describeItem, registerItemDef, normalizeItemName } from './utils/itemCatalog';
+import { describeItem, registerItemDef, normalizeItemName, selectConsumedItems } from './utils/itemCatalog';
 import { updateNpcFootprints } from './utils/npcPresence';
 import { SaveSlotsModal } from './components/SaveSlotsModal';
 
@@ -49,6 +50,10 @@ export default function App() {
   // ─── UI 狀態（Modal / 輸入 / 載入）──────────────────────────────────────────
   const [isPriorityMode, setIsPriorityMode] = useState(false);
   const [isQuestModalOpen, setIsQuestModalOpen] = useState(false);
+  // 狀態列的時間／天氣校準卡是否展開
+  const [isCalibrating, setIsCalibrating] = useState(false);
+  // 已寫進草稿、但還沒送出的道具。真的送出時才扣數量
+  const [pendingItemUses, setPendingItemUses] = useState<string[]>([]);
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
   const [isDiaryModalOpen, setIsDiaryModalOpen] = useState(false);
   const [isLorebookModalOpen, setIsLorebookModalOpen] = useState(false);
@@ -452,6 +457,8 @@ ${newPool.map((s, i) => `${i + 1}. ${s}`).join('\n')}`;
   const isAutoLoadingRef = useRef(false);
   // 串流泡泡的命令式介面：onChunk 直接推文字進去，不經過 messages state
   const streamingBubbleRef = useRef<StreamingBubbleHandle>(null);
+  // 道具使用改成寫進草稿而非直接送出，需要一支把手往輸入框塞文字
+  const chatInputRef = useRef<ChatInputHandle>(null);
   const visibleMessages = visibleMessageCount > 0 ? messages.slice(-visibleMessageCount) : [];
   const hiddenMessageCount = Math.max(messages.length - visibleMessages.length, 0);
 
@@ -1101,6 +1108,22 @@ ${poolText}
     });
   };
 
+  /**
+   * 手動校準時間與天氣。
+   *
+   * AI 現在有 `TIME|set=` 與 `WEATHER` 可以自己調，但那不保證它會用。
+   * 時鐘與天氣都會注入 prompt，歪掉之後會持續把敘事往錯的時段拉，
+   * 玩家需要一個收得掉的出口（與任務的「強制結案」同一個原則）。
+   *
+   * 這裡允許往回撥——玩家是看著錯誤的數字在修，不是每回合自動輸出。
+   * 日期不動：任務期限與日記時序都掛在天數上。
+   */
+  const handleCalibrateTime = (next: { hour: number; minute: number; weather: string }) => {
+    setTimeState(prev => ({ ...prev, ...next }));
+    setIsCalibrating(false);
+    showToast(`🕐 已校準為 ${String(next.hour).padStart(2, '0')}:${String(next.minute).padStart(2, '0')}・${next.weather}`);
+  };
+
   // 主題切換的唯一入口：套用到 <html> 並寫回 localStorage。
   // 不進遊戲存檔——那是這台裝置的閱讀偏好，不是世界狀態（見 utils/theme.ts）
   const handleSetTheme = (next: ThemeId) => {
@@ -1708,9 +1731,35 @@ ${recentContext}
     setEquipment(prev => prev.filter(i => i.id !== item.id));
     showToast(`丟棄了 ${item.name}`);
   };
+  /**
+   * 使用消耗品——**只寫進輸入框草稿，不直接送出**。
+   *
+   * 先前是按下去就 `consumeItem` + `handleSendMessage` 一氣呵成，玩家連補一句
+   * 「我要怎麼用」的機會都沒有：道具說明直接飛出去變成一句乾巴巴的
+   * 「（我使用了草藥（回復 20 HP））」。同一瓶藥是「灌給倒地的芬里爾」還是
+   * 「自己邊跑邊喝」，故事會完全不同，那句話該由玩家補完。
+   *
+   * ⚠️ 因此**扣數量也一起延後到真的送出時**（見 `handleSendFromInput`）。
+   * 按下去就扣的話，玩家改主意清掉草稿，道具已經沒了、故事裡卻沒發生任何事。
+   */
   const handleUseConsumable = (item: ItemEntry) => {
-    consumeItem(item.name);
-    handleSendMessage(`（我使用了 ${item.name}（${describeItem(itemCatalog, item.name)}））`);
+    chatInputRef.current?.appendDraft(`（我使用了 ${item.name}（${describeItem(itemCatalog, item.name)}））`);
+    setPendingItemUses(prev => (prev.includes(item.name) ? prev : [...prev, item.name]));
+    showToast(`✏️ ${item.name} 已寫進輸入框，補上你想怎麼用再送出`);
+  };
+
+  /**
+   * 輸入框送出的唯一入口：先結算待用道具，再走一般送出流程。
+   *
+   * 只扣「送出的文字裡還留著名字」的那些——玩家把草稿刪掉重寫，
+   * 代表他改變主意了，不該平白少一瓶藥。
+   */
+  const handleSendFromInput = (text: string) => {
+    if (pendingItemUses.length > 0) {
+      for (const name of selectConsumedItems(pendingItemUses, text)) consumeItem(name);
+      setPendingItemUses([]);
+    }
+    handleSendMessage(text);
   };
   const handleDropConsumable = (item: ItemEntry) => {
     setItems(prev => prev.filter(i => i.id !== item.id));
@@ -2385,7 +2434,7 @@ ${recentContext}
                   }
                 </button>
 
-                <ChatInput isLoading={isLoading} onSend={handleSendMessage} onAbort={abortAI} />
+                <ChatInput ref={chatInputRef} isLoading={isLoading} onSend={handleSendFromInput} onAbort={abortAI} />
               </div>
 
               {/* D7：中斷 / 超時 / 錯誤 重試列 */}
@@ -2420,13 +2469,40 @@ ${recentContext}
                     <Calendar className="w-3 h-3 mr-1" />
                     {timeState.year}年 {timeState.month}月 {timeState.day}日
                   </span>
-                  <span className="flex items-center whitespace-nowrap">
-                    {getWeatherIcon()} {timeState.weather}
-                  </span>
-                  <span className="flex items-center whitespace-nowrap">
-                    {getCelestialIcon()}
-                    {String(timeState.hour).padStart(2, '0')}:{String(timeState.minute).padStart(2, '0')}
-                  </span>
+                  {/* 天氣與時刻是同一個校準入口：兩者都是 timeState，而且會一起歪
+                      （AI 講早上、時鐘半夜、天氣永遠晴朗）。點任一個都開同一張卡 */}
+                  <div className="relative flex items-center gap-3">
+                    <button
+                      className="flex items-center whitespace-nowrap rounded px-1 -mx-1 transition"
+                      style={{ color: 'inherit' }}
+                      title="校準時間與天氣"
+                      onClick={() => setIsCalibrating(v => !v)}
+                      onMouseEnter={e => (e.currentTarget.style.background = 'var(--tint-surface-hover)')}
+                      onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+                    >
+                      {getWeatherIcon()} {timeState.weather}
+                    </button>
+                    <button
+                      className="flex items-center whitespace-nowrap rounded px-1 -mx-1 transition"
+                      style={{ color: 'inherit' }}
+                      title="校準時間與天氣"
+                      onClick={() => setIsCalibrating(v => !v)}
+                      onMouseEnter={e => (e.currentTarget.style.background = 'var(--tint-surface-hover)')}
+                      onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+                    >
+                      {getCelestialIcon()}
+                      {String(timeState.hour).padStart(2, '0')}:{String(timeState.minute).padStart(2, '0')}
+                    </button>
+                    {isCalibrating && (
+                      <TimeWeatherPopover
+                        hour={timeState.hour}
+                        minute={timeState.minute}
+                        weather={timeState.weather}
+                        onApply={handleCalibrateTime}
+                        onClose={() => setIsCalibrating(false)}
+                      />
+                    )}
+                  </div>
                   <span className="flex items-center whitespace-nowrap"><MapPin className="w-3 h-3 mr-1" /> {currentLocation}</span>
                 </div>
                 <div className="flex items-center gap-3 flex-wrap">

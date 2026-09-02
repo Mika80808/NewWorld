@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   normalizeItemName, registerItemDef, touchItemDef,
-  pruneItemCatalog, selectKnownItemNames, buildCatalogFromItems, describeItem,
+  pruneItemCatalog, selectKnownItemNames, buildCatalogFromItems, describeItem, selectConsumedItems,
 } from '../itemCatalog';
 import { ItemCatalog } from '../../types';
 
@@ -151,5 +151,29 @@ describe('buildCatalogFromItems — base 既有圖鑑', () => {
     const base = { 草藥: { name: '草藥', description: '圖鑑版', createdAt: '4/1', lastUsedAt: 1 } };
     buildCatalogFromItems([{ name: '鐵劍', description: '一把劍' }], 123, base);
     expect(Object.keys(base)).toEqual(['草藥']);
+  });
+});
+
+/**
+ * 使用消耗品改成「先寫進草稿、玩家補完後手動送出」，扣數量也跟著延後到送出。
+ * 這支決定送出時到底要扣哪些。
+ */
+describe('selectConsumedItems', () => {
+  it('名字還在送出的文字裡就扣', () => {
+    expect(selectConsumedItems(['草藥'], '（我使用了草藥（回復 20 HP）），餵給芬里爾')).toEqual(['草藥']);
+  });
+
+  /** 玩家把草稿刪掉重寫＝改變主意，不該平白少一瓶藥 */
+  it('名字被刪掉就不扣', () => {
+    expect(selectConsumedItems(['草藥'], '算了，我直接衝上去')).toEqual([]);
+  });
+
+  it('一次寫進多個道具時各自判斷', () => {
+    expect(selectConsumedItems(['草藥', '解毒劑'], '我先喝草藥，解毒劑留著')).toEqual(['草藥', '解毒劑']);
+    expect(selectConsumedItems(['草藥', '解毒劑'], '我只喝草藥')).toEqual(['草藥']);
+  });
+
+  it('沒有待用道具時回空陣列', () => {
+    expect(selectConsumedItems([], '我使用了草藥')).toEqual([]);
   });
 });
