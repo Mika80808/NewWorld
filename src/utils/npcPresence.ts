@@ -18,3 +18,38 @@
 export function isNpcOnStage(npcName: string, appearingNpcs: string[]): boolean {
   return appearingNpcs.some(n => npcName.includes(n) || n.includes(npcName));
 }
+
+/**
+ * 更新出場 NPC 的足跡（`location` / `lastSeenLocation` / `lastSeenDate`）。
+ *
+ * ⚠️ **只有 `[出場:]` 名單上的角色才算出場過。**
+ *
+ * `App.tsx` 先前除了依名單更新之外，還多跑一次
+ * `narrative.includes(npc.name)`——對整段敘事做子字串比對，只要名字在對話裡
+ * **被提到**就把「最後出現於」寫成當前地點。於是「你聽說芬里爾去了北境」
+ * 這種句子會讓芬里爾被記成在月湖鎮出現過，而那個欄位會注入 prompt
+ * （`[Scene Lorebook]` 的「最後出現於：X」），AI 於是拿到一個他從沒去過的地點。
+ *
+ * 而且裸的 `includes` 連自己人都分不清：短名字（「里歐」）會被長名字
+ * （「里歐娜」）的句子誤中。判定一律走 `isNpcOnStage`，與 promptBuilder、
+ * 右欄「當前場景人物」同一套規則。
+ *
+ * 無人出場時回傳**原陣列 reference**——每回合無條件產生新陣列會讓存檔的
+ * 髒標記永遠為髒（與 memoryStore 的 pruneMemories / touchMemories 同理）。
+ */
+export function updateNpcFootprints<T extends { name: string }>(
+  npcs: T[],
+  appearingNpcs: string[],
+  location: string,
+  date: string,
+): T[] {
+  if (appearingNpcs.length === 0) return npcs;
+
+  let changed = false;
+  const next = npcs.map(npc => {
+    if (!isNpcOnStage(npc.name, appearingNpcs)) return npc;
+    changed = true;
+    return { ...npc, location, lastSeenLocation: location, lastSeenDate: date };
+  });
+  return changed ? next : npcs;
+}

@@ -40,6 +40,7 @@ import { parseNpcImport, mergeImportedNpcs, mergeImportedFactions } from './util
 import { setFactionRelation, removeFactionRelation } from './utils/factionRelation';
 import { ThemeId, loadTheme, saveTheme, applyTheme } from './utils/theme';
 import { describeItem, registerItemDef, normalizeItemName } from './utils/itemCatalog';
+import { updateNpcFootprints } from './utils/npcPresence';
 import { SaveSlotsModal } from './components/SaveSlotsModal';
 
 export default function App() {
@@ -1618,14 +1619,9 @@ ${recentContext}
         // 該 NPC 的完整檔案會無視地點、每一輪繼續注入 prompt（buildPrompt 的 inScene
         // 判定先於地點過濾），等於跟著玩家跨城鎮，且此狀態會存進存檔。
         setAppearingNpcs(uniqueNames);
-        // 足跡只在真的有人出場時更新
-        if (uniqueNames.length > 0) {
-          setNpcs(prev => prev.map(npc =>
-            uniqueNames.some((n: string) => npc.name.includes(n) || n.includes(npc.name))
-              ? { ...npc, location: sceneLocation, lastSeenLocation: sceneLocation, lastSeenDate: sceneDate }
-              : npc
-          ));
-        }
+        // 足跡只在真的有人出場時更新。判定走共用的 isNpcOnStage
+        // （updateNpcFootprints 內部），不要在這裡再寫一份前後包含的比對
+        setNpcs(prev => updateNpcFootprints(prev, uniqueNames, sceneLocation, sceneDate));
       }
       // 完全沒有標記時不動 appearingNpcs：那是 AI 沒照規矩輸出，維持現狀比誤清安全
       const narrative = rawNarrative.replace(APPEAR_TAG_PATTERN, '').trim();
@@ -1634,16 +1630,11 @@ ${recentContext}
         m.id === aiMessageId ? { ...m, text: narrative } : m
       ));
 
-      setNpcs(prev => prev.map(npc => {
-        if (narrative.includes(npc.name)) {
-          return {
-            ...npc,
-            lastSeenLocation: sceneLocation,
-            lastSeenDate: sceneDate
-          };
-        }
-        return npc;
-      }));
+      // ⚠️ 這裡先前還有一段 `narrative.includes(npc.name)` 的足跡更新：
+      // 只要名字在敘事裡**被提到**就把「最後出現於」寫成當前地點。
+      // 「你聽說芬里爾去了北境」會讓芬里爾被記成在這裡出現過，而那個欄位會
+      // 注入 prompt（[Scene Lorebook] 的「最後出現於」），AI 於是拿到一個
+      // 他從沒去過的地點。已移除——足跡只認 [出場:] 名單。
 
       // 使用 buildPrompt 當時的判定結果，不重跑 isMemoryTriggered——
       // 它含機率擲骰，重跑會讓「被計數的記憶」與「實際注入的記憶」是兩組不同的
