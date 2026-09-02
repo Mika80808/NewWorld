@@ -2463,7 +2463,16 @@ ${recentContext}
               )}
 
               {/* Status Bar */}
-              <div className="mt-1 flex items-center justify-between text-xs font-mono gap-2 flex-wrap" style={{ color: 'var(--text-stat-label)' }}>
+              {/*
+                ⚠️ 這一列在手機上是**四個各自獨立的換行單位**（日期／天氣／時刻／地點）。
+                加校準入口時我把天氣與時刻包進同一個 div，兩者從此黏成一個更寬、
+                不能從中間斷開的單位——狀態列於是多擠出一行，而這一列是浮在故事區
+                底部的，長高多少就多蓋掉多少故事文字。手機上正好就是「中間的字不見了」。
+
+                popover 改掛在**整列**上（下方的 relative），天氣與時刻回到各自獨立的
+                兄弟節點，換行行為與加功能之前完全一樣。
+              */}
+              <div className="relative mt-1 flex items-center justify-between text-xs font-mono gap-2 flex-wrap" style={{ color: 'var(--text-stat-label)' }}>
                 <div className="flex items-center gap-3 flex-wrap">
                   <span className="flex items-center whitespace-nowrap" title={`${currentMonthData.name}：${currentMonthData.elegant}`}>
                     <Calendar className="w-3 h-3 mr-1" />
@@ -2471,38 +2480,23 @@ ${recentContext}
                   </span>
                   {/* 天氣與時刻是同一個校準入口：兩者都是 timeState，而且會一起歪
                       （AI 講早上、時鐘半夜、天氣永遠晴朗）。點任一個都開同一張卡 */}
-                  <div className="relative flex items-center gap-3">
-                    <button
-                      className="flex items-center whitespace-nowrap rounded px-1 -mx-1 transition"
-                      style={{ color: 'inherit' }}
-                      title="校準時間與天氣"
-                      onClick={() => setIsCalibrating(v => !v)}
-                      onMouseEnter={e => (e.currentTarget.style.background = 'var(--tint-surface-hover)')}
-                      onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
-                    >
-                      {getWeatherIcon()} {timeState.weather}
-                    </button>
-                    <button
-                      className="flex items-center whitespace-nowrap rounded px-1 -mx-1 transition"
-                      style={{ color: 'inherit' }}
-                      title="校準時間與天氣"
-                      onClick={() => setIsCalibrating(v => !v)}
-                      onMouseEnter={e => (e.currentTarget.style.background = 'var(--tint-surface-hover)')}
-                      onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
-                    >
-                      {getCelestialIcon()}
-                      {String(timeState.hour).padStart(2, '0')}:{String(timeState.minute).padStart(2, '0')}
-                    </button>
-                    {isCalibrating && (
-                      <TimeWeatherPopover
-                        hour={timeState.hour}
-                        minute={timeState.minute}
-                        weather={timeState.weather}
-                        onApply={handleCalibrateTime}
-                        onClose={() => setIsCalibrating(false)}
-                      />
-                    )}
-                  </div>
+                  <button
+                    className="flex items-center whitespace-nowrap rounded transition"
+                    style={{ color: 'inherit' }}
+                    title="校準時間與天氣"
+                    onClick={() => setIsCalibrating(v => !v)}
+                  >
+                    {getWeatherIcon()} {timeState.weather}
+                  </button>
+                  <button
+                    className="flex items-center whitespace-nowrap rounded transition"
+                    style={{ color: 'inherit' }}
+                    title="校準時間與天氣"
+                    onClick={() => setIsCalibrating(v => !v)}
+                  >
+                    {getCelestialIcon()}
+                    {String(timeState.hour).padStart(2, '0')}:{String(timeState.minute).padStart(2, '0')}
+                  </button>
                   <span className="flex items-center whitespace-nowrap"><MapPin className="w-3 h-3 mr-1" /> {currentLocation}</span>
                 </div>
                 <div className="flex items-center gap-3 flex-wrap">
@@ -2516,6 +2510,17 @@ ${recentContext}
                     </span>
                   ))}
                 </div>
+
+                {/* 校準卡掛在整列上，天氣／時刻兩個按鈕因此不必被包在同一個容器裡 */}
+                {isCalibrating && (
+                  <TimeWeatherPopover
+                    hour={timeState.hour}
+                    minute={timeState.minute}
+                    weather={timeState.weather}
+                    onApply={handleCalibrateTime}
+                    onClose={() => setIsCalibrating(false)}
+                  />
+                )}
               </div>
             </div>
           </div>
