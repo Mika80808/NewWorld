@@ -511,6 +511,7 @@ FACTION_NEW|name=黑牙氏族|type=criminal|desc=盤據東境的盜賊團
 | saveToCloud 髒標記 | 快照未變更時跳過整包 JSON 上傳 |
 | 好感度顏色固定 | 語意色不隨主題變動 |
 | `cartFare` 僅 AI 寫入 | 玩家 UI 不顯示馬車費用欄位 |
+| 手動結案的獎勵閘門是 `isGoalMet` | `isGoalMet` 由 AI 的 `QUEST_GOAL_MET` 寫入、玩家改不到，是唯一「目標確實達成過」的憑據。沒有它就照發獎勵的話，接任務→按一下→領錢，任務系統變成無限金幣按鈕 |
 
 ---
 

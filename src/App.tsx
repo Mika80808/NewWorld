@@ -1017,21 +1017,15 @@ ${poolText}
     return left > 0 ? `${left} 天` : '0 天';
   };
 
-  /**
-   * 手動回報任務完成——AI 漏掉 `QUEST_COMPLETE` 時的人工出口。
-   *
-   * 短 ID 讓 AI 更容易指對任務，但它**沒有輸出指令**時仍然無解：任務會永遠
-   * 掛在「進行中」，玩家先前完全沒有辦法自己收掉。
-   *
-   * 獎勵照發（與 `QUEST_COMPLETE` 一致）——玩家會按這個鈕就是因為劇情上已經
-   * 交差了，只是 AI 沒記錄。少發獎勵等於讓玩家為 AI 的疏漏買單。
-   */
-  const handleCompleteQuest = (quest: Quest) => {
-    const gameDate = `${timeState.month}/${timeState.day}`;
+  /** 把任務標成已完成。`rewarded` 只影響 Toast 文字與是否發獎勵 */
+  const closeQuestAsCompleted = (quest: Quest, gameDate: string) => {
     setQuests(prev => prev.map(q =>
       q.id === quest.id ? { ...q, status: 'completed' as const, isGoalMet: true, completedAt: gameDate } : q
     ));
+  };
 
+  /** 發放任務獎勵（金幣＋道具）。回傳給 Toast 用的獎勵敘述 */
+  const grantQuestReward = (quest: Quest, gameDate: string): string => {
     const gold = quest.reward?.gold ?? 0;
     if (gold > 0) setProfile(prev => ({ ...prev, gold: prev.gold + gold }));
 
@@ -1056,7 +1050,38 @@ ${poolText}
       });
     }
 
-    const rewardText = [gold > 0 ? `${gold} 金幣` : '', ...rewardItems].filter(Boolean).join('、');
+    return [gold > 0 ? `${gold} 金幣` : '', ...rewardItems].filter(Boolean).join('、');
+  };
+
+  /**
+   * 手動收掉任務——AI 漏掉 `QUEST_COMPLETE` 時的人工出口。
+   *
+   * ⚠️ **獎勵只在 `isGoalMet`（待回報）時發放。**
+   * `isGoalMet` 由 AI 的 `QUEST_GOAL_MET` 寫入，玩家改不到，是系統裡唯一
+   * 「目標確實達成過」的憑據。第一版這個鈕對任何進行中的任務都照發全額獎勵，
+   * 於是接任務→按一下→領錢變成無限金幣按鈕，任務系統整個失去意義。
+   *
+   * 沒有這道憑據時仍給得出口，但那是**強制結案**：任務歸檔、不發獎勵，
+   * 而且先跳確認框把這件事講明白，避免玩家以為自己在正常交差。
+   */
+  const handleCompleteQuest = (quest: Quest) => {
+    const gameDate = `${timeState.month}/${timeState.day}`;
+
+    if (!quest.isGoalMet) {
+      setDialogRequest({
+        title: '強制結案',
+        message: `GM 尚未確認「${quest.title}」的目標達成，強制結案不會發放獎勵。仍要結案嗎？`,
+        confirmLabel: '強制結案',
+        onConfirm: () => {
+          closeQuestAsCompleted(quest, gameDate);
+          showToast(`📁 已結案「${quest.title}」（未發放獎勵）`);
+        },
+      });
+      return;
+    }
+
+    closeQuestAsCompleted(quest, gameDate);
+    const rewardText = grantQuestReward(quest, gameDate);
     showToast(rewardText ? `✅ ${quest.title}（獎勵：${rewardText}）` : `✅ ${quest.title} 已完成`);
   };
 
