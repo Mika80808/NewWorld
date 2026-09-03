@@ -1782,6 +1782,20 @@ ${recentContext}
     return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
   }, [isLoading, abortAI, setMessages]);
 
+  // ─── 分頁背景時暫停純裝飾動畫（省電）──────────────────────────────────────
+  // 玩家回報「感覺好耗電」：背景光暈與訊息掃光是永不停止的 CSS 動畫，分頁
+  // 被切到背景／手機螢幕鎖定時沒有人看得到，繼續跑只是白耗 GPU。這裡只負責
+  // 掛一個 class 在 <html> 上，實際的動畫暫停規則在 index.css（`.rpg-tab-hidden`）。
+  // 與上面那支 D7 的 effect 分開——那支管的是中斷未完成的 AI 請求，關注點不同。
+  useEffect(() => {
+    const applyTabHiddenClass = () => {
+      document.documentElement.classList.toggle('rpg-tab-hidden', document.hidden);
+    };
+    applyTabHiddenClass();
+    document.addEventListener('visibilitychange', applyTabHiddenClass);
+    return () => document.removeEventListener('visibilitychange', applyTabHiddenClass);
+  }, []);
+
   // ── Mobile: resize 偵測 ──────────────────────────────────────────
   useEffect(() => {
     const handler = () => setIsMobile(window.innerWidth <= 640);
