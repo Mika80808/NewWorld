@@ -2001,7 +2001,7 @@ ${recentContext}
             onClick={() => { setMobileLeftOpen(prev => !prev); setMobileRightOpen(false); }}
             className="flex items-center justify-center shrink-0"
             style={{
-              width: '34px', height: '34px', borderRadius: '8px',
+              width: '40px', height: '40px', borderRadius: '8px',
               background: mobileLeftOpen ? 'color-mix(in srgb, var(--border-accent) 20%, transparent)' : 'var(--tint-surface)',
               border: `0.5px solid ${mobileLeftOpen ? 'color-mix(in srgb, var(--border-accent) 45%, transparent)' : 'var(--tint-line)'}`,
             }}
@@ -2013,7 +2013,7 @@ ${recentContext}
           <button
             onClick={() => { setIsQuestModalOpen(true); setMobileLeftOpen(false); }}
             className="flex items-center justify-center shrink-0 ml-1.5"
-            style={{ width: '34px', height: '34px', borderRadius: '8px', background: 'var(--tint-surface)', border: '0.5px solid var(--tint-line)' }}
+            style={{ width: '40px', height: '40px', borderRadius: '8px', background: 'var(--tint-surface)', border: '0.5px solid var(--tint-line)' }}
           >
             <BookOpen className="w-4 h-4" style={{ color: 'var(--text-title)' }} />
           </button>
@@ -2022,7 +2022,7 @@ ${recentContext}
           <button
             onClick={() => { setIsDiaryModalOpen(true); setHasNewDiary(false); setMobileLeftOpen(false); }}
             className="flex items-center justify-center shrink-0 relative ml-1.5"
-            style={{ width: '34px', height: '34px', borderRadius: '8px', background: 'var(--tint-surface)', border: '0.5px solid var(--tint-line)' }}
+            style={{ width: '40px', height: '40px', borderRadius: '8px', background: 'var(--tint-surface)', border: '0.5px solid var(--tint-line)' }}
           >
             <Book className="w-4 h-4" style={{ color: 'var(--text-title)' }} />
             {hasNewDiary && <span className="absolute top-1 right-1 w-2 h-2 rounded-full" style={{ background: 'var(--bg-mark)' }} />}
@@ -2037,7 +2037,7 @@ ${recentContext}
             <button
               onClick={() => setIsMapOpen(true)}
               className="flex items-center justify-center shrink-0"
-              style={{ width: '34px', height: '34px', borderRadius: '8px', background: 'var(--tint-surface)', border: '0.5px solid var(--tint-line)' }}
+              style={{ width: '40px', height: '40px', borderRadius: '8px', background: 'var(--tint-surface)', border: '0.5px solid var(--tint-line)' }}
             >
               <MapIcon className="w-4 h-4" style={{ color: 'var(--text-title)' }} />
             </button>
@@ -2046,7 +2046,7 @@ ${recentContext}
               onClick={() => { setMobileRightOpen(prev => !prev); setMobileLeftOpen(false); }}
               className="flex items-center justify-center shrink-0"
               style={{
-                width: '34px', height: '34px', borderRadius: '8px',
+                width: '40px', height: '40px', borderRadius: '8px',
                 background: mobileRightOpen ? 'color-mix(in srgb, var(--border-accent) 20%, transparent)' : 'var(--tint-surface)',
                 border: `0.5px solid ${mobileRightOpen ? 'color-mix(in srgb, var(--border-accent) 45%, transparent)' : 'var(--tint-line)'}`,
               }}
@@ -2317,7 +2317,12 @@ ${recentContext}
           {/* Dialogue Area */}
           <div
             ref={chatScrollRef}
-            className={`flex-1 overflow-y-auto p-6 pb-40 space-y-6 ${isMobile ? 'pt-36' : 'pt-20'}`}
+            // 上緣留白只有桌機需要：桌機的 Scene Bar 是 `absolute top-0`，蓋在這一區
+            // 上面，要留 80px 給它。手機的導航列是 `relative shrink-0` 排在這一區
+            // **之上**，不會蓋到任何東西——先前照抄了一個 pt-36（144px），在 46px 高的
+            // 導航列底下憑空空掉 120px，那是 390×844 手機約 14% 的螢幕，
+            // 而這一區正是讀故事的地方
+            className={`flex-1 overflow-y-auto p-6 pb-40 space-y-6 ${isMobile ? 'pt-6' : 'pt-20'}`}
             onScroll={(e) => {
               // 量測只在 DEV 進行：正式版不計時、不累積記錄、不觸發 console.warn
               if (import.meta.env.DEV) {
@@ -2481,7 +2486,10 @@ ${recentContext}
                   {/* 天氣與時刻是同一個校準入口：兩者都是 timeState，而且會一起歪
                       （AI 講早上、時鐘半夜、天氣永遠晴朗）。點任一個都開同一張卡 */}
                   <button
-                    className="flex items-center whitespace-nowrap rounded transition"
+                    // py-2 -my-2：把可點範圍撐到 ~32px，但用負 margin 抵銷掉，
+                    // 這一列的高度完全不變。狀態列浮在故事上方，長高多少就蓋掉
+                    // 多少故事——不能為了好點而把它撐胖
+                    className="flex items-center whitespace-nowrap rounded transition py-2 -my-2"
                     style={{ color: 'inherit' }}
                     title="校準時間與天氣"
                     onClick={() => setIsCalibrating(v => !v)}
@@ -2489,7 +2497,10 @@ ${recentContext}
                     {getWeatherIcon()} {timeState.weather}
                   </button>
                   <button
-                    className="flex items-center whitespace-nowrap rounded transition"
+                    // py-2 -my-2：把可點範圍撐到 ~32px，但用負 margin 抵銷掉，
+                    // 這一列的高度完全不變。狀態列浮在故事上方，長高多少就蓋掉
+                    // 多少故事——不能為了好點而把它撐胖
+                    className="flex items-center whitespace-nowrap rounded transition py-2 -my-2"
                     style={{ color: 'inherit' }}
                     title="校準時間與天氣"
                     onClick={() => setIsCalibrating(v => !v)}
@@ -3012,11 +3023,38 @@ ${recentContext}
         )}
       </AnimatePresence>
 
-      {/* Toast Notification */}
+      {/*
+        Toast Notification
+
+        手機上這則提示原本 `top-4` + `left-1/2` + `rounded-full`，三個問題：
+
+        ① 16px 的位置正好蓋在 46px 高的導航列上，把日記／地圖按鈕遮掉
+        ② **`left-1/2` 把可用寬度砍成螢幕的一半**。定位元素的 shrink-to-fit
+           寬度是從 `left` 算到右緣，`left: 50%` 於是只剩 195px（390 的一半）
+           可以排版——transform 只是視覺上拉回中央，版面寬度早就被砍掉了。
+           這才是「中文訊息被擠成三行橢圓」的真正原因，不是字太長
+        ③ `rounded-full` 一換行就被撐成一坨橢圓
+
+        改成外層滿版、內層置中：外層 `inset-x-0 flex justify-center` 給滿整個
+        螢幕寬度，內層才是那顆膠囊，換行與否都由真正的可用寬度決定。
+        外層 `pointer-events-none` 才不會擋住底下的導航列。
+      */}
       {toastMessage && (
-        <div className="fixed top-4 left-1/2 transform -translate-x-1/2 backdrop-blur-md px-6 py-3 rounded-full shadow-[var(--shadow-float)] z-[100] flex items-center animate-in fade-in slide-in-from-top-4 duration-300" style={{ background: 'color-mix(in srgb, var(--bg-elevated) 80%, transparent)', border: `1px solid color-mix(in srgb, var(--bg-elevated) 10%, transparent)`, color: 'var(--text-title)' }}>
-          <CheckSquare className="w-4 h-4 mr-2" style={{ color: 'var(--color-emerald)' }} />
-          {toastMessage}
+        <div
+          className="fixed inset-x-0 z-[100] flex justify-center px-4 pointer-events-none"
+          style={{ top: isMobile ? '54px' : '16px' }}
+        >
+          <div
+            className="backdrop-blur-md px-5 py-3 rounded-[16px] shadow-[var(--shadow-float)] flex items-start gap-2 pointer-events-auto animate-in fade-in slide-in-from-top-4 duration-300"
+            style={{
+              background: 'color-mix(in srgb, var(--bg-elevated) 80%, transparent)',
+              border: `1px solid color-mix(in srgb, var(--bg-elevated) 10%, transparent)`,
+              color: 'var(--text-title)',
+            }}
+          >
+            <CheckSquare className="w-4 h-4 shrink-0 mt-0.5" style={{ color: 'var(--color-emerald)' }} />
+            <span className="min-w-0">{toastMessage}</span>
+          </div>
         </div>
       )}
     </div>
