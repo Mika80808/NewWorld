@@ -313,6 +313,33 @@ body {
   animation: rpg-shimmer 5.6s ease-in-out infinite;
 }
 
+/* 玩家回報「感覺好耗電」。實測深色主題下光暈（3 顆，帶 filter: blur(64px)）
+ * 與訊息掃光（每則出現中的 GM 訊息各一份，可見 10 則時就有 5 份）加起來是
+ * 8 個同時跑、永不停止的 CSS 動畫——玩家只是在讀靜態文字，也持續燒著這些。
+ *
+ * 兩個安全、零視覺代價的省電點：
+ * ① 玩家在系統設定開了「減少動態效果」的話，尊重那個選擇——這是瀏覽器
+ *    標準做法，不是我們自己發明的省電開關。
+ * ② 分頁被切到背景／手機螢幕鎖定時，這些純裝飾動畫沒有人看得到，
+ *    繼續跑只是白耗電。`.rpg-tab-hidden` 由 App.tsx 的 visibilitychange
+ *    監聽器掛在 <html> 上（見該處註解），分頁回到前景立刻恢復。
+ *
+ * 深色主題「活躍瀏覽時」的光暈與掃光本身是刻意的視覺氛圍設計
+ * （CLAUDE.md 的 --fx-orb-* 三色），不在這裡動——那是設計取捨，不是浪費，
+ * 這裡只處理「沒人看得到還在跑」的純浪費部分。 */
+@media (prefers-reduced-motion: reduce) {
+  .rpg-orb,
+  .rpg-message-card,
+  .rpg-message-card-assistant::after {
+    animation: none;
+  }
+}
+
+.rpg-tab-hidden .rpg-orb,
+.rpg-tab-hidden .rpg-message-card-assistant::after {
+  animation-play-state: paused;
+}
+
 /* ============================================================
    羊皮紙擬物主題（Neo-Tactile / Parchment）
    ============================================================
@@ -545,6 +572,15 @@ body {
 /* 對話泡泡的掃光在紙面上像油漬，關掉 */
 [data-theme="parchment"] .rpg-message-card::after {
   display: none;
+}
+
+/* 玩家回報「感覺好耗電」。查下去發現三顆背景光暈（.rpg-orb）在羊皮紙主題
+ * 底下背景色早被 --fx-orb-* 設成 transparent、玩家根本看不見，卻仍在跑
+ * `filter: blur(64px)` + 9 秒一輪的 infinite transform 動畫——三層看不見的
+ * 東西持續要求合成器動用 GPU，電量燒在畫面上什麼都沒有的地方。
+ * 這裡直接停掉動畫：視覺上零差異（本來就是透明的），純粹省電。 */
+[data-theme="parchment"] .rpg-orb {
+  animation: none;
 }
 
 /* ── 閱讀模式：拆掉對話框，變成連續的文字流 ────────────────
