@@ -137,6 +137,63 @@ export function reduceCommands(
   let workingLorebookEntries = [...currentState.lorebookEntries];
   let workingFactions = [...currentState.factions];
 
+  // ─── 移動的粒度守門（在主迴圈之前先決定）──────────────────────────────────
+  //
+  // 玩家回報：「我在黑牙氏族，氏族裡有廚房，我的所在地被標在廚房，其他氏族裡的
+  // NPC 出不來。」
+  //
+  // `currentLocation` 是 Phase 1 候選名單的比對鍵，而那是**字串完全相等**比對
+  // （promptBuilder：`e.homeLocation === loc`）。一旦它被寫成「廚房」這種建築
+  // 內的房間，主場在「黑牙氏族營地」的角色全部比不中 → 候選名單空的 →
+  // AI 不知道有誰在附近 → 不會輸出 [出場:]，整個氏族的人就此消失。
+  //
+  // LOCATION_DISCOVER 早就有「建築內的個別房間一律不要登錄」的粒度規則，
+  // 但 LOCATION 完全沒有——prompt 的觸發時機清單裡根本沒提它。於是 AI 很自然
+  // 地把每一次走進房間都寫成移動。
+  //
+  // 這裡把 LOCATION 的粒度對齊 LOCATION_DISCOVER：**只認得設定集裡真的存在的
+  // 地點條目**。認不得的名稱一律視為「目前地點內部的房間／角落」，不改變
+  // `currentLocation`——玩家還在黑牙氏族營地，只是敘事上人在廚房。
+  //
+  // ⚠️ 必須在主迴圈**之前**決定，不能拖到迴圈結束：`NPC_NEW` 會拿
+  // `stateChanges.currentLocation` 當新角色的 homeLocation（見下方該分支），
+  // 拖到最後的話「抵達新城鎮並遇見商人」這種同一批指令會把商人的主場寫成
+  // 上一個地點。同理也不能在迴圈裡直接寫，因為 LOCATION 可能排在
+  // LOCATION_DISCOVER 之前，那時新地點的條目還沒建立。
+  //
+  // 這一步只看「這批指令跑完之後會不會存在這個地點條目」，與指令順序無關。
+  const knownLocationTitles = new Set(
+    currentState.lorebookEntries.filter(e => e.category === '地點').map(e => e.title)
+  );
+  // 同一批指令裡新登錄的地點也算數——「移動到新城鎮」本來就該同時輸出
+  // LOCATION 與 LOCATION_DISCOVER，兩者誰先誰後都不該影響結果
+  for (const cmd of commands) {
+    if (cmd.type === 'LOCATION_DISCOVER' && cmd.parsed.name) {
+      knownLocationTitles.add(cmd.parsed.name as string);
+    }
+  }
+  const requestedLocation = commands.find(c => c.type === 'LOCATION')?.parsed.location as string | undefined;
+  if (requestedLocation) {
+    // ⚠️ 只有「玩家目前就站在一個已登錄的地點上」時才擋。
+    //
+    // 目前地點自己都不在設定集裡（舊存檔卡在「廚房」、或是這條規則上線前留下的
+    // 自由文字地名）代表已經在地圖之外了——這時再擋下移動，玩家會被永久困住，
+    // 連走回營地都做不到。這種情況一律放行，讓他有機會回到地圖上的地點。
+    const onKnownLocation = knownLocationTitles.has(currentState.currentLocation);
+    if (knownLocationTitles.has(requestedLocation) || !onKnownLocation) {
+      stateChanges.currentLocation = requestedLocation;
+    } else {
+      // 不要靜默丟棄——指令失效時玩家只看得到「地點沒變」，沒有 log 就無從查起
+      console.warn(
+        `[LOCATION] 「${requestedLocation}」不是設定集裡的地點條目，視為目前地點內的房間／角落，` +
+        `不改變所在地（維持「${currentState.currentLocation}」）。` +
+        `真的是新地點的話，請同時輸出 LOCATION_DISCOVER 登錄它。原始指令：${
+          commands.find(c => c.type === 'LOCATION')?.raw ?? ''
+        }`
+      );
+    }
+  }
+
   // 狀態異常：每回合對所有 duration > 0 的異常 -1，歸零自動移除
   let workingStatus: StatusEffect[] = currentState.statusEffects
     .map(s => s.duration === -1 ? s : { ...s, duration: s.duration - 1 })
@@ -186,7 +243,10 @@ export function reduceCommands(
 
       case 'LOCATION': {
         const destination = cmd.parsed.location as string;
-        stateChanges.currentLocation = destination;
+        // 移動與否已在主迴圈之前決定（見上方「移動的粒度守門」）。
+        // 這裡只處理「確實移動了」的副作用與提示；被判定成房間的名稱靜靜略過，
+        // 玩家不需要看到「移動至 廚房」又發現地點沒變的矛盾訊息。
+        if (stateChanges.currentLocation !== destination) break;
         // 親自到過就是「已知」。先前只有 constants 裡的月湖鎮是 known，
         // LOCATION_DISCOVER 一律只寫 heard，而移動指令完全不碰設定集——
         // 於是玩家走遍全世界，地圖上仍舊全是 ???。
