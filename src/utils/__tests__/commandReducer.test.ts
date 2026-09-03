@@ -652,3 +652,93 @@ describe('reduceCommands — TIME 絕對時刻校準', () => {
     expect(feedback.cmdResults.some(r => r.includes('4/16'))).toBe(true);
   });
 });
+
+/**
+ * 玩家回報：「我在黑牙氏族，氏族裡有廚房，我的所在地被標在廚房，
+ * 其他氏族裡的 NPC 出不來。」
+ *
+ * `currentLocation` 是 Phase 1 候選名單的比對鍵，而那是字串完全相等比對
+ * （promptBuilder：`e.homeLocation === loc`）。一旦被寫成「廚房」這種建築內的
+ * 房間，主場在「黑牙氏族營地」的角色全部比不中，整個氏族的人就此消失。
+ *
+ * LOCATION_DISCOVER 早有「建築內的個別房間一律不要登錄」的粒度規則，
+ * LOCATION 卻完全沒有——prompt 的觸發時機清單根本沒提它。這裡把兩者對齊。
+ */
+describe('reduceCommands — LOCATION 的粒度守門', () => {
+  const camp = (): LorebookEntry => ({
+    id: 1, title: '黑牙氏族營地', content: '', category: '地點', isActive: true,
+    mapX: 60, mapY: 20, mapStatus: 'known',
+  });
+  // 玩家站在已登錄的營地上——這是守門真正該生效的前提
+  const atCamp = (over: Partial<CurrentState> = {}) =>
+    state({ currentLocation: '黑牙氏族營地', lorebookEntries: [camp()], ...over });
+
+  it('走進營地裡的廚房不改變所在地', () => {
+    const { stateChanges } = run('LOCATION|name=廚房', atCamp());
+    expect(stateChanges.currentLocation).toBeUndefined();
+  });
+
+  it('被判定成房間時不推「移動至」的提示，避免與畫面上沒變的地點矛盾', () => {
+    const { feedback } = run('LOCATION|name=廚房', atCamp());
+    expect(feedback.cmdResults.some(r => r.includes('移動至'))).toBe(false);
+  });
+
+  it('移動到設定集裡真的有的地點照常生效', () => {
+    const forest = { ...camp(), id: 2, title: '迷霧森林', mapStatus: 'heard' as const };
+    const { stateChanges } = run('LOCATION|name=迷霧森林', atCamp({ lorebookEntries: [camp(), forest] }));
+    expect(stateChanges.currentLocation).toBe('迷霧森林');
+  });
+
+  /**
+   * 「抵達新城鎮」本來就該同時輸出 LOCATION 與 LOCATION_DISCOVER。
+   * 粒度判定必須與指令順序無關——LOCATION 排在 DISCOVER 之前也要成立。
+   */
+  it.each([
+    ['DISCOVER 在前', 'LOCATION_DISCOVER|name=新城鎮|x=90|y=40|type=town\nLOCATION|name=新城鎮'],
+    ['LOCATION 在前', 'LOCATION|name=新城鎮\nLOCATION_DISCOVER|name=新城鎮|x=90|y=40|type=town'],
+  ])('同批指令登錄新地點時放行（%s）', (_label, cmds) => {
+    const { stateChanges } = run(cmds, atCamp());
+    expect(stateChanges.currentLocation).toBe('新城鎮');
+  });
+
+  /**
+   * NPC_NEW 拿 currentLocation 當新角色的 homeLocation。守門若拖到迴圈之後才做，
+   * 「抵達新城鎮並遇見商人」會把商人的主場寫成上一個地點——那個角色從此
+   * 進不了新城鎮的候選名單。所以粒度判定必須在主迴圈之前完成。
+   */
+  it('同批的 NPC_NEW 用的是判定後的地點', () => {
+    const { stateChanges } = run(
+      'LOCATION|name=新城鎮\nLOCATION_DISCOVER|name=新城鎮|x=90|y=40|type=town\nNPC_NEW|name=商人',
+      atCamp(),
+    );
+    const merchant = stateChanges.lorebookEntries?.find(e => e.title === '商人');
+    expect(merchant?.homeLocation).toBe('新城鎮');
+  });
+
+  it('房間名被擋下時，同批的 NPC_NEW 主場是營地而不是廚房', () => {
+    const { stateChanges } = run('LOCATION|name=廚房\nNPC_NEW|name=廚子', atCamp());
+    const cook = stateChanges.lorebookEntries?.find(e => e.title === '廚子');
+    expect(cook?.homeLocation).toBe('黑牙氏族營地');
+  });
+
+  /**
+   * 安全閥：目前地點自己都不在設定集裡，代表已經在地圖之外（舊存檔卡在「廚房」，
+   * 或這條規則上線前留下的自由文字地名）。這時再擋就是把玩家永久困住，
+   * 連走回營地都做不到——一律放行。
+   */
+  it('目前地點不在設定集裡時一律放行，才不會把玩家困死', () => {
+    const { stateChanges } = run(
+      'LOCATION|name=餐廳',
+      state({ currentLocation: '廚房', lorebookEntries: [camp()] }),
+    );
+    expect(stateChanges.currentLocation).toBe('餐廳');
+  });
+
+  it('卡在地圖外時仍能走回已登錄的地點', () => {
+    const { stateChanges } = run(
+      'LOCATION|name=黑牙氏族營地',
+      state({ currentLocation: '廚房', lorebookEntries: [camp()] }),
+    );
+    expect(stateChanges.currentLocation).toBe('黑牙氏族營地');
+  });
+});
