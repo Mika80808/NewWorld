@@ -42,6 +42,7 @@ import { setFactionRelation, removeFactionRelation } from './utils/factionRelati
 import { ThemeId, loadTheme, saveTheme, applyTheme } from './utils/theme';
 import { describeItem, registerItemDef, normalizeItemName, selectConsumedItems } from './utils/itemCatalog';
 import { updateNpcFootprints } from './utils/npcPresence';
+import { nextVisibleMessageCount } from './utils/visibleMessages';
 import { SaveSlotsModal } from './components/SaveSlotsModal';
 
 export default function App() {
@@ -516,18 +517,21 @@ ${newPool.map((s, i) => `${i + 1}. ${s}`).join('\n')}`;
   // 哨兵 -1 是必要的——原本的 effect 在 mount 當下也會跑一次，改成比對後
   // 若用 messages.length 當初始值，首次 render 就不會執行，載入存檔後可見則數
   // 會卡在 0（整個聊天區空白）。
+  //
+  // ⚠️ **這段必須等 `isStoreReady` 才跑**，否則玩家重新整理後只看得到最後一則訊息。
+  // 登入到雲端存檔真正載入之間，`messages` 有一段時間是 `INITIAL_MESSAGES`
+  // （開場白，長度 1）——這段沒有加 isStoreReady 的舊版會在這時就把
+  // `nextVisibleMessageCount` 的 `prev===0` 哨兵狀態提前用掉，變成 1。
+  // 等雲端存檔真的載入、`messages` 從 1 跳到實際則數（例如 40）時，函數
+  // 收到的 `prev` 已經不是 0，可見則數就此卡死在 1——等於玩家重新整理後
+  // 只看得到最新一句，前面數十則歷史全部從畫面上消失（資料還在，只是不渲染）。
+  // 決策邏輯本身見 utils/visibleMessages.ts 的說明與測試；用實測（模擬 40 則
+  // 歷史存檔）確認過這條會重現，加上 isStoreReady 之後 visibleCardCount 從 1
+  // 修正為正確的 10，且會確實捲到底。
   const [prevMessagesLength, setPrevMessagesLength] = useState(-1);
-  if (messages.length !== prevMessagesLength) {
+  if (isStoreReady && messages.length !== prevMessagesLength) {
     setPrevMessagesLength(messages.length);
-    if (messages.length === 0) {
-      if (visibleMessageCount !== 0) setVisibleMessageCount(0);
-    } else {
-      setVisibleMessageCount(prev => {
-        if (prev === 0) return Math.min(messages.length, INITIAL_VISIBLE_MESSAGES);
-        if (prev >= messages.length - 1) return messages.length;
-        return prev;
-      });
-    }
+    setVisibleMessageCount(prev => nextVisibleMessageCount(prev, messages.length, INITIAL_VISIBLE_MESSAGES));
   }
 
   useEffect(() => {
