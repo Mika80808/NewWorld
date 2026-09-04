@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { parseCommandsToAST } from '../commandParser';
-import { reduceCommands, CurrentState, isMergeable } from '../commandReducer';
+import { reduceCommands, CurrentState, isMergeable, MEMORY_MERGE_LIMIT, THOUGHTS_LIMIT } from '../commandReducer';
 import { Npc, NpcMemory, Quest, ItemEntry, StatusEffect, LorebookEntry } from '../../types';
 
 const npc = (over: Partial<Npc> = {}): Npc => ({
@@ -469,28 +469,43 @@ describe('reduceCommands — NPC 記憶融合門檻', () => {
   const many = (n: number, over: Partial<NpcMemory> = {}) =>
     Array.from({ length: n }, (_, i) => npcMem(`${over.source ?? 'p'}${i}`, over));
 
-  it('可融合記憶滿 10 條時排入融合任務', () => {
-    const { asyncTasks } = overflow({ memories: many(9) });
+  // overflow() 本身會打包出一條新的 pre_merge 記憶，所以可融合數 = n + 1。
+  // ⚠️ 門檻一律引用 MEMORY_MERGE_LIMIT，不要寫死數字——先前寫死 10，
+  // 把門檻調成 5 之後整批紅在「未滿 10 條不觸發」這種與行為無關的地方。
+  const justUnder = MEMORY_MERGE_LIMIT - 2;
+  const justAt = MEMORY_MERGE_LIMIT - 1;
+
+  it('可融合記憶達門檻時排入融合任務', () => {
+    const { asyncTasks } = overflow({ memories: many(justAt) });
     expect(asyncTasks).toHaveLength(1);
     expect(asyncTasks[0].payload).toMatchObject({ npcName: '芬里爾', gameDate: '4/15' });
   });
 
-  it('未滿 10 條不觸發', () => {
-    expect(overflow({ memories: many(8) }).asyncTasks).toHaveLength(0);
+  it('差一條不觸發', () => {
+    expect(overflow({ memories: many(justUnder) }).asyncTasks).toHaveLength(0);
   });
 
   it('玩家手寫記憶（含 ★ 核心）不計入門檻', () => {
     const memories = [
-      ...many(5),
+      ...many(justUnder),
       ...many(20, { source: 'manual' }),
       ...many(3, { source: 'manual', importance: 'core' }),
     ];
-    // 可融合的只有 5 + 本回合新增的 1 = 6 條
     expect(overflow({ memories }).asyncTasks).toHaveLength(0);
   });
 
   it('已封存記憶不計入門檻', () => {
     expect(overflow({ memories: many(20, { isMerged: true }) }).asyncTasks).toHaveLength(0);
+  });
+
+  /**
+   * 玩家回報：`pre_merge` 記憶是把 10 則想法原文串成的一大塊，而 [記憶庫] 一次
+   * 注入最近 5 條非摘要記憶——門檻放在 10 的時候，模型同時讀到 5 大塊措辭雷同的
+   * 想法流水帳，於是過度著重在那些重複詞彙上。這條釘住「門檻確實比想法打包的
+   * 批次小」：不然原文永遠來不及被濃縮封存。
+   */
+  it('融合門檻低於想法打包批次，原文才來得及被濃縮', () => {
+    expect(MEMORY_MERGE_LIMIT).toBeLessThan(THOUGHTS_LIMIT);
   });
 });
 

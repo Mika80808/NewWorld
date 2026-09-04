@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { buildPrompt, BuildPromptDeps } from '../promptBuilder';
-import { MemoryEntry, Message, Npc, LorebookEntry, Faction } from '../../types';
+import { MemoryEntry, Message, Npc, NpcMemory, LorebookEntry, Faction } from '../../types';
 
 const mem = (id: string, content: string, over: Partial<MemoryEntry> = {}): MemoryEntry => ({
   id,
@@ -881,5 +881,100 @@ describe('buildPrompt 隨行同伴', () => {
       lorebookEntries: [guideLore()],
     });
     expect(prompt).not.toContain('[隨行同伴（不受地點限制');
+  });
+});
+
+// ─── 核心記憶（★）的注入與標記 ───────────────────────────────────────────────
+// 玩家問「[核心記憶]是看得到的嗎?」。查下去兩邊都對不上 UI 的承諾：
+//   1. ★ 按鈕的說明寫「永遠注入」，但兩條注入路徑整段都包在 affection >= 60 裡
+//   2. [Scene Lorebook] 完全不標來源，玩家按 ★ 標成核心的那條，在 prompt 裡
+//      跟 AI 自己產出的想法流水帳長得一模一樣，模型無從分辨輕重
+describe('buildPrompt NPC 核心記憶', () => {
+  const coreMem = (text: string): NpcMemory => ({
+    id: 'm_core', text, createdAt: '4/1', source: 'manual', importance: 'core',
+  });
+  const normalMem = (text: string): NpcMemory => ({
+    id: 'm_normal', text, createdAt: '4/2', source: 'pre_merge', importance: 'normal',
+  });
+  const mergedMem = (text: string): NpcMemory => ({
+    id: 'm_merged', text, createdAt: '4/3', source: 'merged', importance: 'normal',
+  });
+  const kael = (over: Partial<Npc> = {}): Npc => ({
+    id: 1, name: '凱爾', affection: 10,
+    category: 'NPC', isActive: true, memories: [], ...over,
+  });
+  const kaelLore = (over: Partial<LorebookEntry> = {}): LorebookEntry => ({
+    id: 1, title: '凱爾', content: '', category: 'NPC', isActive: true,
+    job: '嚮導', homeLocation: '月湖鎮', ...over,
+  });
+  const build = (over: Partial<BuildPromptDeps>) =>
+    buildPrompt({ ...deps([], () => false), ...over }, '測試輸入', messages).prompt;
+
+  it('[Scene Lorebook] 核心記憶在好感度低於 60 時也注入', () => {
+    const prompt = build({
+      npcs: [kael({ affection: 10, memories: [coreMem('玩家救過他一命')] })],
+      appearingNpcs: ['凱爾'], lorebookEntries: [kaelLore()],
+    });
+    expect(prompt).toContain('玩家救過他一命');
+  });
+
+  it('[Scene Lorebook] 核心記憶帶 ★ 標記，與一般記憶分得出輕重', () => {
+    const prompt = build({
+      npcs: [kael({ affection: 90, memories: [coreMem('玩家救過他一命'), normalMem('一起吃過飯')] })],
+      appearingNpcs: ['凱爾'], lorebookEntries: [kaelLore()],
+    });
+    expect(prompt).toContain('玩家救過他一命 [★核心]');
+    expect(prompt).toContain('一起吃過飯');
+    expect(prompt).not.toContain('一起吃過飯 [★核心]');
+  });
+
+  /**
+   * 摘要是舊記憶濃縮出來的產物，措辭是整理過的、不是角色的口頭禪。
+   * 玩家回報「大量類似的詞彙，讓 NPC 過於著重在該詞彙上」正是這個。
+   */
+  it('[Scene Lorebook] 摘要記憶標成 [摘要]', () => {
+    const prompt = build({
+      npcs: [kael({ affection: 90, memories: [mergedMem('數次同行的整理')] })],
+      appearingNpcs: ['凱爾'], lorebookEntries: [kaelLore()],
+    });
+    expect(prompt).toContain('數次同行的整理 [摘要]');
+  });
+
+  it('標記的意義寫在 [Scene Lorebook] 的說明裡，模型才知道 ★ 是什麼', () => {
+    const prompt = build({
+      npcs: [kael({ affection: 90, memories: [coreMem('關鍵事實')] })],
+      appearingNpcs: ['凱爾'], lorebookEntries: [kaelLore()],
+    });
+    expect(prompt).toContain('[★核心] 的是玩家指定的關鍵記憶');
+  });
+
+  // 好感度門檻只擋一般記憶，不擋核心
+  it('好感度低於 60 時一般記憶仍不注入', () => {
+    const prompt = build({
+      npcs: [kael({ affection: 10, memories: [coreMem('關鍵事實'), normalMem('閒聊內容')] })],
+      appearingNpcs: ['凱爾'], lorebookEntries: [kaelLore()],
+    });
+    expect(prompt).toContain('關鍵事實');
+    expect(prompt).not.toContain('閒聊內容');
+  });
+
+  // [Pinned NPCs]（沒有設定集條目的角色）走另一條路徑，兩邊規則必須一致
+  it('[Pinned NPCs] 也在低好感時注入核心記憶並標 ★', () => {
+    const prompt = build({
+      npcs: [kael({ affection: 10, isPinned: true, memories: [coreMem('關鍵事實')] })],
+      lorebookEntries: [],
+    });
+    expect(prompt).toContain('[Pinned NPCs]');
+    expect(prompt).toContain('關鍵事實 [★核心]');
+  });
+
+  // 比對帶前綴的「｜[記憶庫]」：區段標題的說明文字本身就提到 [記憶庫]
+  it('沒有任何記憶時不輸出空的 [記憶庫]', () => {
+    const prompt = build({
+      npcs: [kael({ affection: 90, memories: [] })],
+      appearingNpcs: ['凱爾'], lorebookEntries: [kaelLore()],
+    });
+    expect(prompt).toContain('[NPC] 凱爾');
+    expect(prompt).not.toContain('｜[記憶庫]');
   });
 });

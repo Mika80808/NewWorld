@@ -361,6 +361,17 @@ export function buildPrompt(
   const section = (title: string, body: string): string =>
     body.trim() ? `${title}\n${body.trim()}` : ''
 
+  /**
+   * NPC 記憶的來源標記。
+   *
+   * `[Scene Lorebook]` 先前完全不標，模型讀到的是一串沒有輕重之分的句子——
+   * 玩家按下 ★ 把某條標成「核心」，在 prompt 裡與 AI 自己產出的想法流水帳
+   * 長得一模一樣。兩條注入路徑（Scene Lorebook 與 Pinned NPCs）共用這支，
+   * 避免只有其中一邊帶標記。
+   */
+  const memoryTag = (m: { importance: string; source: string }): string =>
+    m.importance === 'core' ? ' [★核心]' : m.source === 'merged' ? ' [摘要]' : ''
+
   const memLines = (mems: MemoryEntry[], tagKey?: 'factions' | 'locations' | 'npcs') =>
     mems.map(m => {
       const tags = tagKey ? m.tags?.[tagKey] : undefined
@@ -481,7 +492,9 @@ Personality: ${profile.personality}${profile.other ? `\nOther: ${profile.other}`
       : '無已知角色在附近。若故事需要新角色請自由創造。'}`,
 
     section(
-      '[Scene Lorebook]\n（NPC 的「對玩家」欄位是該角色看待玩家的當前立場，語氣、稱呼、肯不肯幫忙都要與它一致；敵對者不會親暱，摯友不會見外。）',
+      '[Scene Lorebook]\n（NPC 的「對玩家」欄位是該角色看待玩家的當前立場，語氣、稱呼、肯不肯幫忙都要與它一致；敵對者不會親暱，摯友不會見外。'
+        + '[記憶庫] 裡標 [★核心] 的是玩家指定的關鍵記憶，優先度高於其餘各條；標 [摘要] 的是舊記憶濃縮過的結果，'
+        + '只取其中的事實，不要沿用它的措辭——那些字是整理出來的，不是角色的口頭禪。）',
       relevantLorebook.map(e => {
   if (e.category === 'NPC') {
     const npcData = npcs.find(n => n.name === e.title)
@@ -489,15 +502,22 @@ Personality: ${profile.personality}${profile.other ? `\nOther: ${profile.other}`
       ? `｜[近期想法] ${npcData.thoughts.map((t, i) => `${i + 1}.${t.text}`).join(' / ')}`
       : ''
     let memoriesText = ''
-    if (npcData && npcData.affection >= 60 && npcData.memories && npcData.memories.length > 0) {
-      const activeMemories = npcData.memories.filter(m => !m.isMerged)
-      const toInject = [
-        ...activeMemories.filter(m => m.importance === 'core'),
-        ...activeMemories.filter(m => m.importance === 'normal' && m.source !== 'merged').slice(-5),
-        ...activeMemories.filter(m => m.source === 'merged').slice(-2),
-      ]
+    const activeMemories = (npcData?.memories ?? []).filter(m => !m.isMerged)
+    if (activeMemories.length > 0) {
+      // 核心記憶不受好感度門檻限制。★ 按鈕的說明寫的是「永遠注入」，而這裡
+      // 先前整段包在 `affection >= 60` 裡——玩家特地標成核心的關鍵事實，
+      // 在好感度爬到 60 之前一條都送不出去，UI 的承諾與實際行為對不上。
+      // 核心記憶是玩家手寫的，數量本來就少，不會把 prompt 撐大。
+      const coreMems = activeMemories.filter(m => m.importance === 'core')
+      const restMems = (npcData?.affection ?? 0) >= 60
+        ? [
+            ...activeMemories.filter(m => m.importance === 'normal' && m.source !== 'merged').slice(-5),
+            ...activeMemories.filter(m => m.source === 'merged').slice(-2),
+          ]
+        : []
+      const toInject = [...coreMems, ...restMems]
       if (toInject.length > 0) {
-        memoriesText = `｜[記憶庫] ${toInject.map(m => `(${m.createdAt})${m.text}`).join(' / ')}`
+        memoriesText = `｜[記憶庫] ${toInject.map(m => `(${m.createdAt})${m.text}${memoryTag(m)}`).join(' / ')}`
       }
     }
     // 欄位一律走 resolveNpcProfile：身分設定的唯一來源是設定集條目。
@@ -579,20 +599,23 @@ Personality: ${profile.personality}${profile.other ? `\nOther: ${profile.other}`
     const identPinned = `${genderPinned}${jobPinned}`
     const namePinned = identPinned ? `${n.name}（${identPinned}）` : n.name
     const lines: string[] = [`- ${namePinned}${racePinned}${agePinned}對玩家：${relPinned}（好感度 ${n.affection}）${backstoryPinned}${factionPinned}${thoughtsText}`]
-    // 好感度 ≥ 60 且有記憶才注入
-    if (n.affection >= 60 && n.memories && n.memories.length > 0) {
+    // 核心記憶無條件注入，其餘記憶好感度 ≥ 60 才注入（同 [Scene Lorebook]）
+    if (n.memories && n.memories.length > 0) {
       const MAX_NORMAL = 5
       const MAX_MERGED = 2
       const MAX_CHARS = 300
 
       const activeMemories = n.memories.filter(m => !m.isMerged)
+      const unlocked = n.affection >= 60
       const coreMemories = activeMemories.filter(m => m.importance === 'core')
-      let normalMemories = activeMemories
-        .filter(m => m.importance === 'normal' && m.source !== 'merged')
-        .slice(-MAX_NORMAL)
-      const mergedMemories = activeMemories
-        .filter(m => m.source === 'merged')
-        .slice(-MAX_MERGED)
+      let normalMemories = unlocked
+        ? activeMemories
+            .filter(m => m.importance === 'normal' && m.source !== 'merged')
+            .slice(-MAX_NORMAL)
+        : []
+      const mergedMemories = unlocked
+        ? activeMemories.filter(m => m.source === 'merged').slice(-MAX_MERGED)
+        : []
 
       // 超出 300 字時縮減 normal 到 3 則
       const baseText = [...coreMemories, ...normalMemories, ...mergedMemories]
@@ -605,8 +628,7 @@ Personality: ${profile.personality}${profile.other ? `\nOther: ${profile.other}`
       if (allToInject.length > 0) {
         lines.push('  [記憶庫]')
         allToInject.forEach(m => {
-          const tag = m.importance === 'core' ? ' [★]' : m.source === 'merged' ? ' [摘要]' : ''
-          lines.push(`  - (${m.createdAt}) ${m.text}${tag}`)
+          lines.push(`  - (${m.createdAt}) ${m.text}${memoryTag(m)}`)
         })
       }
     }
