@@ -121,6 +121,23 @@ export interface Npc {
   category: string;
   isActive: boolean;
   isPinned?: boolean;
+  /**
+   * 隨行同伴：這個角色**常駐在玩家身邊**，不綁定地點。
+   *
+   * 與 `isPinned` 是兩件事，不要合併：釘選只是把角色釘到右欄方便追蹤好感度，
+   * 人可能還待在另一座城；隨行則是「他此刻就跟玩家站在一起」。
+   *
+   * 為 true 時：
+   *   1. 無條件視為在場（`resolveOnStageNames`），不必等 AI 輸出 `[出場:]`，
+   *      也不受 `[出場:]`（空＝現場無人）清空
+   *   2. 完整設定無條件注入 prompt，不受地點候選名單與關鍵字門檻限制
+   *   3. 足跡跟著玩家走（`updateNpcFootprints`）
+   *
+   * 少了這個旗標，常駐角色（引路者、契約精靈、隨行護衛）只進得了 `[Pinned NPCs]`
+   * 那種「附帶資料」的位置，從不出現在「現在誰在場」的名單裡——模型於是把他寫成
+   * 一個沒有身體的聲音／神諭，而不是走在旁邊的人。
+   */
+  isCompanion?: boolean;
   memories: NpcMemory[];
   factionIds?: number[];    // 可屬於多個勢力；空陣列或 undefined = 無歸屬
   relations?: NpcRelation[];

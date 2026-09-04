@@ -41,7 +41,7 @@ import { parseNpcImport, mergeImportedNpcs, mergeImportedFactions } from './util
 import { setFactionRelation, removeFactionRelation } from './utils/factionRelation';
 import { ThemeId, loadTheme, saveTheme, applyTheme } from './utils/theme';
 import { describeItem, registerItemDef, normalizeItemName, selectConsumedItems } from './utils/itemCatalog';
-import { updateNpcFootprints } from './utils/npcPresence';
+import { updateNpcFootprints, resolveOnStageNames } from './utils/npcPresence';
 import { nextVisibleMessageCount } from './utils/visibleMessages';
 import { SaveSlotsModal } from './components/SaveSlotsModal';
 
@@ -1514,6 +1514,19 @@ ${poolText}
     }
   };
 
+  // 隨行同伴：與釘選是兩件事（釘選只是把人釘到右欄，人可能還在別的城）。
+  // 開啟後該角色無條件在場、完整設定無條件注入，足跡跟著玩家走。
+  const handleToggleCompanionNpc = (npcId: number) => {
+    setNpcs(prevNpcs => prevNpcs.map(n =>
+      n.id === npcId ? { ...n, isCompanion: !n.isCompanion } : n
+    ));
+
+    const npc = npcs.find(n => n.id === npcId);
+    if (npc) {
+      showToast(npc.isCompanion ? `${npc.name} 不再隨行` : `${npc.name} 開始隨行`);
+    }
+  };
+
   const handleRecordNpc = (npc: Npc) => {
     const exists = lorebookEntries.some(e => e.category === 'NPC' && e.title === npc.name);
     if (exists) {
@@ -1661,20 +1674,28 @@ ${recentContext}
       // 解析所有 [出場:] 標記（matchAll），合併去重後更新 appearingNpcs
       // 防呆：AI 若重複輸出同一角色的 [出場:] 標記，前端只計一次
       const allAppearMatches = [...rawNarrative.matchAll(APPEAR_TAG_CAPTURE_PATTERN)];
+      let appearedNames: string[] = [];
       if (allAppearMatches.length > 0) {
         const allNames = allAppearMatches
           .flatMap(m => m[1].split(',').map((n: string) => n.trim()))
           .filter(Boolean);
         const uniqueNames = [...new Set(allNames)];
+        appearedNames = uniqueNames;
         // 空的 [出場:] 是 prompt 明訂的「現場無人」訊號，必須寫入才能讓上一場的
         // NPC 下台。舊版被 `uniqueNames.length > 0` 擋掉，結果 appearingNpcs 只增不減：
         // 該 NPC 的完整檔案會無視地點、每一輪繼續注入 prompt（buildPrompt 的 inScene
         // 判定先於地點過濾），等於跟著玩家跨城鎮，且此狀態會存進存檔。
+        //
+        // ⚠️ 隨行同伴不併進這個 state。合併會讓「AI 說誰在場」與「誰跟著玩家」
+        // 混成一團存進存檔，之後取消隨行時人也清不掉（見 utils/npcPresence.ts）
         setAppearingNpcs(uniqueNames);
-        // 足跡只在真的有人出場時更新。判定走共用的 isNpcOnStage
-        // （updateNpcFootprints 內部），不要在這裡再寫一份前後包含的比對
-        setNpcs(prev => updateNpcFootprints(prev, uniqueNames, sceneLocation, sceneDate));
       }
+      // 足跡＝出場名單 ∪ 隨行同伴。同伴跟著玩家走，所以 AI 這回合沒輸出標記、
+      // 或輸出空標記（現場無人）時，他的足跡仍要跟到玩家的新地點——那個欄位會
+      // 以「最後出現於」注入 prompt，停在上一座城會讓 GM 拿到錯的位置。
+      // 比對一律走共用的 isNpcOnStage（updateNpcFootprints 內部），
+      // 不要在這裡再寫一份前後包含的判定
+      setNpcs(prev => updateNpcFootprints(prev, resolveOnStageNames(prev, appearedNames), sceneLocation, sceneDate));
       // 完全沒有標記時不動 appearingNpcs：那是 AI 沒照規矩輸出，維持現狀比誤清安全
       const narrative = rawNarrative.replace(APPEAR_TAG_PATTERN, '').trim();
 
@@ -2650,6 +2671,7 @@ ${recentContext}
         onClose={() => setSelectedNpc(null)}
         onRecordNpc={handleRecordNpc}
         onTogglePinNpc={handleTogglePinNpc}
+        onToggleCompanionNpc={handleToggleCompanionNpc}
         onAddNpcMemory={handleAddNpcMemory}
         onRemoveNpcMemory={handleRemoveNpcMemory}
         onUpdateNpcMemory={handleUpdateNpcMemory}

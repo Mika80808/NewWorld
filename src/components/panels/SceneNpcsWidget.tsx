@@ -3,7 +3,7 @@ import { Users, Heart } from 'lucide-react';
 import { Npc, LorebookEntry } from '../../types';
 import { affectionColor } from '../../utils/affectionColor';
 import { resolveNpcProfile } from '../../utils/npcProfile';
-import { isNpcOnStage } from '../../utils/npcPresence';
+import { isNpcOnStage, resolveOnStageNames } from '../../utils/npcPresence';
 
 const MAX_DISPLAYED = 8;
 
@@ -24,11 +24,16 @@ export const SceneNpcsWidget: React.FC<SceneNpcsWidgetProps> = ({
   lorebookEntries,
   onSelectNpc,
 }) => {
-  // 在場與否只認 appearingNpcs（`[出場:]` 標記）。
+  // 在場與否只認 appearingNpcs（`[出場:]` 標記）＋ 隨行同伴。
   // 先前還 or 了 `n.location === currentLocation` 與 `n.isPinned`：
   // 前者是退場時從不清除的足跡，後者不管人在哪個城鎮都成立——
   // 兩條都會讓已經下台的角色賴在「當前場景人物」裡。詳見 utils/npcPresence.ts
-  const sceneNpcs = npcs.filter(n => isNpcOnStage(n.name, appearingNpcs));
+  //
+  // 隨行同伴是例外，而且是**明確設定**的例外：玩家把人設成常駐在身邊，
+  // 他就該一直在這份名單上——prompt 那頭也是這樣算的，兩邊必須一致，
+  // 否則會出現「GM 當他在場、UI 說此處沒有人」的分歧
+  const onStage = resolveOnStageNames(npcs, appearingNpcs);
+  const sceneNpcs = npcs.filter(n => isNpcOnStage(n.name, onStage));
   const hiddenCount = Math.max(0, sceneNpcs.length - MAX_DISPLAYED);
   const displayedNpcs = sceneNpcs.slice(0, MAX_DISPLAYED);
 

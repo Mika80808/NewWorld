@@ -594,6 +594,8 @@ export function useGameStore() {
         lastSeenLocation: undefined,
         lastSeenDate:     undefined,
         isPinned: false,
+        // 隨行是「這一局誰跟著玩家走」的執行狀態，與足跡同一類，重置時一併清空
+        isCompanion: false,
       })),
     };
 

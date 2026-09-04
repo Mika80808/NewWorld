@@ -779,3 +779,107 @@ describe('buildPrompt 勢力與關係鏈', () => {
     expect(hit).toBe(6);
   });
 });
+
+// ─── 隨行同伴（Npc.isCompanion）─────────────────────────────────────────────
+// 玩家回報：「引路者的設定是常駐在玩家身邊，但它現在誤會成一種神諭，
+// 即使把他放進 NPC 裡，但引路者不該綁定在地點，他需要獨立設定成會主動出現。」
+//
+// 成因是整條 NPC 注入鏈都以「地點」為軸：Phase 1 依 currentLocation 篩候選 →
+// AI 從候選名單挑人輸出 [出場:] → Phase 2 才注入完整資料。常駐角色的主場
+// 不會等於玩家當下的所在地，於是他永遠不在候選名單、AI 永遠不會讓他出場，
+// 模型手上只有一份「查得到但不在場」的資料——寫出來就是一個沒有身體的聲音。
+describe('buildPrompt 隨行同伴', () => {
+  const guide = (over: Partial<Npc> = {}): Npc => ({
+    id: 1, name: '引路者', affection: 40,
+    category: 'NPC', isActive: true, memories: [], isCompanion: true, ...over,
+  });
+  // 主場刻意不是當前地點（月湖鎮），關鍵字刻意不命中本回合的輸入
+  const guideLore = (over: Partial<LorebookEntry> = {}): LorebookEntry => ({
+    id: 1, title: '引路者', content: '', category: 'NPC', isActive: true,
+    gender: '女', job: '嚮導', homeLocation: '起始神殿', keywords: ['神殿'],
+    ...over,
+  });
+  const build = (over: Partial<BuildPromptDeps>) =>
+    buildPrompt({ ...deps([], () => false), ...over }, '測試輸入', messages).prompt;
+
+  it('宣告在場：不受地點限制，也不必等 AI 輸出 [出場:]', () => {
+    const prompt = build({ npcs: [guide()], lorebookEntries: [guideLore()] });
+    expect(prompt).toContain('[隨行同伴（不受地點限制，此刻就在玩家身邊）]');
+    expect(prompt).toContain('- 引路者（女・嚮導）｜對玩家：相識（好感度 40）');
+  });
+
+  /**
+   * 「在場」不夠，還要講清楚是**有身體的人**。模型把常駐角色寫成神諭，
+   * 正是因為它只拿到一份資料、沒拿到「這個人現在站在這裡、會自己開口」。
+   */
+  it('明講是實體在場且會主動開口，不是聲音或神諭', () => {
+    const prompt = build({ npcs: [guide()], lorebookEntries: [guideLore()] });
+    expect(prompt).toContain('主動開口');
+    expect(prompt).toContain('神諭');
+  });
+
+  it('完整設定注入 [Scene Lorebook]，即使地點不符且關鍵字沒命中', () => {
+    const prompt = build({ npcs: [guide()], lorebookEntries: [guideLore()] });
+    expect(prompt).toContain('[NPC] 引路者｜性別：女');
+    expect(prompt).toContain('對玩家：相識（好感度 40）');
+  });
+
+  /**
+   * 候選名單的語意是「可能在場，由你決定要不要出場」。把既成事實混進去講，
+   * 模型會以為常駐角色出不出現可以選——於是他三不五時就從場景裡蒸發。
+   */
+  it('不列進「當前場景可能出現的角色」', () => {
+    const prompt = build({
+      npcs: [guide()],
+      lorebookEntries: [guideLore({ homeLocation: '月湖鎮' })],
+    });
+    const candidates = prompt.split('[當前場景可能出現的角色]')[1].split('\n\n')[0];
+    expect(candidates).not.toContain('引路者');
+  });
+
+  /** [出場:] 空標記＝現場無人。同伴不是這個場景的人，不受它清空 */
+  it('AI 輸出空的 [出場:] 也不會讓同伴消失', () => {
+    const prompt = build({
+      npcs: [guide()], appearingNpcs: [], lorebookEntries: [guideLore()],
+    });
+    expect(prompt).toContain('[NPC] 引路者｜性別：女');
+  });
+
+  it('沒有設定集條目時由 [Pinned NPCs] 兜底，資料不會整個消失', () => {
+    const prompt = build({ npcs: [guide()], lorebookEntries: [] });
+    expect(prompt).toContain('[隨行同伴（不受地點限制，此刻就在玩家身邊）]');
+    expect(prompt).toContain('[Pinned NPCs]');
+    expect(prompt).toContain('引路者');
+  });
+
+  /**
+   * 「提及的設定」那一段的標題明白寫著「不在當前場景」。同伴掉進去的話，
+   * 等於同一份 prompt 一邊說他在場、一邊說他不在。
+   */
+  it('被玩家點名時不會被歸進「不在當前場景」那一段', () => {
+    const prompt = buildPrompt(
+      { ...deps([], () => false), npcs: [guide()], lorebookEntries: [guideLore()] },
+      '引路者，我們接下來去哪？',
+      messages,
+    ).prompt;
+    expect(prompt).not.toContain('[提及的設定');
+  });
+
+  // 比對整個標題而非前綴：靜態的 COMMAND FORMAT 裡也提了一次「[隨行同伴] 區塊」
+  // （教 AI 那些人不必寫進 [出場:]），那句話是常駐文字，不代表本回合有同伴
+  it('沒有同伴時整段省略，不留空標題', () => {
+    const prompt = build({
+      npcs: [guide({ isCompanion: false })], lorebookEntries: [guideLore()],
+    });
+    expect(prompt).not.toContain('[隨行同伴（不受地點限制');
+  });
+
+  /** 釘選只是把人釘到右欄，人可能還在另一座城；兩個旗標不可互相代替 */
+  it('只有釘選、沒有隨行時不會被當成同伴', () => {
+    const prompt = build({
+      npcs: [guide({ isCompanion: false, isPinned: true })],
+      lorebookEntries: [guideLore()],
+    });
+    expect(prompt).not.toContain('[隨行同伴（不受地點限制');
+  });
+});

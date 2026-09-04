@@ -7,7 +7,7 @@ import { getTotalDaysFromTimeState, getQuestRemainingDays } from './timeUtils'
 import { selectKnownItemNames, describeItem } from './itemCatalog'
 import { relationText } from './affectionLabel'
 import { resolveNpcProfile, npcIdentityBrief } from './npcProfile'
-import { isNpcOnStage } from './npcPresence'
+import { isNpcOnStage, resolveOnStageNames } from './npcPresence'
 import { factionTypeLabel, factionRelationLabel } from './factionLabel'
 import { COMMANDS_VERSION } from './commandParser'
 
@@ -85,6 +85,13 @@ export function buildPrompt(
   const loc = locationOverride ?? deps.currentLocation
   const SLIDING_WINDOW = 20
 
+  // 隨行同伴：跟著玩家走的角色，不受地點候選、[出場:] 標記與關鍵字門檻管轄。
+  // 場上名單一律讀 onStageNpcs（＝[出場:] ∪ 同伴），不要再直接讀 appearingNpcs。
+  const companionNpcs = npcs.filter(n => n.isCompanion)
+  const isCompanionName = (name: string): boolean =>
+    companionNpcs.some(n => n.name === name)
+  const onStageNpcs = resolveOnStageNames(npcs, appearingNpcs)
+
   // 取得 NPC 所屬勢力名稱字串
   const getNpcFactionText = (npcFactionIds?: number[]): string => {
     if (!npcFactionIds || npcFactionIds.length === 0) return ''
@@ -144,8 +151,12 @@ export function buildPrompt(
   // 這裡用 `Npc.location`（出場時寫入的足跡）當第三個來源把鏈接回去。
   // 足跡對「候選名單＝誰可能在這裡」正是恰當語意——它不等於「誰現在在台上」，
   // 後者一律以 appearingNpcs 為準（見 utils/npcPresence.ts）
+  //
+  // 隨行同伴**不列進候選名單**：候選的語意是「可能在場、由 AI 決定要不要出場」，
+  // 而同伴是已經在場的既成事實。混在一起講會讓模型以為那個人要不要出現可以選，
+  // 於是常駐角色三不五時就從場景裡蒸發。他們改由下方 [隨行同伴] 區塊宣告在場。
   const npcCandidates = lorebookEntries
-    .filter(e => e.category === 'NPC' && e.isActive && (
+    .filter(e => e.category === 'NPC' && e.isActive && !isCompanionName(e.title) && (
       e.homeLocation === loc ||
       (e.roamLocations || []).includes(loc) ||
       npcs.some(n => n.name === e.title && n.location === loc)
@@ -176,6 +187,10 @@ export function buildPrompt(
       // 這條是規則的**補集**——規則命中的照樣進來，見 BuildPromptDeps.loreHints
       if (hintedLoreIds.has(e.id)) return true
       if (e.category === 'NPC') {
+        // 隨行同伴無條件放行，連關鍵字門檻也不過——他就站在玩家旁邊，
+        // 而下方 `lorebookHitsKeywords` 是會擋人的：條目設了關鍵字、這回合沒命中，
+        // GM 手上就只剩一個名字，只好把他寫成沒有身體的聲音
+        if (isCompanionName(e.title)) return true
         // Phase 2：出場 NPC、釘選 NPC、或「候選名單內」好感度 ≥ 60 的核心 NPC → 完整注入
         // 注意：高好感條件限定在 npcCandidates（當前場景）內，避免全體 NPC 掃描造成 prompt 膨脹
         const isInCandidates = npcCandidates.some(c => c.title === e.title)
@@ -183,7 +198,7 @@ export function buildPrompt(
         const isHighAffectionCandidate = isInCandidates && (npcData?.affection ?? 0) >= 60
 
         const inScene =
-          isNpcOnStage(e.title, appearingNpcs) ||
+          isNpcOnStage(e.title, onStageNpcs) ||
           npcs.some(n => n.isPinned && n.name === e.title) ||
           isHighAffectionCandidate
         if (!inScene) return false
@@ -246,6 +261,7 @@ export function buildPrompt(
     if (relevantLorebookIds.has(e.id)) return false
     if (e.category === '地點') return e.title !== loc && !adjacentLocTitles.has(e.title)
     return !relevantLorebookNpcTitles.has(e.title)
+      && !isCompanionName(e.title)
       && !npcs.some(n => n.isPinned && n.name === e.title)
   }).slice(0, MAX_MENTIONED)
 
@@ -297,21 +313,23 @@ export function buildPrompt(
     .sort((a, b) => Number(seedFactionIds.has(b.id)) - Number(seedFactionIds.has(a.id)))
     .slice(0, MAX_FACTIONS)
 
+  // 沒有設定集條目的釘選／隨行角色的兜底資料來源（有條目的走 [Scene Lorebook]）。
+  // 同伴一定要收在這裡：他無條件在場，卻不見得有人替他建過設定集條目
   const pinnedNpcs = npcs.filter(
-    n => n.isPinned && !relevantLorebookNpcTitles.has(n.name)
+    n => (n.isPinned || n.isCompanion) && !relevantLorebookNpcTitles.has(n.name)
   )
 
   // 出場 NPC：全量（依重要度截斷）
   const appearingNpcMems = filterByImportance(
     triggeredMemories.filter(m => {
       if (m.type !== 'npc') return false
-      return (m.tags?.npcs || []).some(n => appearingNpcs.includes(n))
+      return (m.tags?.npcs || []).some(n => onStageNpcs.includes(n))
     }), 5, 2
   )
   // 未出場但 pinned/高好感 NPC：只保留 critical，最多 2 條
   const specialNpcMems = triggeredMemories.filter(m => {
     if (m.type !== 'npc') return false
-    if ((m.tags?.npcs || []).some(n => appearingNpcs.includes(n))) return false
+    if ((m.tags?.npcs || []).some(n => onStageNpcs.includes(n))) return false
     return (m.tags?.npcs || []).some(n =>
       npcs.some(npc => npc.name === n && (npc.isPinned || npc.affection >= 60))
     )
@@ -426,6 +444,27 @@ Personality: ${profile.personality}${profile.other ? `\nOther: ${profile.other}`
     section('[🗺️ Region Memory]', memLines(finalRegionMems, 'locations')),
     section(`[🏠 Scene Memory: ${loc}]`, memLines(finalSceneMems)),
     section('[👤 NPC Memory]', memLines(finalNpcMems, 'npcs')),
+
+    // 隨行同伴：宣告「這些人此刻就在場」，與下面的「可能出現」是兩回事。
+    //
+    // 光把常駐角色放進設定集是不夠的——那只給了模型一份資料，沒有給它「這個人
+    // 現在站在這裡」的事實。模型於是把他當成可以引用的知識而不是在場的人，
+    // 寫成憑空傳來的聲音／腦中低語／神諭。所以這段話要明講三件事：
+    // 在場、有身體、會主動開口。
+    section(
+      '[隨行同伴（不受地點限制，此刻就在玩家身邊）]',
+      companionNpcs.map(n => {
+        const lore = lorebookEntries.find(e => e.category === 'NPC' && e.title === n.name)
+        const prof = resolveNpcProfile(lore)
+        const brief = [prof.gender, prof.race, prof.job].filter(Boolean).join('・')
+        return `- ${n.name}${brief ? `（${brief}）` : ''}｜對玩家：${relationText(n.relationship, n.affection)}（好感度 ${n.affection}）`
+      }).join('\n') + (companionNpcs.length > 0
+        ? '\n以上角色常駐在玩家身旁，玩家走到哪他們就跟到哪，本回合必定在場。' +
+          '\n他們是有實體的同行者：會主動開口、主動行動、主動插話與提醒，不必等玩家呼喚或發問。' +
+          '\n不要把他們寫成憑空傳來的聲音、腦中的低語或神諭，也不要讓他們無故消失或留在原地。' +
+          '\n他們無須列入 [出場:] 標記，系統已自動視為在場。'
+        : ''),
+    ),
 
     // 不套 section()：沒有候選角色時那句話是給 AI 的指示，不是佔位符
     //
@@ -638,6 +677,7 @@ NPC_RELATION|npc=NPC名|type=family/ally/rival/enemy/acquaintance/romantic|targe
 
 敘事開頭輸出出場標記（非 COMMANDS 區塊，每回應必須）：
 [出場:姓名1,姓名2]（從候選名單選誰實際在場；無人可輸出 [出場:]；可加候選外新角色）
+[隨行同伴] 區塊裡的角色不必寫進這個標記，系統一律視為在場；寫了也不會出錯。
 
 【各指令觸發時機】
 - TIME：每次回應必須輸出 delta，依行動性質推進。

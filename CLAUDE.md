@@ -422,6 +422,38 @@ interface NpcMemory {
 1. `appearingNpcs` 裡的 NPC
 2. `isPinned === true` 的 NPC
 3. 候選名單內 `affection >= 60` 的 NPC
+4. `isCompanion === true` 的隨行同伴（見下）
+
+### 隨行同伴（`Npc.isCompanion`）——地點軸之外的第三條路
+
+兩階段注入整條鏈都以**地點**為軸：Phase 1 依 `currentLocation` 篩候選 → AI 從候選名單
+挑人輸出 `[出場:]` → Phase 2 才注入完整資料。常駐角色（引路者、契約精靈、隨行護衛）
+的主場不會等於玩家當下的所在地，於是**永遠進不了候選名單**，AI 也就永遠不會讓他出場。
+
+釘選能讓他的資料進 `[Scene Lorebook]`，但那只解決了「查得到」，沒解決「在場」——
+模型拿到一份查得到卻不在場的資料，寫出來就是一個沒有身體的聲音（玩家原話：「誤會成一種神諭」）。
+`npcCandidates` 的排序裡那條「釘選者優先」是**死碼**，因為釘選者根本過不了前面的地點
+filter；這正說明原始設計本來就想讓常駐角色進名單，只是沒接上。
+
+`isCompanion` 就是這條線：
+
+| 面向 | 行為 |
+|---|---|
+| 在場判定 | `resolveOnStageNames(npcs, appearingNpcs)`＝`[出場:]` ∪ 同伴。**不受空標記清空** |
+| 候選名單 | **排除**。候選的語意是「可能在場、AI 可以選」，同伴是既成事實，混講會讓他三不五時蒸發 |
+| 完整注入 | 無條件，連 `lorebookHitsKeywords` 也繞過。沒有設定集條目時由 `[Pinned NPCs]` 兜底 |
+| 足跡 | 跟著玩家走（`updateNpcFootprints` 吃合併後的名單），AI 沒寫標記也照樣更新 |
+| prompt | 另開 `[隨行同伴]` 區塊宣告在場，並明講「有實體、會主動開口、不是神諭」 |
+
+⚠️ **合併只發生在讀取端，不要把同伴寫回 `appearingNpcs` state**。那個欄位進存檔，
+混進去之後「AI 說誰在場」與「誰跟著玩家」就再也分不開，取消隨行時人也清不掉。
+
+⚠️ **`isCompanion` 與 `isPinned` 是兩件事，不可互相代替**。釘選只是把角色釘到右欄方便
+追蹤好感度，人可能還待在另一座城（`SceneNpcsWidget` 當初正是為此把 `isPinned` 拔掉）；
+隨行是「他此刻就跟玩家站在一起」。UI 上是角色卡標題列的兩個獨立按鈕（📌／👣）。
+
+預設世界觀的 `roleplayRules` 另有一段「## 引路者」把它定義成常駐同伴。那份文字**會存進
+存檔**，改 `constants.ts` 只影響新開的遊戲；既有存檔要靠上面的隨行開關即時生效。
 
 ---
 
@@ -518,6 +550,7 @@ FACTION_NEW|name=黑牙氏族|type=criminal|desc=盤據東境的盜賊團
 | 使用道具只寫進草稿、不直接送出 | 同一瓶藥自己喝或餵給倒地的同伴是完全不同的故事，那句話該由玩家補完；扣數量因此也延後到真的送出時 |
 | `LOCATION` 的粒度對齊 `LOCATION_DISCOVER` | 兩者指的必須是同一種東西（地圖上佔一格的地點）。`LOCATION_DISCOVER` 早就寫明「建築內的個別房間一律不要登錄」，`LOCATION` 卻連觸發時機都沒寫，AI 於是把每次走進房間都當成移動——而那個欄位正是決定「誰可能在場」的比對鍵 |
 | 手動結案的獎勵閘門是 `isGoalMet` | `isGoalMet` 由 AI 的 `QUEST_GOAL_MET` 寫入、玩家改不到，是唯一「目標確實達成過」的憑據。沒有它就照發獎勵的話，接任務→按一下→領錢，任務系統變成無限金幣按鈕 |
+| 隨行同伴獨立於釘選（`Npc.isCompanion`） | 常駐角色的問題不是「查不查得到」而是「在不在場」。釘選只讓資料進得了 prompt，人依舊不在任何一份在場名單上，模型於是把他寫成沒有身體的聲音。而釘選本身有另一個用途（釘到右欄追蹤好感度，人可能在別的城），兩者合併會互相汙染 |
 
 ---
 
@@ -601,6 +634,7 @@ FACTION_NEW|name=黑牙氏族|type=criminal|desc=盤據東境的盜賊團
 | `useGameStore` `loadFromData(data)` | 匯入存檔並自動 migrate 舊格式（`saveDataMapper` + `runMigrations`）|
 | `useAuth` `saveToCloud / loadFromCloud / listCloudSaves / deleteCloudSave` | Supabase `saves` 表 CRUD |
 | `utils/npcProfile.ts` `resolveNpcProfile / findNpcLore / npcIdentityBrief` | NPC 身分設定的唯一讀取入口（來源是設定集條目，`Npc` 上沒有那些欄位） |
+| `utils/npcPresence.ts` `isNpcOnStage / resolveOnStageNames / updateNpcFootprints` | 「誰在場」的唯一判定入口。`resolveOnStageNames` 把隨行同伴併進 `[出場:]` 名單（無同伴時回傳原 reference） |
 | `utils/timeUtils.ts` `setClockForward / advanceTimeAndResolveQuestDeadlines` | 絕對時刻校準（**只往前**，落後 60 分內視為已到達）與時間推進＋期限結算 |
 | `utils/weather.ts` `normalizeWeather / WEATHER_VALUES` | 天氣詞彙的唯一準據（五種），同義詞收斂；狀態列圖示與天空梯度共用 |
 | `utils/itemCatalog.ts` `selectConsumedItems(pending, sentText)` | 送出時決定扣哪些待用道具（名字還在文字裡才扣） |

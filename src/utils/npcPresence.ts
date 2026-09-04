@@ -20,6 +20,31 @@ export function isNpcOnStage(npcName: string, appearingNpcs: string[]): boolean 
 }
 
 /**
+ * 把「隨行同伴」併進場上名單，得到**實際在場**的名單。
+ *
+ * `appearingNpcs` 是 AI 每回應寫的 `[出場:]`，語意是「這個場景裡有誰」——
+ * 它天生綁定地點與場面調度。隨行同伴（`Npc.isCompanion`）不屬於那個問題：
+ * 他是跟著玩家走的，玩家在哪他就在哪，AI 忘了寫、或寫了空標記（現場無人）
+ * 都不該讓他消失。
+ *
+ * ⚠️ 合併只發生在**讀取端**（prompt 組裝、右欄在場名單、足跡更新），
+ * 不要把同伴寫回 `appearingNpcs` state。那個欄位存進存檔，混進去之後
+ * 「AI 說誰在場」與「誰跟著玩家」就再也分不開，取消隨行時人也清不掉。
+ *
+ * 沒有隨行同伴（絕大多數回合）時回傳**原陣列 reference**，
+ * 避免每回合白白產生新陣列（同 memoryStore 的 touchMemories）。
+ */
+export function resolveOnStageNames<T extends { name: string; isCompanion?: boolean }>(
+  npcs: T[],
+  appearingNpcs: string[],
+): string[] {
+  const extras = npcs
+    .filter(n => n.isCompanion && !isNpcOnStage(n.name, appearingNpcs))
+    .map(n => n.name);
+  return extras.length === 0 ? appearingNpcs : [...appearingNpcs, ...extras];
+}
+
+/**
  * 更新出場 NPC 的足跡（`location` / `lastSeenLocation` / `lastSeenDate`）。
  *
  * ⚠️ **只有 `[出場:]` 名單上的角色才算出場過。**
