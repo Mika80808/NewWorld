@@ -95,6 +95,11 @@ describe('parseNpcImport — 逐筆驗證', () => {
     expect(parseNpcImport({ npcs: [{ name: 'A', isPinned: true }] }).npcs[0].isPinned).toBe(true);
   });
 
+  it('isCompanion 只接受布林 true', () => {
+    expect(parseNpcImport({ npcs: [{ name: 'A', isCompanion: 'yes' }] }).npcs[0].isCompanion).toBe(false);
+    expect(parseNpcImport({ npcs: [{ name: 'A', isCompanion: true }] }).npcs[0].isCompanion).toBe(true);
+  });
+
   it('內建範本自己解析得過', () => {
     const { npcs, errors } = parseNpcImport(NPC_IMPORT_TEMPLATE);
     expect(errors).toEqual([]);
@@ -268,6 +273,19 @@ describe('buildNpcExport — 與匯入格式來回', () => {
       [existingNpc({ factionIds: [3] })], [], [faction({ id: 3, name: '黑牙氏族' })],
     );
     expect(out.npcs[0].factions).toEqual(['黑牙氏族']);
+  });
+
+  // 隨行是「這個角色常駐在玩家身邊」的設定，跨檔沒有 id 問題，照樣來回
+  it('隨行同伴的旗標來回都在', () => {
+    const out = buildNpcExport([existingNpc({ name: '引路者', isCompanion: true })], []);
+    expect(out.npcs[0].isCompanion).toBe(true);
+    const back = mergeImportedNpcs(parseNpcImport(out).npcs, [], [], '4/15');
+    expect(back.npcs[0].isCompanion).toBe(true);
+  });
+
+  it('沒有隨行時不匯出這個欄位', () => {
+    const out = buildNpcExport([existingNpc({ name: 'A', memories: [] })], []);
+    expect(out.npcs[0].isCompanion).toBeUndefined();
   });
 
   it('對不到勢力定義的 id 直接略過，不匯出空值', () => {

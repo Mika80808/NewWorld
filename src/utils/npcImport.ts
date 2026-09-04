@@ -29,6 +29,8 @@ export interface ImportedNpc {
   homeLocation?: string;
   roamLocations?: string[];
   isPinned?: boolean;
+  /** 隨行同伴：常駐玩家身邊、不受地點限制（見 Npc.isCompanion） */
+  isCompanion?: boolean;
   /** 角色記憶，純字串陣列；好感度 ≥ 60 才會注入 prompt */
   memories?: string[];
   /**
@@ -228,6 +230,7 @@ export function parseNpcImport(raw: unknown): ParseResult {
       // 滑動窗口上限 3，與 lorebook 的 roamLocations 一致
       roamLocations: strArray(o.roamLocations).slice(0, 3),
       isPinned: o.isPinned === true,
+      isCompanion: o.isCompanion === true,
       memories: strArray(o.memories),
       factions: strArray(o.factions),
     });
@@ -381,6 +384,7 @@ export function mergeImportedNpcs(
       relationship: src.relationship || undefined,
       location: src.homeLocation || undefined,
       isPinned: src.isPinned,
+      isCompanion: src.isCompanion,
       category: '登場人物',
       isActive: true,
       memories,
@@ -487,6 +491,7 @@ export function buildNpcExport(
 
       if (n.affection) out.affection = n.affection;
       if (n.isPinned) out.isPinned = true;
+      if (n.isCompanion) out.isCompanion = true;
 
       const roam = lore?.roamLocations ?? [];
       if (roam.length > 0) out.roamLocations = roam;
@@ -544,6 +549,7 @@ export const NPC_IMPORT_TEMPLATE: { factions: ImportedFaction[]; npcs: ImportedN
       homeLocation: '迷霧森林',
       roamLocations: ['月湖鎮'],
       isPinned: false,
+      isCompanion: false,
       memories: ['第一次見面時借給你一支箭'],
       factions: ['黑牙氏族'],
     },

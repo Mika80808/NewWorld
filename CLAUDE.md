@@ -422,6 +422,38 @@ interface NpcMemory {
 1. `appearingNpcs` 裡的 NPC
 2. `isPinned === true` 的 NPC
 3. 候選名單內 `affection >= 60` 的 NPC
+4. `isCompanion === true` 的隨行同伴（見下）
+
+### 隨行同伴（`Npc.isCompanion`）——地點軸之外的第三條路
+
+兩階段注入整條鏈都以**地點**為軸：Phase 1 依 `currentLocation` 篩候選 → AI 從候選名單
+挑人輸出 `[出場:]` → Phase 2 才注入完整資料。常駐角色（引路者、契約精靈、隨行護衛）
+的主場不會等於玩家當下的所在地，於是**永遠進不了候選名單**，AI 也就永遠不會讓他出場。
+
+釘選能讓他的資料進 `[Scene Lorebook]`，但那只解決了「查得到」，沒解決「在場」——
+模型拿到一份查得到卻不在場的資料，寫出來就是一個沒有身體的聲音（玩家原話：「誤會成一種神諭」）。
+`npcCandidates` 的排序裡那條「釘選者優先」是**死碼**，因為釘選者根本過不了前面的地點
+filter；這正說明原始設計本來就想讓常駐角色進名單，只是沒接上。
+
+`isCompanion` 就是這條線：
+
+| 面向 | 行為 |
+|---|---|
+| 在場判定 | `resolveOnStageNames(npcs, appearingNpcs)`＝`[出場:]` ∪ 同伴。**不受空標記清空** |
+| 候選名單 | **排除**。候選的語意是「可能在場、AI 可以選」，同伴是既成事實，混講會讓他三不五時蒸發 |
+| 完整注入 | 無條件，連 `lorebookHitsKeywords` 也繞過。沒有設定集條目時由 `[Pinned NPCs]` 兜底 |
+| 足跡 | 跟著玩家走（`updateNpcFootprints` 吃合併後的名單），AI 沒寫標記也照樣更新 |
+| prompt | 另開 `[隨行同伴]` 區塊宣告在場，並明講「有實體、會主動開口、不是神諭」 |
+
+⚠️ **合併只發生在讀取端，不要把同伴寫回 `appearingNpcs` state**。那個欄位進存檔，
+混進去之後「AI 說誰在場」與「誰跟著玩家」就再也分不開，取消隨行時人也清不掉。
+
+⚠️ **`isCompanion` 與 `isPinned` 是兩件事，不可互相代替**。釘選只是把角色釘到右欄方便
+追蹤好感度，人可能還待在另一座城（`SceneNpcsWidget` 當初正是為此把 `isPinned` 拔掉）；
+隨行是「他此刻就跟玩家站在一起」。UI 上是角色卡標題列的兩個獨立按鈕（📌／👣）。
+
+預設世界觀的 `roleplayRules` 另有一段「## 引路者」把它定義成常駐同伴。那份文字**會存進
+存檔**，改 `constants.ts` 只影響新開的遊戲；既有存檔要靠上面的隨行開關即時生效。
 
 ---
 
@@ -477,6 +509,8 @@ FACTION_NEW|name=黑牙氏族|type=criminal|desc=盤據東境的盜賊團
 | `STAT\|field=` | 白名單 `STAT_FIELDS`（hp/mp/gold），未知欄位丟棄並 warn | 舊版 `type = field.toUpperCase()` 照單全收，未知欄位變幽靈 type 死在 reducer 的 default |
 | `TIME\|set=` | `parseClockTime()`：認不得就丟棄（與 delta 的寬容相反）。校準**只往前**，落後 60 分鐘以內視為已到達 | delta 猜錯只是時鐘略偏，set 猜錯是直接跳到錯誤時刻；不擋回頭的話「現在大約八點」會在 08:30 跳掉 23.5 小時 |
 | `LOCATION\|name=` | 只認設定集裡真的存在的地點條目（同批 `LOCATION_DISCOVER` 新登錄的也算）；認不得的名稱視為「目前地點內的房間」，不改變所在地。但**目前地點自己也不在設定集裡時一律放行**，否則卡在地圖外的存檔會被永久困住 | `currentLocation` 是 Phase 1 候選名單的**字串完全相等**比對鍵。被寫成「廚房」這種房間名時，主場在「黑牙氏族營地」的角色全部比不中，整個聚落的人就此消失；`NPC_NEW` 還會把新角色的 `homeLocation` 一併寫成那個房間 |
+| `LOCATION_DISCOVER\|status=` | `known`／`heard`（收同義詞）；認不得或省略時**依玩家所在地推定**（本批指令套用後 `currentLocation === name` → `known`）。既有的 `known` **只升不降** | 先前寫死 `heard`：玩家人就坐在店裡，設定集標「聽說過」、地圖顯示 `???`。更糟的是既有條目也一起被寫回 `heard`——走過一次之後 AI 再提一次那個地點，狀態就被降級，而 `LOCATION` 與 `LOCATION_DISCOVER` 誰先誰後還會影響結果 |
+| `LOCATION_DISCOVER\|desc=` | 寫進 `LorebookEntry.content`；既有簡介**先寫先贏**不覆蓋，原本是空的才補 | 先前根本沒有這個參數，新條目一律 `content: ''`。設定集裡一片空白，玩家看不到，AI 下回合也讀不回自己寫過的地方，只能重編一遍 |
 | `WEATHER\|value=` | `normalizeWeather()`：收斂同義詞，認不得就丟棄並 warn | 天氣不是自由文字。「微風徐徐帶著海鹽味」進了欄位就沒有圖示也沒有天空梯度，而且下回合被 AI 讀回去當事實 |
 | `qty=` | `parseQty()`：非正整數退回 1 | `parseInt(x) \|\| 1` 讓**負數**原樣通過（負數是 truthy），ITEM_ADD 會變成扣庫存 |
 
@@ -517,7 +551,9 @@ FACTION_NEW|name=黑牙氏族|type=criminal|desc=盤據東境的盜賊團
 | 時間可校準（`TIME\|set=`）、天氣可寫入（`WEATHER`） | 兩者都注入 prompt。時鐘只有 delta 就永遠合不回敘事，天氣沒有指令就永遠是初始值，而 AI 每回合把它們讀回去當事實 |
 | 使用道具只寫進草稿、不直接送出 | 同一瓶藥自己喝或餵給倒地的同伴是完全不同的故事，那句話該由玩家補完；扣數量因此也延後到真的送出時 |
 | `LOCATION` 的粒度對齊 `LOCATION_DISCOVER` | 兩者指的必須是同一種東西（地圖上佔一格的地點）。`LOCATION_DISCOVER` 早就寫明「建築內的個別房間一律不要登錄」，`LOCATION` 卻連觸發時機都沒寫，AI 於是把每次走進房間都當成移動——而那個欄位正是決定「誰可能在場」的比對鍵 |
+| `LOCATION_DISCOVER` 要帶 `desc` 與 `status` | 這兩個欄位是玩家在設定集與地圖上**唯一看得到**的地點資料。少了 desc 條目就是空白；status 寫死 `heard` 則讓親自走過的地方全標成「聽說過」。兩者都不該由前端猜，但也不能沒有——所以 AI 必填、系統依所在地兜底 |
 | 手動結案的獎勵閘門是 `isGoalMet` | `isGoalMet` 由 AI 的 `QUEST_GOAL_MET` 寫入、玩家改不到，是唯一「目標確實達成過」的憑據。沒有它就照發獎勵的話，接任務→按一下→領錢，任務系統變成無限金幣按鈕 |
+| 隨行同伴獨立於釘選（`Npc.isCompanion`） | 常駐角色的問題不是「查不查得到」而是「在不在場」。釘選只讓資料進得了 prompt，人依舊不在任何一份在場名單上，模型於是把他寫成沒有身體的聲音。而釘選本身有另一個用途（釘到右欄追蹤好感度，人可能在別的城），兩者合併會互相汙染 |
 
 ---
 
@@ -601,6 +637,7 @@ FACTION_NEW|name=黑牙氏族|type=criminal|desc=盤據東境的盜賊團
 | `useGameStore` `loadFromData(data)` | 匯入存檔並自動 migrate 舊格式（`saveDataMapper` + `runMigrations`）|
 | `useAuth` `saveToCloud / loadFromCloud / listCloudSaves / deleteCloudSave` | Supabase `saves` 表 CRUD |
 | `utils/npcProfile.ts` `resolveNpcProfile / findNpcLore / npcIdentityBrief` | NPC 身分設定的唯一讀取入口（來源是設定集條目，`Npc` 上沒有那些欄位） |
+| `utils/npcPresence.ts` `isNpcOnStage / resolveOnStageNames / updateNpcFootprints` | 「誰在場」的唯一判定入口。`resolveOnStageNames` 把隨行同伴併進 `[出場:]` 名單（無同伴時回傳原 reference） |
 | `utils/timeUtils.ts` `setClockForward / advanceTimeAndResolveQuestDeadlines` | 絕對時刻校準（**只往前**，落後 60 分內視為已到達）與時間推進＋期限結算 |
 | `utils/weather.ts` `normalizeWeather / WEATHER_VALUES` | 天氣詞彙的唯一準據（五種），同義詞收斂；狀態列圖示與天空梯度共用 |
 | `utils/itemCatalog.ts` `selectConsumedItems(pending, sentText)` | 送出時決定扣哪些待用道具（名字還在文字裡才扣） |

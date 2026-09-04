@@ -137,6 +137,31 @@ const STAT_FIELDS = new Set(['HP', 'MP', 'GOLD']);
  */
 const LOCATION_TYPES = new Set(['town', 'wilderness', 'building']);
 
+/**
+ * `LOCATION_DISCOVER|status=` 的地圖狀態。
+ *
+ * 這個欄位決定地圖上顯示地名還是 `???`。先前指令根本沒有這個參數，
+ * reducer 一律寫死 `heard`——玩家人就站在店裡，設定集卻標「聽說過」。
+ *
+ * 認不得時回傳 null，由 reducer 依「玩家此刻是不是就在那裡」推定，
+ * 不亂猜也不丟棄整條指令（丟掉的話新地點連登錄都沒了）。
+ */
+const MAP_STATUS_ALIASES: Record<string, 'known' | 'heard'> = {
+  known: 'known', visited: 'known', 已造訪: 'known', 造訪: 'known', 到過: 'known', 去過: 'known',
+  heard: 'heard', rumor: 'heard', rumour: 'heard', 聽說過: 'heard', 聽說: 'heard', 傳聞: 'heard',
+};
+
+function parseMapStatus(raw: string | undefined): 'known' | 'heard' | null {
+  const key = (raw ?? '').trim().toLowerCase();
+  if (!key) return null;
+  const hit = MAP_STATUS_ALIASES[key];
+  if (!hit) {
+    console.warn(`[LOCATION_DISCOVER] 未知的 status=${raw}，改依玩家所在地推定（僅支援 known / heard）`);
+    return null;
+  }
+  return hit;
+}
+
 function parseKV(parts: string[]): Record<string, string> {
   const kv: Record<string, string> = {};
   for (const part of parts) {
@@ -386,7 +411,7 @@ function parseSingleCommand(line: string): CommandAST | null {
       return { type: 'NPC_RELATIONSHIP', raw: trimmed, parsed: { npcName, relationship: rel } };
     }
 
-    // LOCATION_DISCOVER|name=地點名稱|x=110|y=70|type=wilderness
+    // LOCATION_DISCOVER|name=地點名稱|x=110|y=70|type=wilderness|status=known|desc=地點簡介
     case 'LOCATION_DISCOVER': {
       const name = kv.name || kv.loc || '';
       if (!name) return null;
@@ -407,6 +432,10 @@ function parseSingleCommand(line: string): CommandAST | null {
           x: num(kv.x),
           y: num(kv.y),
           locationType: LOCATION_TYPES.has(rawType) ? rawType : 'wilderness',
+          // 地點簡介。先前指令沒有這個參數，新登錄的條目 content 一律是空字串——
+          // 設定集裡一片空白，玩家看不到，AI 下回合也讀不回自己寫過的地方
+          desc: (kv.desc || kv.description || kv.content || '').trim(),
+          mapStatus: parseMapStatus(kv.status ?? kv.mapStatus),
         },
       };
     }

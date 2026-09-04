@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { isNpcOnStage, updateNpcFootprints } from '../npcPresence';
+import { isNpcOnStage, updateNpcFootprints, resolveOnStageNames } from '../npcPresence';
 
 // 場上名單的唯一真相是 appearingNpcs（AI 每回應輸出的 [出場:] 標記）。
 // 先前右欄「當前場景人物」還會認 `n.location === currentLocation`，
@@ -82,5 +82,49 @@ describe('updateNpcFootprints', () => {
     updateNpcFootprints(list, ['芬里爾'], '月湖鎮', '4/15');
     expect(original.lastSeenLocation).toBe('');
     expect(list[0]).toBe(original);
+  });
+});
+
+// 隨行同伴（Npc.isCompanion）：常駐在玩家身邊的角色。
+//
+// 玩家回報「引路者的設定是常駐在玩家身邊，但它現在誤會成一種神諭」——
+// 常駐角色進得了 prompt 的資料區，卻從來不在「現在誰在場」的名單上，
+// 模型於是把他寫成沒有身體的聲音。在場名單一律走這支函數合併。
+describe('resolveOnStageNames', () => {
+  const npc = (name: string, over: Record<string, unknown> = {}) => ({ name, ...over });
+
+  it('同伴無條件在場，不必等 AI 輸出 [出場:]', () => {
+    const out = resolveOnStageNames([npc('引路者', { isCompanion: true })], []);
+    expect(out).toEqual(['引路者']);
+  });
+
+  /** [出場:] 空標記＝「現場無人」，但同伴不是這個場景的人，不受它管 */
+  it('空的 [出場:] 不會讓同伴下台', () => {
+    const npcs = [npc('引路者', { isCompanion: true }), npc('芬里爾')];
+    expect(resolveOnStageNames(npcs, [])).toEqual(['引路者']);
+  });
+
+  it('與 [出場:] 名單取聯集，不覆蓋 AI 的判定', () => {
+    const npcs = [npc('引路者', { isCompanion: true })];
+    expect(resolveOnStageNames(npcs, ['芬里爾'])).toEqual(['芬里爾', '引路者']);
+  });
+
+  /** 比對走 isNpcOnStage（前後包含），AI 已經寫了就不要再補一次 */
+  it('AI 已經把同伴寫進 [出場:] 時不重複加入', () => {
+    const npcs = [npc('凱爾·溫德', { isCompanion: true })];
+    expect(resolveOnStageNames(npcs, ['凱爾'])).toEqual(['凱爾']);
+  });
+
+  it('非同伴不會被加進來', () => {
+    expect(resolveOnStageNames([npc('芬里爾')], [])).toEqual([]);
+  });
+
+  /**
+   * 沒有同伴是絕大多數回合的情況。每回合無條件產生新陣列會讓存檔的髒標記
+   * 永遠為髒（同 memoryStore 的 touchMemories / pruneMemories）。
+   */
+  it('沒有同伴時回傳原陣列 reference', () => {
+    const appearing = ['芬里爾'];
+    expect(resolveOnStageNames([npc('芬里爾')], appearing)).toBe(appearing);
   });
 });

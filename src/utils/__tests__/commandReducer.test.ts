@@ -168,6 +168,99 @@ describe('reduceCommands — LOCATION_DISCOVER 座標與分類', () => {
   });
 });
 
+// 玩家回報：「AI 並沒有填寫地點簡介，需要主動填寫」「地點狀態須為：已造訪」。
+// AI 現在會替月湖鎮裡的每間店都建條目，而那些條目一律是「空白簡介 ＋ 聽說過」——
+// 玩家人就坐在餐館裡，設定集卻說他只是聽說過這個地方，地圖上顯示 ???。
+describe('reduceCommands — LOCATION_DISCOVER 簡介與地圖狀態', () => {
+  const loc = (over: Partial<LorebookEntry> = {}): LorebookEntry => ({
+    id: 1, title: '迷霧森林', content: '', category: '地點', isActive: true,
+    mapX: 100, mapY: 50, mapStatus: 'heard',
+    ...over,
+  });
+
+  it('desc 寫進 content，不再留一片空白', () => {
+    const { stateChanges } = run('LOCATION_DISCOVER|name=晨露餐館|x=3|y=2|type=building|desc=月湖鎮東側的小餐館，招牌是晨露燉湯。');
+    expect(stateChanges.lorebookEntries?.[0].content).toBe('月湖鎮東側的小餐館，招牌是晨露燉湯。');
+  });
+
+  it('沒給 desc 時仍照常登錄地點（只是簡介空著）', () => {
+    const { stateChanges } = run('LOCATION_DISCOVER|name=晨露餐館|x=3|y=2|type=building');
+    expect(stateChanges.lorebookEntries?.[0]).toMatchObject({ title: '晨露餐館', content: '' });
+  });
+
+  // 先寫先贏（同 itemCatalog）：玩家在設定集裡寫過的東西不該被 AI 洗掉
+  it('既有條目已有簡介時不覆蓋', () => {
+    const { stateChanges } = run(
+      'LOCATION_DISCOVER|name=迷霧森林|x=1|y=1|desc=AI 重寫的版本',
+      state({ lorebookEntries: [loc({ content: '玩家自己寫的設定' })] }),
+    );
+    expect(stateChanges.lorebookEntries?.[0].content).toBe('玩家自己寫的設定');
+  });
+
+  // 舊條目大多是空的（先前的 LOCATION_DISCOVER 根本沒有 desc 參數），這是唯一的補寫機會
+  it('既有條目簡介是空的時候補上', () => {
+    const { stateChanges } = run(
+      'LOCATION_DISCOVER|name=迷霧森林|x=1|y=1|desc=終年起霧的針葉林',
+      state({ lorebookEntries: [loc({ content: '   ' })] }),
+    );
+    expect(stateChanges.lorebookEntries?.[0].content).toBe('終年起霧的針葉林');
+  });
+
+  it('status=known 標成已造訪', () => {
+    const { stateChanges } = run('LOCATION_DISCOVER|name=晨露餐館|x=3|y=2|type=building|status=known|desc=小餐館');
+    expect(stateChanges.lorebookEntries?.[0].mapStatus).toBe('known');
+  });
+
+  it('status=heard 標成聽說過', () => {
+    const { stateChanges } = run('LOCATION_DISCOVER|name=遠方王都|x=90|y=90|type=town|status=heard|desc=聽商隊提起的王都');
+    expect(stateChanges.lorebookEntries?.[0].mapStatus).toBe('heard');
+  });
+
+  it('認不得的 status 不丟棄指令，改依所在地推定', () => {
+    const { stateChanges } = run('LOCATION_DISCOVER|name=遠方王都|x=90|y=90|status=也許吧');
+    expect(stateChanges.lorebookEntries?.[0]).toMatchObject({ title: '遠方王都', mapStatus: 'heard' });
+  });
+
+  /**
+   * 省略 status 時的推定：玩家此刻就在那裡＝已造訪。
+   * 「抵達新地點」本來就該同時輸出 LOCATION 與 LOCATION_DISCOVER，
+   * 而所在地在主迴圈之前就算好了，所以兩者誰先誰後都一樣。
+   */
+  it.each([
+    ['DISCOVER 在前', 'LOCATION_DISCOVER|name=新城鎮|x=90|y=40|type=town|desc=山腳下的城鎮\nLOCATION|name=新城鎮'],
+    ['LOCATION 在前', 'LOCATION|name=新城鎮\nLOCATION_DISCOVER|name=新城鎮|x=90|y=40|type=town|desc=山腳下的城鎮'],
+  ])('省略 status 時，玩家同批移動過去的地點是已造訪（%s）', (_label, cmds) => {
+    const { stateChanges } = run(cmds);
+    expect(stateChanges.lorebookEntries?.[0].mapStatus).toBe('known');
+  });
+
+  it('省略 status 且玩家不在那裡時是聽說過', () => {
+    const { stateChanges } = run('LOCATION_DISCOVER|name=遠方王都|x=90|y=90|type=town|desc=聽說中的王都');
+    expect(stateChanges.lorebookEntries?.[0].mapStatus).toBe('heard');
+  });
+
+  /**
+   * ⚠️ 這條是真正的回歸：既有條目原本被無條件寫回 `heard`。
+   * 玩家走過一次（LOCATION 那支已標成 known），AI 之後在敘事裡再提一次同一個地方，
+   * 狀態就被降級回「聽說過」，地圖上的地名變回 ???。
+   */
+  it('既有的已造訪不會被降級回聽說過', () => {
+    const { stateChanges } = run(
+      'LOCATION_DISCOVER|name=迷霧森林|x=1|y=1|status=heard',
+      state({ lorebookEntries: [loc({ mapStatus: 'known' })] }),
+    );
+    expect(stateChanges.lorebookEntries?.[0].mapStatus).toBe('known');
+  });
+
+  it('聽說過的舊條目在玩家實際到訪時升級成已造訪', () => {
+    const { stateChanges } = run(
+      'LOCATION|name=迷霧森林\nLOCATION_DISCOVER|name=迷霧森林|x=1|y=1',
+      state({ lorebookEntries: [loc({ mapStatus: 'heard' })] }),
+    );
+    expect(stateChanges.lorebookEntries?.[0].mapStatus).toBe('known');
+  });
+});
+
 describe('reduceCommands — 道具', () => {
   it('ITEM_ADD 新增道具', () => {
     const { stateChanges } = run('ITEM_ADD|name=草藥|qty=2|desc=回復 20 HP');

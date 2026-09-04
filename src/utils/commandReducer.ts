@@ -671,32 +671,60 @@ export function reduceCommands(
         const x = cmd.parsed.x as number;
         const y = cmd.parsed.y as number;
         const locationType = cmd.parsed.locationType as LorebookEntry['locationType'];
-        // 地點已存在則更新 mapStatus，不存在則新增
+        const desc = cmd.parsed.desc as string;
+
+        // 地圖狀態：AI 明講就聽它的，沒講就看「玩家此刻是不是就在這裡」。
+        //
+        // 先前這裡寫死 `heard`，於是玩家親自走進去的店家在設定集裡全標「聽說過」、
+        // 地圖上顯示 ???。而且更糟的是**既有條目也一起被寫回 heard**：走過一次
+        // （LOCATION 那支已經標成 known）之後 AI 再提一次這個地點，狀態就被降級回去。
+        //
+        // resolvedLocation 讀的是「本批指令套用後」的所在地——主迴圈之前的粒度守門
+        // 已經算好 stateChanges.currentLocation，所以 LOCATION 與 LOCATION_DISCOVER
+        // 誰先誰後都不影響結果（同一批裡兩者本來就該一起輸出）。
+        const resolvedLocation = stateChanges.currentLocation ?? currentState.currentLocation;
+        const discovered: 'known' | 'heard' =
+          (cmd.parsed.mapStatus as 'known' | 'heard' | null) ??
+          (name === resolvedLocation ? 'known' : 'heard');
+
         const existing = workingLorebookEntries.find(e => e.category === '地點' && e.title === name);
         if (existing) {
           workingLorebookEntries = workingLorebookEntries.map(e =>
             e.category === '地點' && e.title === name
-              // 既有值一律不覆蓋：玩家可能在設定集裡調過座標或分類
-              ? { ...e, mapStatus: 'heard' as const, mapX: e.mapX ?? x, mapY: e.mapY ?? y, locationType: e.locationType ?? locationType }
+              ? {
+                  ...e,
+                  // 狀態只升不降：去過就是去過，AI 之後再提起不該把它變回「聽說過」
+                  mapStatus: (e.mapStatus === 'known' || discovered === 'known' ? 'known' : 'heard') as 'known' | 'heard',
+                  // 簡介先寫先贏（同 itemCatalog）：玩家或先前的 AI 寫過就不覆蓋，
+                  // 但原本是空的就補上——舊條目大多是空的，這是唯一的補寫機會
+                  content: e.content?.trim() ? e.content : desc,
+                  // 既有值一律不覆蓋：玩家可能在設定集裡調過座標或分類
+                  mapX: e.mapX ?? x, mapY: e.mapY ?? y, locationType: e.locationType ?? locationType,
+                }
               : e
           );
         } else {
           const newEntry: LorebookEntry = {
             id: Math.max(...workingLorebookEntries.map(e => e.id), 0) + 1,
             title: name,
-            content: '',
+            content: desc,
             category: '地點',
             isActive: true,
             mapX: x,
             mapY: y,
-            mapStatus: 'heard',
+            mapStatus: discovered,
             // 不寫的話 Phase 1 會落在「未設定」＝野外上限 3 人，
             // 而 AI 新建的聚落十之八九是 town
             locationType,
           };
           workingLorebookEntries = [...workingLorebookEntries, newEntry];
         }
-        feedback.toasts.push(`🗺️ 聽聞新地點：${name}`);
+        if (!desc) {
+          console.warn(`[LOCATION_DISCOVER] 「${name}」沒有 desc，設定集簡介會是空的。原始指令：${cmd.raw}`);
+        }
+        feedback.toasts.push(
+          discovered === 'known' ? `🗺️ 造訪新地點：${name}` : `🗺️ 聽聞新地點：${name}`
+        );
         break;
       }
 

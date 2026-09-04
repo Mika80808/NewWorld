@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Users, BookPlus, Pin, Star, Trash2, Lock, ChevronDown, ChevronUp, Edit2, Check, X, BookOpen, Heart, AlertTriangle } from 'lucide-react';
+import { Users, BookPlus, Pin, Footprints, Star, Trash2, Lock, ChevronDown, ChevronUp, Edit2, Check, X, BookOpen, Heart, AlertTriangle } from 'lucide-react';
 import { Npc, NpcMemory, LorebookEntry, Faction } from '../types';
 import { affectionColor } from '../utils/affectionColor';
 import { relationText } from '../utils/affectionLabel';
@@ -23,6 +23,12 @@ interface NpcModalProps {
   onClose: () => void;
   onRecordNpc: (npc: Npc) => void;
   onTogglePinNpc: (id: number) => void;
+  /**
+   * 切換「隨行同伴」。與釘選是兩件事：釘選只是把角色釘到右欄方便追蹤，
+   * 人可能還待在另一座城；隨行是「他此刻就跟著玩家走」，會無條件視為在場。
+   * 未提供時不渲染該按鈕（既有測試不必補這個 prop）。
+   */
+  onToggleCompanionNpc?: (id: number) => void;
   onAddNpcMemory: (id: number, text: string, importance?: 'core' | 'normal') => void;
   onRemoveNpcMemory: (id: number, memId: string) => void;
   onUpdateNpcMemory: (id: number, memId: string, updates: Partial<NpcMemory>) => void;
@@ -44,6 +50,7 @@ export const NpcModal: React.FC<NpcModalProps> = ({
   onClose,
   onRecordNpc,
   onTogglePinNpc,
+  onToggleCompanionNpc,
   onAddNpcMemory,
   onRemoveNpcMemory,
   onUpdateNpcMemory,
@@ -242,6 +249,20 @@ export const NpcModal: React.FC<NpcModalProps> = ({
                 <Heart className="w-3.5 h-3.5 fill-current" />
                 {selectedNpc.affection}
               </span>
+              {/* 隨行同伴：開啟後角色不受地點限制、每回合都被視為在場 */}
+              {onToggleCompanionNpc && (
+                <button
+                  className="transition p-0.5 rounded"
+                  style={{ color: selectedNpc.isCompanion ? 'var(--text-primary)' : 'var(--text-muted)' }}
+                  onClick={() => onToggleCompanionNpc(selectedNpc.id)}
+                  title={selectedNpc.isCompanion ? '取消隨行（不再常駐玩家身邊）' : '設為隨行同伴（常駐玩家身邊，不受地點限制）'}
+                  aria-pressed={!!selectedNpc.isCompanion}
+                  onMouseEnter={e => { if (!selectedNpc.isCompanion) e.currentTarget.style.color = 'var(--text-title)'; }}
+                  onMouseLeave={e => { if (!selectedNpc.isCompanion) e.currentTarget.style.color = 'var(--text-muted)'; }}
+                >
+                  <Footprints className={`w-3.5 h-3.5 ${selectedNpc.isCompanion ? 'fill-current' : ''}`} />
+                </button>
+              )}
               {/* 釘選 */}
               <button
                 className="transition p-0.5 rounded mr-5 "

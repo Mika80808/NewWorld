@@ -62,6 +62,26 @@ describe('SceneNpcsWidget 當前場景人物', () => {
   });
 
   /**
+   * 隨行同伴（`isCompanion`）是「不在 appearingNpcs 也算在場」的**唯一**例外，
+   * 而且是玩家明確設定的例外：他常駐在玩家身邊、跟著玩家走。
+   *
+   * ⚠️ 這與上面被拔掉的 `isPinned` 不同。釘選只是把人釘到右欄方便追蹤好感度，
+   * 人可能還待在另一座城；隨行是「他此刻就跟你站在一起」。prompt 那頭也是
+   * 這樣算的（buildPrompt 的 onStageNpcs），兩邊必須一致，否則會出現
+   * 「GM 當他在場、UI 說此處沒有人」的分歧。
+   */
+  it('隨行同伴不在 appearingNpcs 也照常顯示', () => {
+    renderWidget([npc('引路者', { isCompanion: true, location: '起始神殿' })], []);
+    expect(screen.getByText('引路者')).toBeInTheDocument();
+  });
+
+  it('取消隨行後就不再顯示', () => {
+    renderWidget([npc('引路者', { isCompanion: false })], []);
+    expect(screen.queryByText('引路者')).not.toBeInTheDocument();
+    expect(screen.getByText('此處目前沒有人...')).toBeInTheDocument();
+  });
+
+  /**
    * 比對規則與 promptBuilder 的 inScene 一致（前後包含而非嚴格相等）：
    * AI 可能只寫「凱爾」而角色全名是「凱爾·溫德」。兩邊若用不同規則，
    * 會出現「prompt 當他在場、UI 說他不在」的分歧。
