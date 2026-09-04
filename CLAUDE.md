@@ -321,6 +321,15 @@ interface MemoryEntry {
 - **LRU 時間戳**：`tickMemoryCounters` 每回合以 `touchMemories` 標記本回合觸發過的記憶。
   `createdAt` 是遊戲內日期字串（「4/15」）無法比大小，故另存 epoch ms
 - ⚠️ 兩支都在無變更時回傳**原 reference**——每回合無條件產生新陣列會讓存檔髒標記永遠為髒
+- **玩家可編輯**：右欄「場景記憶」Widget 支援就地改／刪，以及整段交給助理 GM 融合。
+  memories[] 先前對玩家唯讀，而 AI 只會 `MEMORY_ADD` 從不刪，同一個地點待久就是很長一串
+  （`pruneMemories` 的 300 條是儲存上限，救不了畫面）。**編輯過的記憶轉成 `source: 'manual'`**，
+  之後不再參與融合與淘汰
+- **融合是玩家按才動，不自動觸發**：`MemoryEntry` 沒有 NPC 記憶那種 `isMerged` 封存欄位，
+  融合是**直接取代**原文——自動跑等於在玩家沒看到的時候改寫存檔。
+  `manual` 與 `critical` 一律豁免（同 `pruneMemories` 的 `isProtected`）；
+  融合結果插在**第一條被取代者的位置**，接到陣列尾巴會讓它靠新時間戳排到最前面，
+  把真正的新記憶擠出注入端的截斷範圍
 - 純函數層在 `src/utils/memoryStore.ts`
 
 ### lorebookEntries[]（設定集）
@@ -654,5 +663,6 @@ FACTION_NEW|name=黑牙氏族|type=criminal|desc=盤據東境的盜賊團
 | `utils/affectionLabel.ts` `affectionLabel / relationText` | 好感度語意標籤（衍生值，不存檔）；`relationText` 為顯示與 prompt 注入的共用入口 |
 | `utils/itemCatalog.ts` `registerItemDef / touchItemDef / pruneItemCatalog / selectKnownItemNames` | 道具圖鑑：先寫先贏登錄、更新使用時間、LOD 淘汰、prompt 名稱切片 |
 | `utils/memoryStore.ts` `pruneMemories / touchMemories` | memories[] 儲存層：LOD 淘汰、LRU 時間戳（無變更時回傳原 reference） |
+| `utils/memoryStore.ts` `editMemoryContent / isSceneMergeable / selectMergeableMemories / replaceMemoriesWithMerged` | 玩家編輯與融合場景／區域記憶（編輯後轉 `manual`；`manual` 與 `critical` 不參與融合） |
 | `utils/npcImport.ts` `parseNpcImport / mergeImportedFactions / mergeImportedNpcs / buildNpcExport / NPC_IMPORT_TEMPLATE` | 角色＋勢力批次匯入匯出：解析 JSON、勢力先合再合角色（同名先寫先贏）、匯出（勢力／地點／關係全以名稱來回）、範本 |
 | `useCommandParser` `consumeItem(name, qty?)` | 使用道具（原名 useItem，因 hook 命名慣例改名） |

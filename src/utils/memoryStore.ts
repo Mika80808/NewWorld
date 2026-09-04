@@ -83,3 +83,97 @@ export function touchMemories(
   });
   return changed ? next : memories;
 }
+
+// ─── 玩家編輯與融合（場景／區域記憶）────────────────────────────────────────
+//
+// 玩家回報：「開放修改場景記憶，AI 不會刪除的話會變得很長一串，或者讓 AI
+// 搜尋相關記憶並融合。」
+//
+// memories[] 先前對玩家是**唯讀**的：右欄 Widget 只印出來，沒有任何新增／
+// 編輯／刪除入口，而 AI 只會 MEMORY_ADD、從來不刪。`pruneMemories` 是 300 條
+// 的儲存上限，離「這個地點列了十幾條」還很遠，救不了畫面上的那一串。
+
+/** 一次融合最少要有幾條可融合記憶才划算（少於這個數，融合只是把兩句話併成一句） */
+export const MIN_MERGE_CANDIDATES = 3;
+
+/**
+ * 可融合 = AI 產出、非 critical、且還在啟用中。
+ *
+ * 兩種豁免與 `pruneMemories` 的 `isProtected` 同一套理由：
+ *   - `manual`：玩家親手寫的（或親手改過的，見 `editMemoryContent`）不交給 AI 改寫
+ *   - `critical`：劇情承重的世界級事件，被概括掉等於劇情斷裂
+ *
+ * ⚠️ 與 NPC 記憶的 `isMergeable` 不同，`MemoryEntry` 沒有 `isMerged` 封存欄位，
+ * 所以融合是**直接取代**原文。這正是上面兩條豁免必須存在的原因。
+ */
+export function isSceneMergeable(m: MemoryEntry): boolean {
+  return m.isActive && m.source === 'ai_generated' && m.importance !== 'critical';
+}
+
+/**
+ * 挑出「這個地點的這一層」裡可以融合的記憶。
+ *
+ * 地點比對與 `SceneMemoryWidget` 的顯示條件一致，否則會出現「畫面上看到 5 條、
+ * 按下融合卻併了 8 條」的分歧：
+ *   - `scene`：必須明確標到這個地點
+ *   - `region`：沒有地點標籤視為全域，也算在內
+ */
+export function selectMergeableMemories(
+  memories: MemoryEntry[],
+  location: string,
+  type: 'scene' | 'region',
+): MemoryEntry[] {
+  return memories.filter(m => {
+    if (m.type !== type || !isSceneMergeable(m)) return false;
+    const locs = m.tags?.locations || [];
+    return type === 'region'
+      ? locs.length === 0 || locs.includes(location)
+      : locs.includes(location);
+  });
+}
+
+/**
+ * 把 mergedIds 這批記憶換成一條 replacement。
+ *
+ * replacement 插在**第一條被取代者的位置**，不是接到陣列尾巴——注入端的
+ * `sortByNewest` 讀的是 id 內嵌的時間戳，而融合結果掛的是新時間戳；接在尾巴
+ * 會讓它每次都排到最前面，把真正的新記憶擠出截斷範圍。
+ *
+ * 找不到任何一條要取代的就回傳原 reference（避免無謂的新陣列）。
+ */
+export function replaceMemoriesWithMerged(
+  memories: MemoryEntry[],
+  mergedIds: string[],
+  replacement: MemoryEntry,
+): MemoryEntry[] {
+  const ids = new Set(mergedIds);
+  const firstIdx = memories.findIndex(m => ids.has(m.id));
+  if (firstIdx === -1) return memories;
+
+  const kept = memories.filter(m => !ids.has(m.id));
+  const insertAt = memories.slice(0, firstIdx).filter(m => !ids.has(m.id)).length;
+  return [...kept.slice(0, insertAt), replacement, ...kept.slice(insertAt)];
+}
+
+/**
+ * 玩家編輯記憶內容。
+ *
+ * ⚠️ 改過的記憶一律轉成 `source: 'manual'`。玩家動手修正過的內容，不該再被
+ * AI 融合改寫、也不該被 LOD 淘汰擠掉——這與 NPC 記憶庫「手寫的不參與融合」
+ * 是同一條規則。空白內容視為無效，回傳原 reference。
+ */
+export function editMemoryContent(
+  memories: MemoryEntry[],
+  id: string,
+  content: string,
+): MemoryEntry[] {
+  const trimmed = content.trim();
+  if (!trimmed) return memories;
+  let changed = false;
+  const next = memories.map(m => {
+    if (m.id !== id || m.content === trimmed) return m;
+    changed = true;
+    return { ...m, content: trimmed, source: 'manual' as const };
+  });
+  return changed ? next : memories;
+}
