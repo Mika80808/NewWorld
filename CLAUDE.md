@@ -575,9 +575,12 @@ FACTION_NEW|name=黑牙氏族|type=criminal|desc=盤據東境的盜賊團
 
 5. **`package.json` 的 dev script 綁定 `0.0.0.0:3000`**，不要改動
 
-6. **NPC 記憶濃縮鏈：想法滿 10 則 → 1 條記憶，可融合記憶滿 10 條 → 1 條摘要**，兩個閾值都在 `commandReducer.ts`（`THOUGHTS_LIMIT` / `MEMORY_MERGE_LIMIT`），不要改動
+6. **NPC 記憶濃縮鏈：想法滿 10 則 → 1 條記憶，可融合記憶滿 5 條 → 1 條摘要**，兩個閾值都在 `commandReducer.ts`（`THOUGHTS_LIMIT` / `MEMORY_MERGE_LIMIT`）
    - `thoughts[]` 滿 10 則串接寫入 `memories[]`（source: `pre_merge`）並清空。判斷式是 `>= 10` 不是 `> 10`，後者會在第 11 則才觸發、且打包只取最新 10 條，最舊那則隨清空一起消失
-   - 可融合記憶（`pre_merge` / `merged`）滿 10 條時交助理 GM 濃縮成一條 `merged`，原文標記 `isMerged: true` 封存
+   - 可融合記憶（`pre_merge` / `merged`）滿 5 條時交助理 GM 濃縮成一條 `merged`，原文標記 `isMerged: true` 封存。
+     **`MEMORY_MERGE_LIMIT` 必須小於 `THOUGHTS_LIMIT`**：`pre_merge` 是把 10 則想法原文串成的一大塊，
+     而 `[記憶庫]` 一次注入最近 5 條非摘要記憶——門檻放在 10 的時候，模型同時讀到 5 大塊措辭雷同的
+     想法流水帳，於是過度著重在那些重複詞彙上（玩家回報）。測試一律引用常數，不要寫死數字
    - **`source: 'manual'` 的玩家手寫記憶永不參與融合，也不計入門檻**（判斷入口 `isMergeable()`）。所有 `importance: 'core'` 都是手寫來的，因此一併受保護——玩家練到好感 60 才特地寫下的記憶被 AI 改寫掉是不可接受的
 
 7. **`[出場:]` 標記用 `matchAll` 收集並去重**，不要改回單次 `match`；**空標記代表「現場無人」，必須寫入以清空 `appearingNpcs`**，不要再加 `length > 0` 的守衛（見上方三種語意表）
@@ -585,6 +588,12 @@ FACTION_NEW|name=黑牙氏族|type=criminal|desc=盤據東境的盜賊團
 8. **`pinnedNpcs` 已在 `relevantLorebook` 去重**，不要讓同一 NPC 出現兩次於 prompt
 
 9. **`backstory` 解鎖條件是好感度 ≥ 20，永久解鎖**（不因好感度下降而隱藏）
+
+    NPC 記憶庫的注入門檻是好感度 ≥ 60，但 **`importance: 'core'`（★ 核心記憶）不受此限**——
+    ★ 按鈕的說明寫的是「永遠注入」，而那些是玩家手寫的，數量少、不會撐大 prompt。
+    兩條注入路徑（`[Scene Lorebook]` 與 `[Pinned NPCs]`）規則必須一致，標記共用 `memoryTag()`：
+    `[★核心]` / `[摘要]`，區段標題另有一句說明告訴模型這兩個標記代表什麼
+    （少了說明，模型只會看到兩串沒有輕重之分的句子）
 
 10. **好感度顏色一律使用 CSS 變數**（`var(--affection-*)`），`affectionColor()` 是唯一判斷入口
 
