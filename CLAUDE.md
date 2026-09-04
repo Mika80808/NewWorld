@@ -509,6 +509,8 @@ FACTION_NEW|name=黑牙氏族|type=criminal|desc=盤據東境的盜賊團
 | `STAT\|field=` | 白名單 `STAT_FIELDS`（hp/mp/gold），未知欄位丟棄並 warn | 舊版 `type = field.toUpperCase()` 照單全收，未知欄位變幽靈 type 死在 reducer 的 default |
 | `TIME\|set=` | `parseClockTime()`：認不得就丟棄（與 delta 的寬容相反）。校準**只往前**，落後 60 分鐘以內視為已到達 | delta 猜錯只是時鐘略偏，set 猜錯是直接跳到錯誤時刻；不擋回頭的話「現在大約八點」會在 08:30 跳掉 23.5 小時 |
 | `LOCATION\|name=` | 只認設定集裡真的存在的地點條目（同批 `LOCATION_DISCOVER` 新登錄的也算）；認不得的名稱視為「目前地點內的房間」，不改變所在地。但**目前地點自己也不在設定集裡時一律放行**，否則卡在地圖外的存檔會被永久困住 | `currentLocation` 是 Phase 1 候選名單的**字串完全相等**比對鍵。被寫成「廚房」這種房間名時，主場在「黑牙氏族營地」的角色全部比不中，整個聚落的人就此消失；`NPC_NEW` 還會把新角色的 `homeLocation` 一併寫成那個房間 |
+| `LOCATION_DISCOVER\|status=` | `known`／`heard`（收同義詞）；認不得或省略時**依玩家所在地推定**（本批指令套用後 `currentLocation === name` → `known`）。既有的 `known` **只升不降** | 先前寫死 `heard`：玩家人就坐在店裡，設定集標「聽說過」、地圖顯示 `???`。更糟的是既有條目也一起被寫回 `heard`——走過一次之後 AI 再提一次那個地點，狀態就被降級，而 `LOCATION` 與 `LOCATION_DISCOVER` 誰先誰後還會影響結果 |
+| `LOCATION_DISCOVER\|desc=` | 寫進 `LorebookEntry.content`；既有簡介**先寫先贏**不覆蓋，原本是空的才補 | 先前根本沒有這個參數，新條目一律 `content: ''`。設定集裡一片空白，玩家看不到，AI 下回合也讀不回自己寫過的地方，只能重編一遍 |
 | `WEATHER\|value=` | `normalizeWeather()`：收斂同義詞，認不得就丟棄並 warn | 天氣不是自由文字。「微風徐徐帶著海鹽味」進了欄位就沒有圖示也沒有天空梯度，而且下回合被 AI 讀回去當事實 |
 | `qty=` | `parseQty()`：非正整數退回 1 | `parseInt(x) \|\| 1` 讓**負數**原樣通過（負數是 truthy），ITEM_ADD 會變成扣庫存 |
 
@@ -549,6 +551,7 @@ FACTION_NEW|name=黑牙氏族|type=criminal|desc=盤據東境的盜賊團
 | 時間可校準（`TIME\|set=`）、天氣可寫入（`WEATHER`） | 兩者都注入 prompt。時鐘只有 delta 就永遠合不回敘事，天氣沒有指令就永遠是初始值，而 AI 每回合把它們讀回去當事實 |
 | 使用道具只寫進草稿、不直接送出 | 同一瓶藥自己喝或餵給倒地的同伴是完全不同的故事，那句話該由玩家補完；扣數量因此也延後到真的送出時 |
 | `LOCATION` 的粒度對齊 `LOCATION_DISCOVER` | 兩者指的必須是同一種東西（地圖上佔一格的地點）。`LOCATION_DISCOVER` 早就寫明「建築內的個別房間一律不要登錄」，`LOCATION` 卻連觸發時機都沒寫，AI 於是把每次走進房間都當成移動——而那個欄位正是決定「誰可能在場」的比對鍵 |
+| `LOCATION_DISCOVER` 要帶 `desc` 與 `status` | 這兩個欄位是玩家在設定集與地圖上**唯一看得到**的地點資料。少了 desc 條目就是空白；status 寫死 `heard` 則讓親自走過的地方全標成「聽說過」。兩者都不該由前端猜，但也不能沒有——所以 AI 必填、系統依所在地兜底 |
 | 手動結案的獎勵閘門是 `isGoalMet` | `isGoalMet` 由 AI 的 `QUEST_GOAL_MET` 寫入、玩家改不到，是唯一「目標確實達成過」的憑據。沒有它就照發獎勵的話，接任務→按一下→領錢，任務系統變成無限金幣按鈕 |
 | 隨行同伴獨立於釘選（`Npc.isCompanion`） | 常駐角色的問題不是「查不查得到」而是「在不在場」。釘選只讓資料進得了 prompt，人依舊不在任何一份在場名單上，模型於是把他寫成沒有身體的聲音。而釘選本身有另一個用途（釘到右欄追蹤好感度，人可能在別的城），兩者合併會互相汙染 |
 

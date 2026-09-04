@@ -660,7 +660,7 @@ NPC_HOME|name=姓名|loc=地點
 NPC_LOCATION|npc=姓名|loc=地點
 NPC_THOUGHT|npc=角色名|text=第一人稱內心想法
 NPC_RELATIONSHIP|npc=角色名|rel=關係描述
-LOCATION_DISCOVER|name=地點名稱|x=110|y=70|type=wilderness
+LOCATION_DISCOVER|name=地點名稱|x=110|y=70|type=wilderness|status=known|desc=地點簡介
 MEMORY_ADD|type=region|importance=normal|content=迷霧森林昨日大火|locations=迷霧森林|factions=黑牙氏族|keywords=大火,火災|sticky=3
 MEMORY_ADD|type=scene|importance=normal|content=酒館因打架暫時關閉|locations=酒館
 MEMORY_ADD|type=npc|importance=normal|content=芬里爾透露停火協議內容|npcs=芬里爾|keywords=停火,協議
@@ -714,6 +714,13 @@ NPC_RELATION|npc=NPC名|type=family/ally/rival/enemy/acquaintance/romantic|targe
 - LOCATION_DISCOVER 的 x/y 是**世界地圖絕對座標**，整數，月湖鎮=0,0，全圖範圍約 -150~150。
   下方 [已知地點座標] 列出現有地點的實際座標，請以它們為尺度基準，並與最接近的既有地點保持至少 20 的距離；不要輸出 -10~10 的小數字，那會全部疊在月湖鎮上。
 - LOCATION_DISCOVER 的 type 必填，三選一：town（城鎮／聚落，可容納較多角色）、wilderness（野外）、building（單一建築）。
+- LOCATION_DISCOVER 的 desc **必填**：一到三句，寫這裡是什麼、有什麼、給人什麼感覺（招牌、氣味、
+  常客、賣什麼、誰在顧店）。這是玩家在設定集裡唯一看得到的地點資料，也是你下回合會讀回去的依據；
+  留空的話那個條目就是一片空白，下次寫到同一個地方你只能重編一遍。desc 內不要出現 | 字元。
+- LOCATION_DISCOVER 的 status 必填，二選一：
+  known＝**玩家這回合實際到了現場**（走進店裡、抵達村落）。
+  heard＝只是聽人提起、看到告示或地圖標記，玩家人並沒有去。
+  分不清時看這一條：這個地點有沒有出現在本回合的敘事場景裡？有就是 known。
 - STATUS_ADD：玩家獲得狀態異常（中毒、詛咒、祝福等）時。duration=-1 為永久。
 - STATUS_REMOVE：玩家解除特定狀態異常時。
 - STATUS_CLEAR：所有狀態異常一次清除時（例如神聖淨化）。

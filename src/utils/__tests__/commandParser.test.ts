@@ -358,3 +358,38 @@ describe('parseCommandsToAST — TIME set 與 WEATHER', () => {
     expect(one('WEATHER|value=天氣不錯')).toBeUndefined();
   });
 });
+
+describe('parseCommandsToAST — LOCATION_DISCOVER 的 desc 與 status', () => {
+  const one = (line: string) =>
+    parseCommandsToAST(`<<COMMANDS>>\n${line}\n<</COMMANDS>>`).commands[0];
+
+  it('desc 解析並去頭尾空白', () => {
+    expect(one('LOCATION_DISCOVER|name=晨露餐館|x=3|y=2|desc=  月湖鎮東側的小餐館  ')?.parsed.desc)
+      .toBe('月湖鎮東側的小餐館');
+  });
+
+  it('沒給 desc 時是空字串，不是 undefined', () => {
+    expect(one('LOCATION_DISCOVER|name=晨露餐館|x=3|y=2')?.parsed.desc).toBe('');
+  });
+
+  it.each([
+    ['known', 'known'], ['KNOWN', 'known'], ['visited', 'known'], ['已造訪', 'known'],
+    ['heard', 'heard'], ['聽說過', 'heard'], ['傳聞', 'heard'],
+  ])('status=%s → %s', (input, expected) => {
+    expect(one(`LOCATION_DISCOVER|name=某地|x=1|y=1|status=${input}`)?.parsed.mapStatus).toBe(expected);
+  });
+
+  /**
+   * 認不得時回傳 null 交給 reducer 依所在地推定，而不是丟棄整條指令——
+   * 丟掉的話新地點連登錄都沒了，比狀態標錯嚴重得多（同 TIME delta 的寬容）。
+   */
+  it('認不得的 status 是 null，指令本身仍然保留', () => {
+    const cmd = one('LOCATION_DISCOVER|name=某地|x=1|y=1|status=也許吧');
+    expect(cmd?.type).toBe('LOCATION_DISCOVER');
+    expect(cmd?.parsed.mapStatus).toBeNull();
+  });
+
+  it('沒給 status 時是 null（由 reducer 推定）', () => {
+    expect(one('LOCATION_DISCOVER|name=某地|x=1|y=1')?.parsed.mapStatus).toBeNull();
+  });
+});
