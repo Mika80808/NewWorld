@@ -2,7 +2,7 @@
 import { RefreshCw, MoreVertical, Book, BookOpen, Package, Beaker, Heart, MapPin, Zap, Coins, Calendar, Shield, CheckSquare, ChevronDown, ChevronRight, Map as MapIcon, Cloud, Sun, CloudRain, Snowflake, Moon, Wind, Brain, X, Pin } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useAIRequest } from './hooks/useAIRequest';
-import { Npc, LorebookEntry, Message, NpcMemory, EquipmentItem, ItemEntry, GMConfig, SubGMConfig, FactionRelation, Quest } from './types';
+import { Npc, LorebookEntry, Message, NpcMemory, MemoryEntry, EquipmentItem, ItemEntry, GMConfig, SubGMConfig, FactionRelation, Quest } from './types';
 import { QuestModal } from './components/QuestModal';
 import { QuestCard } from './components/QuestCard';
 import { ProfileModal } from './components/ProfileModal';
@@ -43,6 +43,7 @@ import { ThemeId, loadTheme, saveTheme, applyTheme } from './utils/theme';
 import { describeItem, registerItemDef, normalizeItemName, selectConsumedItems } from './utils/itemCatalog';
 import { updateNpcFootprints, resolveOnStageNames } from './utils/npcPresence';
 import { nextVisibleMessageCount } from './utils/visibleMessages';
+import { editMemoryContent, selectMergeableMemories, replaceMemoriesWithMerged, MIN_MERGE_CANDIDATES } from './utils/memoryStore';
 import { SaveSlotsModal } from './components/SaveSlotsModal';
 
 export default function App() {
@@ -1453,6 +1454,79 @@ ${poolText}
     });
   }, [npcs]);
 
+  // ─── 場景／區域記憶的玩家編輯與融合 ─────────────────────────────────────────
+  //
+  // memories[] 先前對玩家是唯讀的：右欄只印出來，沒有編輯也沒有刪除入口，
+  // 而 AI 只會 MEMORY_ADD、從來不刪。`pruneMemories` 的 300 條是儲存上限，
+  // 離「這個地點列了十幾條」還很遠，救不了畫面上的那一串（玩家回報）。
+
+  const handleUpdateMemory = (id: string, content: string) => {
+    setMemories(prev => editMemoryContent(prev, id, content));
+  };
+
+  const handleDeleteMemory = (id: string) => {
+    setMemories(prev => prev.filter(m => m.id !== id));
+    showToast('🗑️ 已刪除記憶');
+  };
+
+  const [mergingMemoryType, setMergingMemoryType] = useState<'scene' | 'region' | null>(null);
+
+  /**
+   * 把當前地點的可融合記憶交給助理 GM 濃縮成一條。
+   *
+   * ⚠️ 玩家按才動，不自動觸發。`MemoryEntry` 沒有 NPC 記憶那種 `isMerged`
+   * 封存欄位，融合是**直接取代**原文——自動跑等於在玩家沒看到的時候改寫存檔。
+   * 手寫（`manual`）與 `critical` 一律不參與，理由同 pruneMemories 的豁免。
+   */
+  const handleMergeMemories = async (type: 'scene' | 'region') => {
+    if (mergingMemoryType) return;
+    // 全部在 await 之前讀完：async 函數在 await 之後不得讀閉包捕獲的 state
+    const loc = currentLocation;
+    const gameDate = `${timeState.month}/${timeState.day}`;
+    const targets = selectMergeableMemories(memories, loc, type);
+    if (targets.length < MIN_MERGE_CANDIDATES) return;
+
+    setMergingMemoryType(type);
+    try {
+      const prompt = `以下是遊戲中「${loc}」的多條${type === 'scene' ? '場景' : '區域'}記憶，`
+        + `請融合成一條簡潔的敘述，保留所有關鍵事實（誰、發生什麼、造成什麼結果），刪去重複與贅詞。\n\n`
+        + targets.map(m => `- ${m.content}`).join('\n')
+        + `\n\n請只回傳融合後的一句話，不要加任何前綴、編號或解釋。`;
+
+      const merged = (await callAI(prompt, { role: 'sub' })).trim();
+      // callAI 在 API key 未設定時回傳空字串而非 throw。少了這道防護，
+      // 會寫入一條空記憶並把原文全數刪除，等於這個地點的記憶被無聲清空
+      if (!merged) {
+        showToast('❌ 記憶融合失敗：沒有取得結果');
+        return;
+      }
+
+      const replacement: MemoryEntry = {
+        ...targets[0],
+        id: `mem_${Date.now()}_${Math.random().toString(36).slice(2)}`,
+        content: merged,
+        importance: 'normal',
+        source: 'ai_generated',
+        createdAt: gameDate,
+        // 標籤取聯集：融合後的那一條要能被原本任何一條的條件觸發
+        tags: {
+          locations: [...new Set(targets.flatMap(m => m.tags?.locations ?? []))],
+          npcs:      [...new Set(targets.flatMap(m => m.tags?.npcs ?? []))],
+          factions:  [...new Set(targets.flatMap(m => m.tags?.factions ?? []))],
+          keywords:  [...new Set(targets.flatMap(m => m.tags?.keywords ?? []))],
+        },
+      };
+      const mergedIds = targets.map(m => m.id);
+      setMemories(prev => replaceMemoriesWithMerged(prev, mergedIds, replacement));
+      showToast(`✨ 融合了 ${targets.length} 條記憶`);
+    } catch (error) {
+      console.error('Scene memory merge failed:', error);
+      showToast('❌ 記憶融合失敗');
+    } finally {
+      setMergingMemoryType(null);
+    }
+  };
+
   const handleAddNpcMemory = (npcId: number, text: string, importance: 'core' | 'normal' = 'normal') => {
     if (!text.trim()) return;
     const newMem: NpcMemory = {
@@ -2593,7 +2667,14 @@ ${recentContext}
             onSelectNpc={setSelectedNpc}
           />
 
-          <SceneMemoryWidget memories={memories} currentLocation={currentLocation} />
+          <SceneMemoryWidget
+            memories={memories}
+            currentLocation={currentLocation}
+            onUpdateMemory={handleUpdateMemory}
+            onDeleteMemory={handleDeleteMemory}
+            onMergeMemories={handleMergeMemories}
+            mergingType={mergingMemoryType}
+          />
 
         </div>
         )}
@@ -3055,7 +3136,14 @@ ${recentContext}
                   onSelectNpc={setSelectedNpc}
                 />
 
-                <SceneMemoryWidget memories={memories} currentLocation={currentLocation} />
+                <SceneMemoryWidget
+            memories={memories}
+            currentLocation={currentLocation}
+            onUpdateMemory={handleUpdateMemory}
+            onDeleteMemory={handleDeleteMemory}
+            onMergeMemories={handleMergeMemories}
+            mergingType={mergingMemoryType}
+          />
 
               </div>
             </motion.div>
