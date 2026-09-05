@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { resolveNpcProfile, npcIdentityBrief, findNpcLore } from '../npcProfile';
+import { resolveNpcProfile, npcIdentityBrief, findNpcLore, normalizeNpcName, isSameNpcName, selectKnownNpcNames } from '../npcProfile';
 import { LorebookEntry } from '../../types';
 
 const lore = (over: Partial<LorebookEntry> = {}): LorebookEntry => ({
@@ -89,5 +89,103 @@ describe('npcIdentityBrief', () => {
   it('全空時回傳空字串（呼叫端據此省略括號）', () => {
     expect(npcIdentityBrief(lore())).toBe('');
     expect(npcIdentityBrief(null)).toBe('');
+  });
+});
+
+// 玩家回報：「GM AI 讀到了故事集裡的人物，但名字會搞錯。有時出現同樣設定但
+// 不同名的 NPC，有時出現同名不同設定的 NPC。」
+//
+// 所有 NPC 指令都以**名字**當比對鍵，而 pipe 格式很容易帶進多餘空白。
+// 先前各處寫法不一致：NPC_THOUGHT 會 trim、AFFINITY 與 NPC_NEW 完全不 trim。
+describe('normalizeNpcName / isSameNpcName', () => {
+  it('去掉前後空白', () => {
+    expect(normalizeNpcName(' 芬里爾 ')).toBe('芬里爾');
+  });
+
+  it('全形空白也收斂', () => {
+    expect(normalizeNpcName('　芬里爾　')).toBe('芬里爾');
+  });
+
+  it('中間連續空白收成單一半形空白', () => {
+    expect(normalizeNpcName('凱爾   溫德')).toBe('凱爾 溫德');
+  });
+
+  it('空值不會炸', () => {
+    expect(normalizeNpcName('')).toBe('');
+    expect(normalizeNpcName(undefined as unknown as string)).toBe('');
+  });
+
+  it('正規化後相等即視為同一人', () => {
+    expect(isSameNpcName(' 芬里爾', '芬里爾 ')).toBe(true);
+  });
+
+  /** 不做模糊比對：簡稱與全名是不同的鍵（在場判定才用前後包含，見 npcPresence） */
+  it('不同名字仍然是不同人', () => {
+    expect(isSameNpcName('凱爾', '凱爾·溫德')).toBe(false);
+  });
+
+  it('空名字不與任何人相等（含另一個空名字）', () => {
+    expect(isSameNpcName('', '')).toBe(false);
+    expect(isSameNpcName('  ', '芬里爾')).toBe(false);
+  });
+});
+
+describe('findNpcLore — 名稱正規化', () => {
+  const lore = (title: string): LorebookEntry => ({
+    id: 1, title, content: '', category: 'NPC', isActive: true,
+  });
+
+  it('帶空白的名字仍查得到條目', () => {
+    expect(findNpcLore([lore('芬里爾')], ' 芬里爾 ')?.title).toBe('芬里爾');
+  });
+
+  it('條目標題帶空白時也查得到', () => {
+    expect(findNpcLore([lore(' 芬里爾')], '芬里爾')?.title).toBe(' 芬里爾');
+  });
+});
+
+// 成因：整條注入鏈以地點為軸，候選名單只收主場在當前地點的人。
+// 玩家站在月湖鎮時，住在迷霧森林的獵人對模型而言根本不存在，
+// 劇情需要一個獵人，它就照著同一套設定另造一個。
+describe('selectKnownNpcNames', () => {
+  const lore = (title: string, over: Partial<LorebookEntry> = {}): LorebookEntry => ({
+    id: Math.floor(Math.random() * 1e6), title, content: '',
+    category: 'NPC', isActive: true, ...over,
+  });
+
+  it('列出名字與身分簡介，讓模型知道現成的人裡有沒有需要的職業', () => {
+    expect(selectKnownNpcNames([lore('芬里爾', { gender: '男', race: '精靈', job: '獵人' })]))
+      .toEqual(['芬里爾（男・精靈・獵人）']);
+  });
+
+  it('完全沒有身分資訊時只印名字，不留空括號', () => {
+    expect(selectKnownNpcNames([lore('無名氏')])).toEqual(['無名氏']);
+  });
+
+  it('只收 NPC 類的啟用條目', () => {
+    const out = selectKnownNpcNames([
+      lore('芬里爾'),
+      lore('停用者', { isActive: false }),
+      lore('月湖鎮', { category: '地點' }),
+    ]);
+    expect(out).toEqual(['芬里爾']);
+  });
+
+  // 候選名單／在場／隨行的角色在別處已經完整注入，重列只是浪費 token
+  it('排除已在別處注入的角色', () => {
+    const out = selectKnownNpcNames(
+      [lore('芬里爾'), lore('萊尼'), lore('凱爾')],
+      new Set(['萊尼', ' 凱爾 ']),
+    );
+    expect(out).toEqual(['芬里爾']);
+  });
+
+  it('依上限截斷', () => {
+    const many = Array.from({ length: 50 }, (_, i) => lore(`角色${i}`));
+    expect(selectKnownNpcNames(many, new Set(), 40)).toHaveLength(40);
+  });
+
+  it('沒有條目時回傳空陣列', () => {
+    expect(selectKnownNpcNames(undefined)).toEqual([]);
   });
 });

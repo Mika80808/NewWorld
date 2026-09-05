@@ -10,6 +10,7 @@ import { pruneMemories } from './memoryStore';
 import { findQuestByTitle, findQuestByRef } from './questMatch';
 import { generateQuestShortId } from './questShortId';
 import { setFactionRelation } from './factionRelation';
+import { normalizeNpcName, isSameNpcName } from './npcProfile';
 import {
   TimeState, Profile, Quest, MemoryEntry, Npc, ItemEntry, ItemCatalog,
   LorebookEntry, Message, StatusEffect, Faction, NpcRelation, NpcMemory,
@@ -423,7 +424,7 @@ export function reduceCommands(
         const npcName = cmd.parsed.npcName as string;
         const thought = cmd.parsed.thought as string;
         workingNpcs = workingNpcs.map(npc => {
-          if (npc.name !== npcName.trim()) return npc;
+          if (!isSameNpcName(npc.name, npcName)) return npc;
           const updatedThoughts = [
             { text: thought, createdAt: gameDate },
             ...(npc.thoughts || []),
@@ -464,7 +465,7 @@ export function reduceCommands(
         const npcName = cmd.parsed.npcName as string;
         const location = cmd.parsed.location as string;
         workingLorebookEntries = workingLorebookEntries.map(e => {
-          if (e.category === 'NPC' && e.title === npcName) {
+          if (e.category === 'NPC' && isSameNpcName(e.title, npcName)) {
             const roamLocs = [...(e.roamLocations || [])];
             if (!roamLocs.includes(location)) {
               roamLocs.unshift(location);
@@ -475,7 +476,7 @@ export function reduceCommands(
           return e;
         });
         workingNpcs = workingNpcs.map(npc =>
-          npc.name === npcName
+          isSameNpcName(npc.name, npcName)
             ? { ...npc, location, lastSeenLocation: location, lastSeenDate: `${currentState.timeState.month}/${currentState.timeState.day}` }
             : npc
         );
@@ -540,7 +541,7 @@ export function reduceCommands(
         const factionName = cmd.parsed.factionName as string;
         const npcName = cmd.parsed.npcName as string;
         const faction = workingFactions.find(f => f.name === factionName);
-        const npcIdx = workingNpcs.findIndex(n => n.name === npcName);
+        const npcIdx = workingNpcs.findIndex(n => isSameNpcName(n.name, npcName));
         if (!faction || npcIdx === -1) {
           console.warn(`[FACTION_JOIN] 找不到勢力「${factionName}」或 NPC「${npcName}」`);
           break;
@@ -575,12 +576,12 @@ export function reduceCommands(
         const relationType = cmd.parsed.relationType as NpcRelation['type'];
         const targetName = cmd.parsed.targetName as string;
         const note = cmd.parsed.note as string | undefined;
-        const npcIdx = workingNpcs.findIndex(n => n.name === npcName);
+        const npcIdx = workingNpcs.findIndex(n => isSameNpcName(n.name, npcName));
         if (npcIdx === -1) break;
         const isPlayer = targetName.toUpperCase() === 'PLAYER';
         const targetId: number | 'player' = isPlayer
           ? 'player'
-          : (workingNpcs.find(n => n.name === targetName)?.id ?? -1);
+          : (workingNpcs.find(n => isSameNpcName(n.name, targetName))?.id ?? -1);
         if (targetId === -1) break;
         // 寫入 npc.relations（去重）
         const npcRelations = (workingNpcs[npcIdx].relations || []).filter(
@@ -610,9 +611,41 @@ export function reduceCommands(
       }
 
       case 'NPC_NEW': {
-        const name = cmd.parsed.name as string;
-        // 已存在則不重複建立
-        if (workingNpcs.some(n => n.name === name)) break;
+        // 名字一律正規化後才當比對鍵（見 npcProfile.normalizeNpcName）。
+        // 指令這側的前後空白 parseKV 已經處理掉了，這裡防的是**沒經過指令解析**
+        // 的名字：玩家在角色卡手打的、npcImport 帶進來的、舊存檔裡本來就有的。
+        // 那些只要多一個空白就再也比不中，而畫面上兩個名字長得一模一樣
+        const name = normalizeNpcName(cmd.parsed.name as string);
+        if (!name) break;
+
+        const existingLoreIdx = workingLorebookEntries.findIndex(
+          e => e.category === 'NPC' && isSameNpcName(e.title, name)
+        );
+        // 已存在則不重複建立。但**設定集條目空著的欄位要補上**——
+        // 條目是空的時候 prompt 拿不到外貌／個性，AI 每次都得重編一份，
+        // 玩家看到的就是「同名不同設定」。既有值一律不覆蓋（先寫先贏，同 itemCatalog）
+        if (workingNpcs.some(n => isSameNpcName(n.name, name))) {
+          if (existingLoreIdx !== -1) {
+            const cur = workingLorebookEntries[existingLoreIdx];
+            const fill = (v: string | undefined, incoming: unknown) =>
+              v && v.trim() ? v : ((incoming as string) || '');
+            const filled: LorebookEntry = {
+              ...cur,
+              gender:      fill(cur.gender,      cmd.parsed.gender),
+              race:        fill(cur.race,        cmd.parsed.race),
+              age:         fill(cur.age,         cmd.parsed.age),
+              job:         fill(cur.job,         cmd.parsed.job),
+              appearance:  fill(cur.appearance,  cmd.parsed.appearance),
+              personality: fill(cur.personality, cmd.parsed.personality),
+              backstory:   fill(cur.backstory,   cmd.parsed.backstory),
+              other:       fill(cur.other,       cmd.parsed.other),
+            };
+            workingLorebookEntries = workingLorebookEntries.map((e, i) => i === existingLoreIdx ? filled : e);
+          }
+          // 不要靜默略過——AI 對既有角色重複建檔，通常代表它沒讀到候選名單
+          console.warn(`[NPC_NEW] 「${name}」已存在，沿用既有設定（只補空欄位）。原始指令：${cmd.raw}`);
+          break;
+        }
         // 只建執行狀態。身分設定寫在下面的設定集條目，那是唯一來源
         // （先前這裡也寫一份，但角色卡的編輯只改設定集，於是這份永遠停在建檔當下）
         const newNpc: Npc = {
@@ -625,7 +658,7 @@ export function reduceCommands(
         };
         workingNpcs = [...workingNpcs, newNpc];
         // 同步建立 lorebook NPC 條目
-        if (!workingLorebookEntries.some(e => e.category === 'NPC' && e.title === name)) {
+        if (existingLoreIdx === -1) {
           const newEntry: LorebookEntry = {
             id: Math.max(...workingLorebookEntries.map(e => e.id), 0) + 1,
             title: name,
@@ -657,12 +690,12 @@ export function reduceCommands(
         const npcName = cmd.parsed.npcName as string;
         const location = cmd.parsed.location as string;
         workingLorebookEntries = workingLorebookEntries.map(e =>
-          e.category === 'NPC' && e.title === npcName
+          e.category === 'NPC' && isSameNpcName(e.title, npcName)
             ? { ...e, homeLocation: location }
             : e
         );
         workingNpcs = workingNpcs.map(npc =>
-          npc.name === npcName ? { ...npc, location } : npc
+          isSameNpcName(npc.name, npcName) ? { ...npc, location } : npc
         );
         break;
       }
@@ -672,7 +705,7 @@ export function reduceCommands(
         const npcName = cmd.parsed.npcName as string;
         const relationship = cmd.parsed.relationship as string;
         workingNpcs = workingNpcs.map(npc =>
-          npc.name === npcName ? { ...npc, relationship } : npc
+          isSameNpcName(npc.name, npcName) ? { ...npc, relationship } : npc
         );
         break;
       }
@@ -818,10 +851,11 @@ export function reduceCommands(
     // 造成「畫面顯示 +5 -2、實際只加了 5」的對不上。改為先加總再套用。
     const affinitySum = new Map<string, number>();
     for (const { npcName, value } of affinityUpdates) {
-      affinitySum.set(npcName, (affinitySum.get(npcName) ?? 0) + value);
+      const key = normalizeNpcName(npcName);
+      affinitySum.set(key, (affinitySum.get(key) ?? 0) + value);
     }
     workingNpcs = workingNpcs.map(npc => {
-      const delta = affinitySum.get(npc.name);
+      const delta = affinitySum.get(normalizeNpcName(npc.name));
       return delta !== undefined ? { ...npc, affection: Math.max(-100, npc.affection + delta) } : npc;
     });
   }

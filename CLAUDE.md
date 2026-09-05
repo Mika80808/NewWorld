@@ -628,9 +628,27 @@ FACTION_NEW|name=黑牙氏族|type=criminal|desc=盤據東境的盜賊團
 
     只有名稱、沒有定義的勢力（舊檔案）維持原行為：收集進 `unknownFactions` 回報，不靜默丟棄、也不建立。既有同名勢力一律先寫先贏，連 `description`／`color`／`relations` 都不覆蓋——玩家調過的關係圖不該被一次匯入洗掉。地點查無時 `homeId` 留空，**不會**順手建立地點條目
 
-20. **「把 NPC 加進遊戲」一律要建兩份資料**：`npcs[]`（好感度／記憶庫／釘選／足跡）＋ `lorebookEntries` 的 NPC 條目（注入 prompt 的靜態設定）。`NPC_NEW`、`handleAddNpc`、`mergeImportedNpcs` 三個入口都是這樣做的。只建設定集條目的話，角色進得了 prompt 但沒有好感度、開不了記憶庫；只建 `npcs[]` 的話則不會出現在 Phase 1 的地點候選名單裡，**而且身分設定無處可存**（schema v10 起 `Npc` 上沒有那些欄位）
+20. **NPC 名稱是所有指令的比對鍵，一律走 `normalizeNpcName()`**。`AFFINITY`／`NPC_THOUGHT`／
+    `NPC_HOME`／`NPC_NEW` 全都以名字比對，先前寫法不一致（有的 trim 有的不 trim）。
+    指令那側 `parseKV` 已經 trim 過，真正會對不上的是**沒經過指令解析**的名字——
+    玩家在角色卡手打的、`npcImport` 帶進來的、舊存檔裡本來就有的；那些多一個空白
+    就再也比不中，而畫面上兩個名字長得一模一樣。`trim()` 也管不到名字**中間**的空白
 
-21. **NPC 身分設定的唯一來源是設定集條目**（性別／種族／年齡／職業／外貌／個性／背景／備註）。讀取一律 `resolveNpcProfile(findNpcLore(entries, name))`，不要自己 `find(e => e.category === 'NPC' && ...)`。`Npc` 上只有執行狀態。舊的雙來源留下的教訓：角色卡的編輯只寫設定集，`Npc` 那份從建檔之後就再也沒更新過
+21. **AI 造出「同樣設定但不同名」的角色時，缺的是名冊不是規則**。整條 NPC 注入鏈以
+    地點為軸——`npcCandidates` 只收主場在當前地點的人——所以住在別處的角色對模型
+    **根本不存在**，劇情需要一個獵人它就照同一套設定另造一個。這與道具的同義新名
+    是同一個問題，解法照抄 `[已知物品]`：`[其他已知角色]` 區塊攤開名字＋身分簡介
+    （`selectKnownNpcNames`），`NPC_NEW` 的說明要求沿用清單上完全相同的名字。
+    ⚠️ 該區塊的標題**必須**寫明「都不在此地、不要讓他們出現在本場景」——少了那句，
+    模型會把名冊當成在場名單，把三個城外的角色直接寫進這一幕
+
+22. **`NPC_NEW` 對既有角色只補空欄位，既有值一律不覆蓋**。條目欄位是空的時候
+    prompt 拿不到外貌／個性，AI 每次都得重編一份——玩家看到的就是「同名不同設定」。
+    先寫先贏同 `itemCatalog`；重複建檔會 `console.warn`（通常代表 AI 沒讀到候選名單）
+
+23. **「把 NPC 加進遊戲」一律要建兩份資料**：`npcs[]`（好感度／記憶庫／釘選／足跡）＋ `lorebookEntries` 的 NPC 條目（注入 prompt 的靜態設定）。`NPC_NEW`、`handleAddNpc`、`mergeImportedNpcs` 三個入口都是這樣做的。只建設定集條目的話，角色進得了 prompt 但沒有好感度、開不了記憶庫；只建 `npcs[]` 的話則不會出現在 Phase 1 的地點候選名單裡，**而且身分設定無處可存**（schema v10 起 `Npc` 上沒有那些欄位）
+
+24. **NPC 身分設定的唯一來源是設定集條目**（性別／種族／年齡／職業／外貌／個性／背景／備註）。讀取一律 `resolveNpcProfile(findNpcLore(entries, name))`，不要自己 `find(e => e.category === 'NPC' && ...)`。`Npc` 上只有執行狀態。舊的雙來源留下的教訓：角色卡的編輯只寫設定集，`Npc` 那份從建檔之後就再也沒更新過
 
 ---
 
@@ -654,6 +672,7 @@ FACTION_NEW|name=黑牙氏族|type=criminal|desc=盤據東境的盜賊團
 | `useGameStore` `buildSaveSnapshot(partial?)` | 組裝存檔快照，供 `saveToCloud` 上傳 |
 | `useGameStore` `loadFromData(data)` | 匯入存檔並自動 migrate 舊格式（`saveDataMapper` + `runMigrations`）|
 | `useAuth` `saveToCloud / loadFromCloud / listCloudSaves / deleteCloudSave` | Supabase `saves` 表 CRUD |
+| `utils/npcProfile.ts` `normalizeNpcName / isSameNpcName / selectKnownNpcNames` | NPC 名稱正規化（所有指令的比對鍵）與 `[其他已知角色]` 名冊 |
 | `utils/npcProfile.ts` `resolveNpcProfile / findNpcLore / npcIdentityBrief` | NPC 身分設定的唯一讀取入口（來源是設定集條目，`Npc` 上沒有那些欄位） |
 | `utils/npcPresence.ts` `isNpcOnStage / resolveOnStageNames / updateNpcFootprints` | 「誰在場」的唯一判定入口。`resolveOnStageNames` 把隨行同伴併進 `[出場:]` 名單（無同伴時回傳原 reference） |
 | `utils/timeUtils.ts` `setClockForward / advanceTimeAndResolveQuestDeadlines` | 絕對時刻校準（**只往前**，落後 60 分內視為已到達）與時間推進＋期限結算 |

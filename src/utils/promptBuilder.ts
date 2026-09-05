@@ -6,7 +6,7 @@ import {
 import { getTotalDaysFromTimeState, getQuestRemainingDays } from './timeUtils'
 import { selectKnownItemNames, describeItem } from './itemCatalog'
 import { relationText } from './affectionLabel'
-import { resolveNpcProfile, npcIdentityBrief } from './npcProfile'
+import { resolveNpcProfile, npcIdentityBrief, selectKnownNpcNames } from './npcProfile'
 import { isNpcOnStage, resolveOnStageNames } from './npcPresence'
 import { factionTypeLabel, factionRelationLabel } from './factionLabel'
 import { COMMANDS_VERSION } from './commandParser'
@@ -491,6 +491,29 @@ Personality: ${profile.personality}${profile.other ? `\nOther: ${profile.other}`
         }).join('、') + '\n以上為可能在場的角色，非必須出場。若故事需要新角色請自由創造。'
       : '無已知角色在附近。若故事需要新角色請自由創造。'}`,
 
+    // 「這個世界已經有誰」的名冊。
+    //
+    // 玩家回報 AI 會生出「同樣設定但不同名」的角色。成因是整條注入鏈以地點為軸：
+    // 候選名單只收主場在當前地點的人，所以住在別處的角色對模型而言根本不存在，
+    // 劇情需要一個獵人時它就照著同一套設定另造一個。這與道具的同義新名是同一個
+    // 問題，解法照抄 [已知物品]：把名字攤開，並在指令說明裡要求沿用完全相同的名稱。
+    //
+    // ⚠️ 標題必須講明「不在此地、不要讓他們出場」。少了那句，模型會把名冊
+    // 當成在場名單，把住在三個城外的角色直接寫進這一幕
+    // （[提及的設定] 那段就是為了同樣的理由才在標題裡寫「不在當前場景」）。
+    section(
+      '[其他已知角色（都不在此地，列出僅為避免重複創造；除非玩家前往或去找，否則不要讓他們出現在本場景）]',
+      selectKnownNpcNames(
+        lorebookEntries,
+        new Set([
+          ...npcCandidates.map(e => e.title),
+          ...onStageNpcs,
+          ...companionNpcs.map(n => n.name),
+          ...mentionedAbsent.map(e => e.title),
+        ]),
+      ).join('、'),
+    ),
+
     section(
       '[Scene Lorebook]\n（NPC 的「對玩家」欄位是該角色看待玩家的當前立場，語氣、稱呼、肯不肯幫忙都要與它一致；敵對者不會親暱，摯友不會見外。'
         + '[記憶庫] 裡標 [★核心] 的是玩家指定的關鍵記憶，優先度高於其餘各條；標 [摘要] 的是舊記憶濃縮過的結果，'
@@ -721,7 +744,12 @@ NPC_RELATION|npc=NPC名|type=family/ally/rival/enemy/acquaintance/romantic|targe
 - QUEST_COMPLETE：玩家向委託人回報結案時。
 - QUEST_GOAL_MET / QUEST_COMPLETE 的 id 必須**原樣抄寫**【進行中任務】清單裡該任務前面的短 ID（例如清單寫「#k3p 找回失竊的聖遺物」，就輸出 id=k3p）。
   不要自己造 ID，也不要改寫；引用清單上沒有的 ID 一律會被忽略。清單上沒有的任務代表它不存在或已結案，不要對它輸出這兩個指令。
-- NPC_NEW：新角色首次出場時建檔（一次性）。NPC_HOME 同步輸出其主場地點。
+- NPC_NEW：**只在角色真的是全新的時候**輸出，一次性建檔。NPC_HOME 同步輸出其主場地點。
+  ⚠️ 輸出前先掃過【當前場景可能出現的角色】與【其他已知角色】兩份清單：
+  這個人已經在清單上的話，**不要輸出 NPC_NEW**，name 一律沿用清單上**完全相同**的名字，
+  不可改寫用字（「萊尼」不能寫成「萊妮」，「凱爾」不能寫成「凱爾·溫德」）。
+  劇情需要某個職業的角色時，先看清單裡有沒有現成的人；有就用他，不要另造一個設定雷同的新角色。
+  既有角色的設定以設定集為準，不要在敘事裡改寫他的性別、種族或外貌。
 - NPC_LOCATION：NPC 出現於非主場地點時記錄足跡。
 - NPC_THOUGHT：NPC 有明顯情緒變化、做出重要決定、或對玩家產生新看法時，第一人稱。
 - NPC_RELATIONSHIP：玩家與 NPC 初次確立明確關係，或關係發生重大轉變時輸出。

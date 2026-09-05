@@ -56,12 +56,38 @@ export function resolveNpcProfile(lore?: LorebookEntry | null): NpcProfile {
  * `promptBuilder` 等處各寫一份 `find(e => e.category === 'NPC' && e.title === name)`，
  * 條件一旦要改（例如支援別名）就得記得每一處都改。
  */
+/**
+ * NPC 名稱正規化（同 itemCatalog 的 `normalizeItemName`）。
+ *
+ * 全部的 NPC 指令都以**名字**當比對鍵，先前各處寫法不一致：`NPC_THOUGHT` 會
+ * `npcName.trim()`，`AFFINITY` / `NPC_NEW` / `NPC_HOME` 則是裸的 `===`。
+ *
+ * 指令那一側其實還好——`parseKV` 已經把值 trim 過了。真正對不上的是**沒有經過
+ * 指令解析**的名字：玩家在角色卡標題手打的、`npcImport` 從 JSON 檔帶進來的、
+ * 以及舊存檔裡本來就有的。那些名字只要多一個空白，之後所有指令都再也比不中
+ * 那個角色，而畫面上兩個名字長得一模一樣，玩家完全看不出差別。
+ *
+ * 另外 `trim()` 管不到**中間**的空白：半形空白與全形空白（U+3000）夾在名字中間時，
+ * 「凱爾 溫德」會是兩個不同的鍵。
+ *
+ * 半形／全形空白一律收斂成單一半形空白，前後空白去掉。
+ */
+export function normalizeNpcName(name: string): string {
+  return (name || '').replace(/[\s\u3000]+/g, ' ').trim();
+}
+
+/** 兩個名字是否指同一個人（正規化後完全相等） */
+export function isSameNpcName(a: string, b: string): boolean {
+  const na = normalizeNpcName(a);
+  return !!na && na === normalizeNpcName(b);
+}
+
 export function findNpcLore(
   entries: LorebookEntry[] | undefined | null,
   name: string,
 ): LorebookEntry | undefined {
   if (!entries || !name) return undefined;
-  return entries.find(e => e.category === 'NPC' && e.title === name);
+  return entries.find(e => e.category === 'NPC' && isSameNpcName(e.title, name));
 }
 
 /**
@@ -75,4 +101,39 @@ export function findNpcLore(
 export function npcIdentityBrief(lore?: LorebookEntry | null): string {
   const p = resolveNpcProfile(lore);
   return [p.gender, p.race, p.job].filter(Boolean).join('・');
+}
+
+/** `[其他已知角色]` 名冊一次最多列幾個（同 itemCatalog 的 KNOWN_ITEMS_PROMPT_LIMIT） */
+export const KNOWN_NPCS_PROMPT_LIMIT = 40;
+
+/**
+ * 「這個世界已經有誰」的名冊，供 prompt 引導 AI **沿用既有角色**而非另造一個。
+ *
+ * 玩家回報：「GM AI 讀到了故事集裡的人物，但名字會搞錯。有時出現同樣設定但
+ * 不同名的 NPC。」成因是整條 NPC 注入鏈都以**地點**為軸——`npcCandidates` 只收
+ * `homeLocation === 當前地點` 的人，所以玩家站在月湖鎮時，住在迷霧森林的獵人
+ * 芬里爾對模型而言**根本不存在**。劇情需要一個獵人，它就照著同一套設定
+ * 造一個「洛恩」出來。
+ *
+ * 這與道具的同義新名是同一個問題，解法也照抄 `[已知物品]`：把名字攤開給模型看，
+ * 並在指令說明裡要求沿用完全相同的名稱。差別是道具只需要名字（定義在圖鑑裡），
+ * 角色還要一小段身分（性別・種族・職業）——否則模型看到一串名字，
+ * 仍然不知道哪個是獵人。
+ *
+ * @param exclude 已經在別處完整注入的角色（候選名單／在場／隨行），不重複列出
+ */
+export function selectKnownNpcNames(
+  entries: LorebookEntry[] | undefined | null,
+  exclude: Set<string> = new Set(),
+  limit: number = KNOWN_NPCS_PROMPT_LIMIT,
+): string[] {
+  if (!entries) return [];
+  const excluded = new Set([...exclude].map(normalizeNpcName));
+  return entries
+    .filter(e => e.category === 'NPC' && e.isActive && !excluded.has(normalizeNpcName(e.title)))
+    .slice(0, limit)
+    .map(e => {
+      const brief = npcIdentityBrief(e);
+      return brief ? `${e.title}（${brief}）` : e.title;
+    });
 }
