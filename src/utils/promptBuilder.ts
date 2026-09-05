@@ -6,7 +6,7 @@ import {
 import { getTotalDaysFromTimeState, getQuestRemainingDays } from './timeUtils'
 import { selectKnownItemNames, describeItem } from './itemCatalog'
 import { relationText } from './affectionLabel'
-import { resolveNpcProfile, npcIdentityBrief, selectKnownNpcNames } from './npcProfile'
+import { resolveNpcProfile, npcIdentityBrief, selectKnownNpcNames, isSameNpcName } from './npcProfile'
 import { isNpcOnStage, resolveOnStageNames } from './npcPresence'
 import { isSameCity, childLocationsOf } from './locationTree'
 import { factionTypeLabel, factionRelationLabel } from './factionLabel'
@@ -90,7 +90,7 @@ export function buildPrompt(
   // 場上名單一律讀 onStageNpcs（＝[出場:] ∪ 同伴），不要再直接讀 appearingNpcs。
   const companionNpcs = npcs.filter(n => n.isCompanion)
   const isCompanionName = (name: string): boolean =>
-    companionNpcs.some(n => n.name === name)
+    companionNpcs.some(n => isSameNpcName(n.name, name))
   const onStageNpcs = resolveOnStageNames(npcs, appearingNpcs)
 
   // 取得 NPC 所屬勢力名稱字串
@@ -172,7 +172,7 @@ export function buildPrompt(
   const isLocalHome = (e: LorebookEntry) => e.homeLocation === loc
   const isRoaming = (e: LorebookEntry) => (e.roamLocations || []).includes(loc)
   const hasFootprintHere = (e: LorebookEntry) =>
-    npcs.some(n => n.name === e.title && n.location === loc)
+    npcs.some(n => isSameNpcName(n.name, e.title) && n.location === loc)
   const isSameCityHome = (e: LorebookEntry) =>
     !!e.homeLocation && isSameCity(lorebookEntries, e.homeLocation, loc)
 
@@ -215,15 +215,27 @@ export function buildPrompt(
         // 而下方 `lorebookHitsKeywords` 是會擋人的：條目設了關鍵字、這回合沒命中，
         // GM 手上就只剩一個名字，只好把他寫成沒有身體的聲音
         if (isCompanionName(e.title)) return true
-        // Phase 2：出場 NPC、釘選 NPC、或「候選名單內」好感度 ≥ 60 的核心 NPC → 完整注入
-        // 注意：高好感條件限定在 npcCandidates（當前場景）內，避免全體 NPC 掃描造成 prompt 膨脹
+        // Phase 2：出場 NPC、釘選 NPC、或「就在當前地點」且好感度 ≥ 60 的核心 NPC → 完整注入
+        //
+        // ⚠️ 這裡的「當前地點」**不等於** npcCandidates。候選名單後來擴進了同城
+        // （`isSameCityHome`）與不限地點（`anyLocation`）兩個來源，那對「AI 可以挑誰
+        // 出場」是對的，但拿來當完整注入的門檻就錯了：`[Scene Lorebook]` 的語意是
+        // 「**現在在場的人**」，把不在場的塞進去，模型會直接讓他走進場景
+        // （同 `mentionedAbsent` 那段標題上的警告）。
+        //
+        // 具體症狀：好感度 ≥ 60 的不限地點角色會在**每一個地點、每一回合**被完整
+        // 注入並被寫進戲裡；同城的店主也一樣，玩家在鎮上任何地方都會遇到她，
+        // 那正好抵銷掉「由 AI 決定誰出場」的設計。
+        const isLocalTier = (x: LorebookEntry) =>
+          isLocalHome(x) || isRoaming(x) || hasFootprintHere(x)
         const isInCandidates = npcCandidates.some(c => c.title === e.title)
-        const npcData = isInCandidates ? npcs.find(n => n.name === e.title) : undefined
-        const isHighAffectionCandidate = isInCandidates && (npcData?.affection ?? 0) >= 60
+        const npcData = isInCandidates ? npcs.find(n => isSameNpcName(n.name, e.title)) : undefined
+        const isHighAffectionCandidate =
+          isInCandidates && isLocalTier(e) && (npcData?.affection ?? 0) >= 60
 
         const inScene =
           isNpcOnStage(e.title, onStageNpcs) ||
-          npcs.some(n => n.isPinned && n.name === e.title) ||
+          npcs.some(n => n.isPinned && isSameNpcName(n.name, e.title)) ||
           isHighAffectionCandidate
         if (!inScene) return false
         return lorebookHitsKeywords(e)
@@ -286,7 +298,7 @@ export function buildPrompt(
     if (e.category === '地點') return e.title !== loc && !adjacentLocTitles.has(e.title)
     return !relevantLorebookNpcTitles.has(e.title)
       && !isCompanionName(e.title)
-      && !npcs.some(n => n.isPinned && n.name === e.title)
+      && !npcs.some(n => n.isPinned && isSameNpcName(n.name, e.title))
   }).slice(0, MAX_MENTIONED)
 
   /**
@@ -310,7 +322,7 @@ export function buildPrompt(
 
   // 1. 已注入的 NPC 所屬勢力
   for (const title of [...relevantLorebookNpcTitles, ...mentionedAbsent.map(e => e.title)]) {
-    const npcData = npcs.find(n => n.name === title)
+    const npcData = npcs.find(n => isSameNpcName(n.name, title))
     for (const fid of npcData?.factionIds ?? []) seedFactionIds.add(fid)
   }
   for (const n of npcs) {
@@ -355,7 +367,7 @@ export function buildPrompt(
     if (m.type !== 'npc') return false
     if ((m.tags?.npcs || []).some(n => onStageNpcs.includes(n))) return false
     return (m.tags?.npcs || []).some(n =>
-      npcs.some(npc => npc.name === n && (npc.isPinned || npc.affection >= 60))
+      npcs.some(npc => isSameNpcName(npc.name, n) && (npc.isPinned || npc.affection >= 60))
     )
   }).filter(m => m.importance === 'critical').slice(0, 2)
   const npcMems = [...appearingNpcMems, ...specialNpcMems]
@@ -554,7 +566,7 @@ Personality: ${profile.personality}${profile.other ? `\nOther: ${profile.other}`
         + '只取其中的事實，不要沿用它的措辭——那些字是整理出來的，不是角色的口頭禪。）',
       relevantLorebook.map(e => {
   if (e.category === 'NPC') {
-    const npcData = npcs.find(n => n.name === e.title)
+    const npcData = npcs.find(n => isSameNpcName(n.name, e.title))
     const thoughtsText = npcData?.thoughts && npcData.thoughts.length > 0
       ? `｜[近期想法] ${npcData.thoughts.map((t, i) => `${i + 1}.${t.text}`).join(' / ')}`
       : ''
@@ -605,7 +617,7 @@ Personality: ${profile.personality}${profile.other ? `\nOther: ${profile.other}`
         if (e.category !== 'NPC') {
           return `[${e.category}] ${e.title}：${e.content}`
         }
-        const npcData = npcs.find(n => n.name === e.title)
+        const npcData = npcs.find(n => isSameNpcName(n.name, e.title))
         const prof = resolveNpcProfile(e)
         const where = npcData?.lastSeenLocation ? `｜最後出現於：${npcData.lastSeenLocation}` : ''
         const rel = npcData
@@ -694,8 +706,16 @@ Personality: ${profile.personality}${profile.other ? `\nOther: ${profile.other}`
 
 }).join('\n')),
 
+    // ⚠️ 沒有關鍵字＝勾選後永遠注入，與 `lorebookHitsKeywords` 的
+    // `keys.length === 0` 分支同一條規則，也與 DiaryModal 上寫的
+    // 「觸發關鍵字（空白 = 勾選後永遠注入）」一致。
+    //
+    // 先前是裸的 `scanKeywords(e.keywords || [])`，而 `[].some(...)` 是 **false**——
+    // 空關鍵字的日記即使勾了啟用也永遠不會注入。而 `_applyDiaryText` 產生的日記
+    // 正是 `keywords: []`，所以玩家照 UI 說的做（勾選、關鍵字留空）之後，
+    // 整個日記系統對 GM 而言等於不存在，且沒有任何跡象。
     section('[Active Diary]', diaryEntries
-      .filter(e => e.isActive && scanKeywords(e.keywords || []))
+      .filter(e => e.isActive && ((e.keywords?.length ?? 0) === 0 || scanKeywords(e.keywords || [])))
       .map(e => {
         const kwLabel = e.keywords?.length > 0 ? ` [觸發詞: ${e.keywords.join(',')}]` : ''
         return `- ${e.text}${kwLabel}`

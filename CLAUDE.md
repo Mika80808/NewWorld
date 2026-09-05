@@ -654,23 +654,33 @@ FACTION_NEW|name=黑牙氏族|type=criminal|desc=盤據東境的盜賊團
 
 16. **prompt 的靜態前綴順序是 `[System Context]` → `[Player]` → `[COMMAND FORMAT]`，不要打散**。三段逐回合幾乎不變，合計約 2.9k 字元；只要有任何逐回合變動的內容插進去，後面全部失去 context caching 資格。動態內容一律排在 `---` 之後（`promptBuilder` 的 `staticContext` / `commandSpec` / `dynamicSections`），`promptBuilder.test.ts` 有測試釘住順序與前綴逐字一致性
 
-17. **空區塊用 `section()` 整段省略，不要補「（無）」佔位**。唯一例外是 `[當前場景可能出現的角色]`——沒有候選時那句「無已知角色在附近。若故事需要新角色請自由創造。」是給 AI 的**指示**，不是佔位符，刪掉 AI 會不敢生成新角色
+17. **日記的空關鍵字＝勾選後永遠注入**（與設定集的 `lorebookHitsKeywords` 同一條規則、
+    也與 DiaryModal 上的說明一致）。先前是裸的 `scanKeywords(e.keywords || [])`，
+    而 `[].some(...)` 是 **false**——`_applyDiaryText` 產生的日記正好是 `keywords: []`，
+    玩家照 UI 說的做（勾選、關鍵字留空）之後整個日記系統對 GM 等於不存在
 
-18. **NPC 的勢力歸屬唯一來源是 `Npc.factionIds`**。`Faction.npcIds` 已於 schema v5 廢除（`migrateV4toV5` 摺進 `factionIds` 後移除欄位），不要再讀寫它。先前兩邊各寫各的：`FACTION_JOIN` 寫 `factionIds`、勢力分頁勾選寫 `npcIds`，而 `promptBuilder` 只讀 `factionIds`——玩家手動勾的成員 AI 根本看不到。UI 端一律走 `onSetNpcFactions`（故事集勾選與 NPC 卡下拉選單共用）
+18. **高好感的完整注入只認「就在當前地點」，不等於 `npcCandidates`**。候選名單後來
+    擴進了同城與不限地點，那對「AI 可以挑誰出場」是對的，但 `[Scene Lorebook]` 的語意是
+    **現在在場的人**——把不在場的塞進去，模型會直接讓他走進場景（同 `mentionedAbsent`
+    標題上的警告）。門檻要另外用 `isLocalTier`（主場／遊蕩／足跡）判，不要重用候選名單
 
-19. **NPC 匯出入一律以「名稱」跨檔，不存 id**。`Npc.factionIds`、`Faction.homeId`、`FactionRelation.targetFactionId` 都是各存檔自己編的流水號，跨檔必然對不上，匯出時全部轉成名稱（勢力名／地點標題）。
+19. **空區塊用 `section()` 整段省略，不要補「（無）」佔位**。唯一例外是 `[當前場景可能出現的角色]`——沒有候選時那句「無已知角色在附近。若故事需要新角色請自由創造。」是給 AI 的**指示**，不是佔位符，刪掉 AI 會不敢生成新角色
+
+20. **NPC 的勢力歸屬唯一來源是 `Npc.factionIds`**。`Faction.npcIds` 已於 schema v5 廢除（`migrateV4toV5` 摺進 `factionIds` 後移除欄位），不要再讀寫它。先前兩邊各寫各的：`FACTION_JOIN` 寫 `factionIds`、勢力分頁勾選寫 `npcIds`，而 `promptBuilder` 只讀 `factionIds`——玩家手動勾的成員 AI 根本看不到。UI 端一律走 `onSetNpcFactions`（故事集勾選與 NPC 卡下拉選單共用）
+
+21. **NPC 匯出入一律以「名稱」跨檔，不存 id**。`Npc.factionIds`、`Faction.homeId`、`FactionRelation.targetFactionId` 都是各存檔自己編的流水號，跨檔必然對不上，匯出時全部轉成名稱（勢力名／地點標題）。
 
     **勢力與角色必須一起匯出**（`buildNpcExport` 的 `factions` 區塊）。只帶角色的話，角色身上的勢力名稱在目標存檔找不到對應，歸屬會整段掉——這正是先前的行為。匯入端 `mergeImportedFactions` 依檔案帶的定義建立缺少的勢力（連同 `homeLocation` 與關係），再把結果當成 `existingFactions` 傳給 `mergeImportedNpcs`，**順序不可顛倒**，否則角色仍會被判成查無勢力。
 
     只有名稱、沒有定義的勢力（舊檔案）維持原行為：收集進 `unknownFactions` 回報，不靜默丟棄、也不建立。既有同名勢力一律先寫先贏，連 `description`／`color`／`relations` 都不覆蓋——玩家調過的關係圖不該被一次匯入洗掉。地點查無時 `homeId` 留空，**不會**順手建立地點條目
 
-20. **NPC 名稱是所有指令的比對鍵，一律走 `normalizeNpcName()`**。`AFFINITY`／`NPC_THOUGHT`／
+22. **NPC 名稱是所有指令的比對鍵，一律走 `normalizeNpcName()`**。`AFFINITY`／`NPC_THOUGHT`／
     `NPC_HOME`／`NPC_NEW` 全都以名字比對，先前寫法不一致（有的 trim 有的不 trim）。
     指令那側 `parseKV` 已經 trim 過，真正會對不上的是**沒經過指令解析**的名字——
     玩家在角色卡手打的、`npcImport` 帶進來的、舊存檔裡本來就有的；那些多一個空白
     就再也比不中，而畫面上兩個名字長得一模一樣。`trim()` 也管不到名字**中間**的空白
 
-21. **AI 造出「同樣設定但不同名」的角色時，缺的是名冊不是規則**。整條 NPC 注入鏈以
+23. **AI 造出「同樣設定但不同名」的角色時，缺的是名冊不是規則**。整條 NPC 注入鏈以
     地點為軸——`npcCandidates` 只收主場在當前地點的人——所以住在別處的角色對模型
     **根本不存在**，劇情需要一個獵人它就照同一套設定另造一個。這與道具的同義新名
     是同一個問題，解法照抄 `[已知物品]`：`[其他已知角色]` 區塊攤開名字＋身分簡介
@@ -678,13 +688,13 @@ FACTION_NEW|name=黑牙氏族|type=criminal|desc=盤據東境的盜賊團
     ⚠️ 該區塊的標題**必須**寫明「都不在此地、不要讓他們出現在本場景」——少了那句，
     模型會把名冊當成在場名單，把三個城外的角色直接寫進這一幕
 
-22. **`NPC_NEW` 對既有角色只補空欄位，既有值一律不覆蓋**。條目欄位是空的時候
+24. **`NPC_NEW` 對既有角色只補空欄位，既有值一律不覆蓋**。條目欄位是空的時候
     prompt 拿不到外貌／個性，AI 每次都得重編一份——玩家看到的就是「同名不同設定」。
     先寫先贏同 `itemCatalog`；重複建檔會 `console.warn`（通常代表 AI 沒讀到候選名單）
 
-23. **「把 NPC 加進遊戲」一律要建兩份資料**：`npcs[]`（好感度／記憶庫／釘選／足跡）＋ `lorebookEntries` 的 NPC 條目（注入 prompt 的靜態設定）。`NPC_NEW`、`handleAddNpc`、`mergeImportedNpcs` 三個入口都是這樣做的。只建設定集條目的話，角色進得了 prompt 但沒有好感度、開不了記憶庫；只建 `npcs[]` 的話則不會出現在 Phase 1 的地點候選名單裡，**而且身分設定無處可存**（schema v10 起 `Npc` 上沒有那些欄位）
+25. **「把 NPC 加進遊戲」一律要建兩份資料**：`npcs[]`（好感度／記憶庫／釘選／足跡）＋ `lorebookEntries` 的 NPC 條目（注入 prompt 的靜態設定）。`NPC_NEW`、`handleAddNpc`、`mergeImportedNpcs` 三個入口都是這樣做的。只建設定集條目的話，角色進得了 prompt 但沒有好感度、開不了記憶庫；只建 `npcs[]` 的話則不會出現在 Phase 1 的地點候選名單裡，**而且身分設定無處可存**（schema v10 起 `Npc` 上沒有那些欄位）
 
-24. **NPC 身分設定的唯一來源是設定集條目**（性別／種族／年齡／職業／外貌／個性／背景／備註）。讀取一律 `resolveNpcProfile(findNpcLore(entries, name))`，不要自己 `find(e => e.category === 'NPC' && ...)`。`Npc` 上只有執行狀態。舊的雙來源留下的教訓：角色卡的編輯只寫設定集，`Npc` 那份從建檔之後就再也沒更新過
+26. **NPC 身分設定的唯一來源是設定集條目**（性別／種族／年齡／職業／外貌／個性／背景／備註）。讀取一律 `resolveNpcProfile(findNpcLore(entries, name))`，不要自己 `find(e => e.category === 'NPC' && ...)`。`Npc` 上只有執行狀態。舊的雙來源留下的教訓：角色卡的編輯只寫設定集，`Npc` 那份從建檔之後就再也沒更新過
 
 ---
 

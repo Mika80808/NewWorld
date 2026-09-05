@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { buildPrompt, BuildPromptDeps } from '../promptBuilder';
-import { MemoryEntry, Message, Npc, NpcMemory, LorebookEntry, Faction } from '../../types';
+import { MemoryEntry, Message, Npc, NpcMemory, LorebookEntry, Faction, DiaryEntry } from '../../types';
 
 const mem = (id: string, content: string, over: Partial<MemoryEntry> = {}): MemoryEntry => ({
   id,
@@ -1150,5 +1150,130 @@ describe('buildPrompt 候選名單 — 同城與不限地點', () => {
     const prompt = build({ lorebookEntries: [] });
     expect(prompt).toContain('parent=月湖鎮');
     expect(prompt).toContain('在這間店工作的角色在**整座城**都可能出場');
+  });
+});
+
+// ─── 回歸：三個在 bug 巡查中找到的問題 ────────────────────────────────────────
+describe('buildPrompt 回歸 — 日記空關鍵字', () => {
+  const diary = (over: Partial<DiaryEntry> = {}): DiaryEntry => ({
+    id: 1, text: '日記內容', isActive: true, keywords: [], ...over,
+  });
+  const build = (over: Partial<BuildPromptDeps>) =>
+    buildPrompt({ ...deps([], () => false), ...over }, '測試輸入', messages).prompt;
+
+  /**
+   * DiaryModal 上寫的是「觸發關鍵字（空白 = 勾選後永遠注入）」，
+   * 而 `_applyDiaryText` 產生的日記正是 `keywords: []`。
+   * 先前的判定是裸的 `scanKeywords(e.keywords || [])`，`[].some(...)` 是 false，
+   * 於是玩家照 UI 說的做（勾選、關鍵字留空）之後，整個日記系統對 GM 等於不存在。
+   */
+  it('沒有關鍵字時，勾選啟用就注入', () => {
+    const prompt = build({ diaryEntries: [diary()], scanKeywords: () => false });
+    expect(prompt).toContain('[Active Diary]');
+    expect(prompt).toContain('日記內容');
+  });
+
+  it('沒有勾選啟用時仍然不注入', () => {
+    const prompt = build({ diaryEntries: [diary({ isActive: false })], scanKeywords: () => false });
+    expect(prompt).not.toContain('日記內容');
+  });
+
+  it('有關鍵字時照舊要命中才注入', () => {
+    expect(build({ diaryEntries: [diary({ keywords: ['魔王'] })], scanKeywords: () => false }))
+      .not.toContain('日記內容');
+    expect(build({ diaryEntries: [diary({ keywords: ['魔王'] })], scanKeywords: () => true }))
+      .toContain('日記內容');
+  });
+});
+
+describe('buildPrompt 回歸 — 高好感完整注入只限「就在當前地點」', () => {
+  const npcOf = (over: Partial<Npc> = {}): Npc => ({
+    id: 1, name: '萊尼', affection: 80, category: 'NPC', isActive: true, memories: [], ...over,
+  });
+  const loreOf = (over: Partial<LorebookEntry> = {}): LorebookEntry => ({
+    id: 1, title: '萊尼', content: '', category: 'NPC', isActive: true,
+    gender: '女', job: '老闆娘', ...over,
+  });
+  const city = [
+    { id: 10, title: '月湖鎮', content: '', category: '地點', isActive: true, locationType: 'town' as const },
+    { id: 11, title: '醉醺醺酒館', content: '', category: '地點', isActive: true, parentLocation: '月湖鎮' },
+  ];
+  const build = (over: Partial<BuildPromptDeps>) =>
+    buildPrompt({ ...deps([], () => false), ...over }, '測試輸入', messages).prompt;
+
+  /**
+   * `[Scene Lorebook]` 的語意是「**現在在場的人**」。候選名單後來擴進了同城與
+   * 不限地點兩個來源，那對「AI 可以挑誰出場」是對的，但高好感的完整注入若跟著
+   * 擴大，等於在玩家沒選擇的情況下把人寫進戲裡——正好抵銷「由 AI 決定誰出場」。
+   */
+  it('同城但不在當前地點的高好感角色，未出場就不完整注入', () => {
+    const prompt = build({
+      currentLocation: '月湖鎮',
+      npcs: [npcOf()],
+      appearingNpcs: [],
+      lorebookEntries: [...city, loreOf({ homeLocation: '醉醺醺酒館' })],
+    });
+    expect(prompt).not.toContain('[NPC] 萊尼');
+  });
+
+  it('不限地點的高好感角色，未出場就不完整注入', () => {
+    const prompt = build({
+      npcs: [npcOf({ name: '行商' })],
+      appearingNpcs: [],
+      lorebookEntries: [loreOf({ title: '行商', anyLocation: true })],
+    });
+    expect(prompt).not.toContain('[NPC] 行商');
+  });
+
+  // 兩者仍然要**出現在候選名單**——那正是 PR #48 要的行為，不可一起擋掉
+  it('但他們照樣在候選名單上，AI 仍可讓他出場', () => {
+    const prompt = build({
+      currentLocation: '月湖鎮',
+      npcs: [npcOf()],
+      lorebookEntries: [...city, loreOf({ homeLocation: '醉醺醺酒館' })],
+    });
+    expect(prompt.split('[當前場景可能出現的角色]')[1]).toContain('萊尼');
+  });
+
+  it('主場就在當前地點的高好感角色維持原本的完整注入', () => {
+    const prompt = build({
+      currentLocation: '月湖鎮',
+      npcs: [npcOf()],
+      appearingNpcs: [],
+      lorebookEntries: [...city, loreOf({ homeLocation: '月湖鎮' })],
+    });
+    expect(prompt).toContain('[NPC] 萊尼');
+  });
+
+  it('AI 讓他出場之後照常完整注入', () => {
+    const prompt = build({
+      currentLocation: '月湖鎮',
+      npcs: [npcOf()],
+      appearingNpcs: ['萊尼'],
+      lorebookEntries: [...city, loreOf({ homeLocation: '醉醺醺酒館' })],
+    });
+    expect(prompt).toContain('[NPC] 萊尼');
+  });
+});
+
+describe('buildPrompt 回歸 — Npc 與設定集條目的名稱比對', () => {
+  const build = (over: Partial<BuildPromptDeps>) =>
+    buildPrompt({ ...deps([], () => false), ...over }, '測試輸入', messages).prompt;
+
+  /**
+   * `findNpcLore` 已經正規化（PR #47），但 promptBuilder 反方向（由條目標題找 Npc）
+   * 先前仍是裸的 `===`。兩份資料靠名字對齊，只要有一邊多一個空白，
+   * 「對玩家」欄位就整條消失——而那是 NPC 決定語氣與態度的唯一依據。
+   */
+  it('名字差一個空白時，對玩家欄位仍然注入得到', () => {
+    const prompt = build({
+      npcs: [{ id: 1, name: '凱爾 ', affection: 90, category: 'NPC', isActive: true, memories: [] }],
+      appearingNpcs: ['凱爾'],
+      lorebookEntries: [{
+        id: 1, title: '凱爾', content: '', category: 'NPC', isActive: true,
+        job: '嚮導', homeLocation: '月湖鎮',
+      }],
+    });
+    expect(prompt).toContain('對玩家：信賴（好感度 90）');
   });
 });
