@@ -163,11 +163,34 @@ export interface LorebookEntry {
   insertionOrder?: number;
   homeLocation?: string;
   roamLocations?: string[];
+  /**
+   * 不限地點：這個 NPC 隨時可能出現，不受 Phase 1 的地點篩選限制。
+   *
+   * 與 `Npc.isCompanion`（隨行同伴）是兩件事：同伴是「他此刻**就在**玩家旁邊」，
+   * 無條件在場；不限地點只是「他**可能**出現在任何地方」——照樣要 AI 從候選
+   * 名單裡挑他、輸出 `[出場:]` 才算在場。適合行商、信使、遊俠這類到處跑的角色。
+   *
+   * 排序上排在本地角色之後：候選名單有上限（城鎮 8 / 其他 3），
+   * 不該讓四處遊走的角色把真正住在這裡的人擠掉。
+   */
+  anyLocation?: boolean;
   mapX?: number;
   mapY?: number;
   cartFare?: number;
   mapStatus?: 'heard' | 'known';
   adjacentTo?: string[];
+  /**
+   * 母地點（地點類專用）：這個地點座落在哪一座城／聚落裡。
+   * 例：「醉醺醺酒館」的 `parentLocation` 是「月湖鎮」。
+   *
+   * 存**名稱**而非 id，與 `homeLocation` / `adjacentTo` 一致——id 是各存檔自己編的
+   * 流水號，跨存檔匯入匯出必然對不上。
+   *
+   * 用途是候選名單的「同城」判定：在月湖鎮開店的 NPC 主場是「醉醺醺酒館」，
+   * 玩家人在月湖鎮大街上時，先前的**字串完全相等**比對讓他完全不可能出場——
+   * 玩家看到的就是「店主永遠只待在店裡」。詳見 `utils/locationTree.ts`。
+   */
+  parentLocation?: string;
   locationType?: 'town' | 'wilderness' | 'building';
   aliases?: string[];
 }

@@ -393,3 +393,21 @@ describe('parseCommandsToAST — LOCATION_DISCOVER 的 desc 與 status', () => {
     expect(one('LOCATION_DISCOVER|name=某地|x=1|y=1')?.parsed.mapStatus).toBeNull();
   });
 });
+
+describe('parseCommandsToAST — LOCATION_DISCOVER 的 parent', () => {
+  const one = (line: string) =>
+    parseCommandsToAST(`<<COMMANDS>>\n${line}\n<</COMMANDS>>`).commands[0];
+
+  it('parent 解析並去頭尾空白', () => {
+    expect(one('LOCATION_DISCOVER|name=酒館|x=1|y=1|parent= 月湖鎮 ')?.parsed.parent).toBe('月湖鎮');
+  });
+
+  it('沒給 parent 時是空字串', () => {
+    expect(one('LOCATION_DISCOVER|name=酒館|x=1|y=1')?.parsed.parent).toBe('');
+  });
+
+  it('接受 parentLocation / in 兩種別名', () => {
+    expect(one('LOCATION_DISCOVER|name=酒館|x=1|y=1|parentLocation=月湖鎮')?.parsed.parent).toBe('月湖鎮');
+    expect(one('LOCATION_DISCOVER|name=酒館|x=1|y=1|in=月湖鎮')?.parsed.parent).toBe('月湖鎮');
+  });
+});

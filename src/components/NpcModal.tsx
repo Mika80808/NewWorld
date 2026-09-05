@@ -5,6 +5,9 @@ import { affectionColor } from '../utils/affectionColor';
 import { relationText } from '../utils/affectionLabel';
 import { resolveNpcProfile, findNpcLore } from '../utils/npcProfile';
 
+/** 主場地點下拉裡代表「不限地點」的哨兵值。不會寫進存檔，只用來當 select 的 value */
+const ANY_LOCATION = '__any__';
+
 const SOURCE_LABEL: Record<NpcMemory['source'], string> = {
   manual:    '手動',
   pre_merge: '想法',
@@ -158,6 +161,8 @@ export const NpcModal: React.FC<NpcModalProps> = ({
       backstory:   displayBackstory,
       other:       displayOther,
       homeLocation: displayHome,
+      // 一起帶入，否則開啟編輯就等於把「不限地點」靜默重設成未設定
+      anyLocation: lore?.anyLocation ?? false,
     });
     setIsEditing(true);
     setActiveTab('info');
@@ -332,9 +337,11 @@ export const NpcModal: React.FC<NpcModalProps> = ({
               而玩家先前完全無從得知，只會覺得「這個角色怎麼都不出現」 */}
           <div className="text-sm flex items-center gap-1" style={{ color: 'var(--text-body)' }}>
             <span>主場地點：</span>
-            {displayHome
-              ? <span>{displayHome}</span>
-              : <span style={{ color: 'var(--color-amber)' }}>未設定（不會主動出場）</span>}
+            {lore?.anyLocation
+              ? <span>不限地點（隨時可能出現）</span>
+              : displayHome
+                ? <span>{displayHome}</span>
+                : <span style={{ color: 'var(--color-amber)' }}>未設定（不會主動出場）</span>}
           </div>
         </div>
 
@@ -448,12 +455,26 @@ export const NpcModal: React.FC<NpcModalProps> = ({
                       主場地點
                     </p>
                     <select
-                      value={(editFields.homeLocation as string) ?? ''}
-                      onChange={e => setEditFields(prev => ({ ...prev, homeLocation: e.target.value }))}
+                      value={editFields.anyLocation ? ANY_LOCATION : ((editFields.homeLocation as string) ?? '')}
+                      onChange={e => {
+                        const v = e.target.value;
+                        // 「不限地點」與具體地點是同一個選擇，不能兩者並存——
+                        // 兩個獨立控制項會讓玩家設了主場又勾了不限地點，
+                        // 而畫面上看不出哪一個在生效
+                        setEditFields(prev => ({
+                          ...prev,
+                          anyLocation: v === ANY_LOCATION,
+                          homeLocation: v === ANY_LOCATION ? '' : v,
+                        }));
+                      }}
                       className="w-full border border-[color:var(--tint-line)] rounded-[8px] px-3 py-2 text-sm outline-none transition"
                       style={inputStyle}
                     >
                       <option value="">未設定（GM 不會讓他主動出場）</option>
+                      {/* 不限地點：行商、信使、遊俠這類到處跑的角色。
+                          與「隨行同伴」（📌 旁邊的 👣）不同——那是「他此刻就在你旁邊」，
+                          這只是「他可能出現在任何地方」，照樣由 GM 決定要不要讓他出場 */}
+                      <option value={ANY_LOCATION}>不限地點（隨時可能出現）</option>
                       {knownLocations.map(title => (
                         <option key={title} value={title}>{title}</option>
                       ))}

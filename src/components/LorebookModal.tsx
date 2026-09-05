@@ -547,6 +547,38 @@ export const LorebookModal: React.FC<LorebookModalProps> = ({
                   </div>
                 </div>
 
+                {/* 母地點：城內建築掛在城鎮底下。
+                    這個欄位決定「在這裡上班的 NPC 會不會出現在城裡其他地方」——
+                    候選名單原本是字串完全相等比對，酒館老闆娘的主場寫「醉醺醺酒館」，
+                    玩家人在「月湖鎮」大街上時她永遠比不中（見 utils/locationTree.ts）。
+
+                    用 select 而非自由輸入：比對是字串相等，打錯一個字等於沒設，
+                    而玩家看不出差別（同角色卡的主場地點欄位）。
+                    排除自己，避免 A 的母地點設成 A 讓整棵樹失去意義。 */}
+                <div>
+                  <div className="text-sm ml-3 mb-1 uppercase tracking-wider" style={{ color: 'var(--text-body)' }}>
+                    母地點（座落於哪座城鎮）
+                  </div>
+                  <select
+                    value={entry.parentLocation ?? ''}
+                    onChange={e => onUpdateLorebook(entry.id, { parentLocation: e.target.value || undefined })}
+                    className="w-full border border-[color:var(--tint-line)] rounded-[8px] px-2 py-1.5 text-sm outline-none transition"
+                    style={inputStyle}
+                  >
+                    <option value="">無（獨立地點）</option>
+                    {lorebookEntries
+                      .filter(e => e.category === '地點' && e.id !== entry.id)
+                      .map(e => e.title)
+                      .sort((a, b) => a.localeCompare(b, 'zh-Hant'))
+                      .map(title => (
+                        <option key={title} value={title}>{title}</option>
+                      ))}
+                  </select>
+                  <p className="text-[11px] ml-3 mt-1" style={{ color: 'var(--text-muted)' }}>
+                    設定之後，在此地上班的角色在整座城鎮都可能出場
+                  </p>
+                </div>
+
                 {renderKeywordsSection(entry, '（OR，任一命中即觸發；空白 = 依地點規則）')}
 
                 {renderEditActions(entry.id)}

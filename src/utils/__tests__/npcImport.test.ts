@@ -95,6 +95,11 @@ describe('parseNpcImport — 逐筆驗證', () => {
     expect(parseNpcImport({ npcs: [{ name: 'A', isPinned: true }] }).npcs[0].isPinned).toBe(true);
   });
 
+  it('anyLocation 只接受布林 true', () => {
+    expect(parseNpcImport({ npcs: [{ name: 'A', anyLocation: 'yes' }] }).npcs[0].anyLocation).toBe(false);
+    expect(parseNpcImport({ npcs: [{ name: 'A', anyLocation: true }] }).npcs[0].anyLocation).toBe(true);
+  });
+
   it('isCompanion 只接受布林 true', () => {
     expect(parseNpcImport({ npcs: [{ name: 'A', isCompanion: 'yes' }] }).npcs[0].isCompanion).toBe(false);
     expect(parseNpcImport({ npcs: [{ name: 'A', isCompanion: true }] }).npcs[0].isCompanion).toBe(true);
@@ -281,6 +286,17 @@ describe('buildNpcExport — 與匯入格式來回', () => {
     expect(out.npcs[0].isCompanion).toBe(true);
     const back = mergeImportedNpcs(parseNpcImport(out).npcs, [], [], '4/15');
     expect(back.npcs[0].isCompanion).toBe(true);
+  });
+
+  // 不限地點是設定集條目上的欄位，跨檔沒有 id 問題，照樣來回
+  it('不限地點的旗標來回都在', () => {
+    const out = buildNpcExport(
+      [existingNpc({ name: '行商' })],
+      [existingLore({ title: '行商', anyLocation: true })],
+    );
+    expect(out.npcs[0].anyLocation).toBe(true);
+    const back = mergeImportedNpcs(parseNpcImport(out).npcs, [], [], '4/15');
+    expect(back.lorebookEntries[0].anyLocation).toBe(true);
   });
 
   it('沒有隨行時不匯出這個欄位', () => {

@@ -411,7 +411,7 @@ function parseSingleCommand(line: string): CommandAST | null {
       return { type: 'NPC_RELATIONSHIP', raw: trimmed, parsed: { npcName, relationship: rel } };
     }
 
-    // LOCATION_DISCOVER|name=地點名稱|x=110|y=70|type=wilderness|status=known|desc=地點簡介
+    // LOCATION_DISCOVER|name=名稱|x=110|y=70|type=building|status=known|desc=簡介|parent=月湖鎮
     case 'LOCATION_DISCOVER': {
       const name = kv.name || kv.loc || '';
       if (!name) return null;
@@ -436,6 +436,9 @@ function parseSingleCommand(line: string): CommandAST | null {
           // 設定集裡一片空白，玩家看不到，AI 下回合也讀不回自己寫過的地方
           desc: (kv.desc || kv.description || kv.content || '').trim(),
           mapStatus: parseMapStatus(kv.status ?? kv.mapStatus),
+          // 母地點：這個地點座落在哪一座城裡（「醉醺醺酒館」→「月湖鎮」）。
+          // 候選名單的同城判定靠它，見 utils/locationTree.ts
+          parent: (kv.parent || kv.parentLocation || kv.in || '').trim(),
         },
       };
     }
