@@ -5,6 +5,36 @@
 
 ---
 
+### Bug 修正｜AI 回應一到，串流期間的編輯全被洗掉 2026-09-05 [Claude Code]
+
+**症狀**：AI 在串流時（幾秒到 90 秒）玩家仍可開角色卡釘選、寫記憶、改設定集、丟道具、
+用地圖旅行。回應一到，這些編輯全部消失，畫面上沒有任何提示。旅行時剛標成 `known`
+的地點也會退回 `heard`。
+
+**成因**：`parseAndExecuteCommands` 是在 `handleSendMessage` **await 完 AI 回應之後**
+才呼叫的，但它是玩家按下送出那一次 render 的閉包——`useCommandParser` 裡的
+`npcs / items / lorebookEntries…` 全停在送出當下。reducer 用舊快照算出整份
+`stateChanges.npcs / items / lorebookEntries…`，`applyStateChanges` 再**整份**
+`setNpcs(stateChanges.npcs)` 寫回去，等待期間的每一筆變更就這樣被覆蓋。
+這正是 CLAUDE.md「async 函數在 await 之後不要讀取閉包捕獲的 state」那條規則
+要防的事，只是先前只在 App.tsx 補了 ref，hook 這一層漏了。
+
+**修正**：`useCommandParser` 加 `depsRef`（commit 後同步），`parseAndExecuteCommands`
+與 `tickMemoryCounters` 一律讀 `depsRef.current`。連帶修正的副作用：回傳給足跡用的
+`location`、同批 `NPC_NEW` 的 `homeLocation`、`newItems` 的判斷基準，都改以旅行後／
+最新的狀態為準。新增 `useCommandParser.test.tsx` 釘住（4 條，舊程式全紅）。
+
+**順手修的三件事**
+
+- `LOCATION` 同批多條時只看第一條，之後的移動全部靜默丟掉。改為**最後一條放行的**
+  為準（「離開酒館走到鎮上，再進鐵匠鋪」最終在鐵匠鋪），只對最終目的地推「移動至」
+- 角色卡對**沒有設定集條目**的角色按儲存：`NpcModal` 把填好的欄位塞在 `Npc` 物件上
+  傳給 `onRecordNpc`，而 `handleRecordNpc` 只建空白條目——`Npc` 上早就沒有身分欄位
+  （schema v10），玩家填的性別／職業／外貌靜默消失。`onRecordNpc` 改成第二個參數
+  另外收欄位。名稱比對同時改走 `findNpcLore`
+- `promptBuilder` 的 `[隨行同伴]`、`[Pinned NPCs]` 查條目與去重仍用裸的 `e.title === n.name`，
+  改走 `findNpcLore` / `isSameNpcName`（名字多一個空白會查不到條目、或同一人出現兩次）
+
 ### 功能｜手機可讀性修正 ＋ 羊皮紙擬物主題（切片） 2026-08-18 [Claude Code]
 
 玩家回報手機上「字太小、視覺很空盪、沒放圖片所以玻璃效果不明顯」。
