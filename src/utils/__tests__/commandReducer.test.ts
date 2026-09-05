@@ -850,3 +850,103 @@ describe('reduceCommands — LOCATION 的粒度守門', () => {
     expect(stateChanges.currentLocation).toBe('黑牙氏族營地');
   });
 });
+
+// 玩家回報：「GM AI 讀到了故事集裡的人物，但名字會搞錯。有時出現同樣設定但
+// 不同名的 NPC，有時出現同名不同設定的 NPC。」
+//
+// 名字比對一律走 normalizeNpcName。指令這側的前後空白 parseKV 已經處理掉了
+// （所以下面幾條在修正前就是綠的，它們是防回歸的守衛）；真正會對不上的是
+// 沒經過指令解析的名字——玩家在角色卡手打的、npcImport 帶進來的、舊存檔裡的。
+// 那一段由 npcProfile.test.ts 的 findNpcLore 測試釘住。
+describe('reduceCommands — NPC 名稱正規化', () => {
+  const withNpc = (over: Partial<Npc> = {}) =>
+    state({ npcs: [npc(over)], lorebookEntries: [{
+      id: 1, title: '芬里爾', content: '', category: 'NPC', isActive: true,
+      job: '獵人', gender: '男',
+    }] });
+
+  it('NPC_NEW 帶多餘空白時不會建出分身', () => {
+    const { stateChanges } = run('NPC_NEW|name= 芬里爾 |job=獵人', withNpc());
+    expect(stateChanges.npcs?.map(n => n.name)).toEqual(['芬里爾']);
+    expect(stateChanges.lorebookEntries?.map(e => e.title)).toEqual(['芬里爾']);
+  });
+
+  it('AFFINITY 帶多餘空白仍記到同一個人身上', () => {
+    const { stateChanges } = run('AFFINITY|npc= 芬里爾 |delta=+5', withNpc({ affection: 10 }));
+    expect(stateChanges.npcs?.[0].affection).toBe(15);
+  });
+
+  it('NPC_THOUGHT 帶全形空白仍記到同一個人身上', () => {
+    const { stateChanges } = run('NPC_THOUGHT|npc=　芬里爾　|text=覺得玩家可信', withNpc());
+    expect(stateChanges.npcs?.[0].thoughts?.[0].text).toBe('覺得玩家可信');
+  });
+
+  it('NPC_HOME 帶多餘空白仍寫得到設定集條目', () => {
+    const { stateChanges } = run('NPC_HOME|name= 芬里爾|loc=迷霧森林', withNpc());
+    expect(stateChanges.lorebookEntries?.[0].homeLocation).toBe('迷霧森林');
+  });
+
+  it('NPC_RELATIONSHIP 帶多餘空白仍寫得到', () => {
+    const { stateChanges } = run('NPC_RELATIONSHIP|npc=芬里爾 |rel=旅伴', withNpc());
+    expect(stateChanges.npcs?.[0].relationship).toBe('旅伴');
+  });
+
+  it('新角色的名字存進去時已經正規化，不會留下前後空白', () => {
+    const { stateChanges } = run('NPC_NEW|name= 萊尼 |job=酒館老闆娘');
+    expect(stateChanges.npcs?.[1].name).toBe('萊尼');
+    expect(stateChanges.lorebookEntries?.[0].title).toBe('萊尼');
+  });
+
+  it('名字只有空白時整條丟棄，不建出無名角色', () => {
+    const { stateChanges } = run('NPC_NEW|name=   |job=獵人');
+    expect(stateChanges.npcs?.map(n => n.name)).toEqual(['芬里爾']);
+    expect(stateChanges.lorebookEntries).toEqual([]);
+  });
+});
+
+/**
+ * 「同名不同設定」的另一半：設定集條目的欄位是空的時候，prompt 拿不到外貌／
+ * 個性，AI 每次都得重編一份。既有值一律不覆蓋（先寫先贏，同 itemCatalog），
+ * 但原本是空的就補上——這是唯一的補寫機會。
+ */
+describe('reduceCommands — NPC_NEW 對既有角色只補空欄位', () => {
+  const existing = (over: Partial<LorebookEntry> = {}) => state({
+    npcs: [npc({ name: '芬里爾' })],
+    lorebookEntries: [{
+      id: 1, title: '芬里爾', content: '', category: 'NPC', isActive: true,
+      gender: '男', job: '獵人', appearance: '', personality: '',
+      ...over,
+    }],
+  });
+
+  it('空欄位補上 AI 這次給的值', () => {
+    const { stateChanges } = run(
+      'NPC_NEW|name=芬里爾|gender=女|job=吟遊詩人|appearance=銀髮高挑|personality=冷靜寡言',
+      existing(),
+    );
+    expect(stateChanges.lorebookEntries?.[0]).toMatchObject({
+      appearance: '銀髮高挑', personality: '冷靜寡言',
+    });
+  });
+
+  it('既有值不被覆蓋——設定集才是唯一來源', () => {
+    const { stateChanges } = run(
+      'NPC_NEW|name=芬里爾|gender=女|job=吟遊詩人',
+      existing(),
+    );
+    expect(stateChanges.lorebookEntries?.[0]).toMatchObject({ gender: '男', job: '獵人' });
+  });
+
+  it('不重複建立 Npc 執行狀態', () => {
+    const { stateChanges } = run('NPC_NEW|name=芬里爾|appearance=銀髮', existing());
+    expect(stateChanges.npcs).toHaveLength(1);
+  });
+
+  it('既有欄位全滿時一個字都不改', () => {
+    const s = existing({ appearance: '銀髮高挑', personality: '冷靜寡言' });
+    const { stateChanges } = run('NPC_NEW|name=芬里爾|appearance=黑髮矮小|personality=暴躁', s);
+    expect(stateChanges.lorebookEntries?.[0]).toMatchObject({
+      appearance: '銀髮高挑', personality: '冷靜寡言',
+    });
+  });
+});

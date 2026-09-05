@@ -978,3 +978,72 @@ describe('buildPrompt NPC 核心記憶', () => {
     expect(prompt).not.toContain('｜[記憶庫]');
   });
 });
+
+// ─── [其他已知角色] 名冊 ─────────────────────────────────────────────────────
+// 玩家回報：「有時出現同樣設定但不同名的 NPC。」
+//
+// 成因是整條注入鏈以地點為軸：候選名單只收主場在當前地點的人，所以住在別處的
+// 角色對模型而言根本不存在，劇情需要一個獵人時它就照著同一套設定另造一個。
+// 與道具的同義新名同一個問題，解法照抄 [已知物品]。
+describe('buildPrompt 其他已知角色名冊', () => {
+  const ROSTER = '[其他已知角色'
+  const loreNpc = (title: string, over: Partial<LorebookEntry> = {}): LorebookEntry => ({
+    id: Math.floor(Math.random() * 1e6), title, content: '',
+    category: 'NPC', isActive: true, ...over,
+  });
+  const build = (over: Partial<BuildPromptDeps>) =>
+    buildPrompt({ ...deps([], () => false), ...over }, '測試輸入', messages).prompt;
+
+  it('列出不在當前地點的角色，讓模型知道他已經存在', () => {
+    const prompt = build({
+      lorebookEntries: [loreNpc('芬里爾', { homeLocation: '迷霧森林', gender: '男', race: '精靈', job: '獵人' })],
+    });
+    expect(prompt).toContain(ROSTER);
+    expect(prompt).toContain('芬里爾（男・精靈・獵人）');
+  });
+
+  /**
+   * ⚠️ 標題必須講明「不在此地、不要讓他們出場」。少了那句，模型會把名冊當成
+   * 在場名單，把住在三個城外的角色直接寫進這一幕（[提及的設定] 那段就是為了
+   * 同樣的理由才在標題裡寫「不在當前場景」）。
+   */
+  it('標題明講這些人不在此地、不要讓他們出場', () => {
+    const prompt = build({ lorebookEntries: [loreNpc('芬里爾', { homeLocation: '迷霧森林' })] });
+    expect(prompt).toContain('都不在此地');
+    expect(prompt).toContain('不要讓他們出現在本場景');
+  });
+
+  // 候選名單裡的人已經在別處完整注入，重列只是浪費 token
+  it('不重複列出候選名單裡的角色', () => {
+    const prompt = build({
+      lorebookEntries: [
+        loreNpc('凱爾', { homeLocation: '月湖鎮' }),
+        loreNpc('芬里爾', { homeLocation: '迷霧森林' }),
+      ],
+    });
+    const roster = prompt.split(ROSTER)[1].split('\n\n')[0];
+    expect(roster).toContain('芬里爾');
+    expect(roster).not.toContain('凱爾');
+  });
+
+  it('不重複列出在場角色', () => {
+    const prompt = build({
+      npcs: [{ id: 1, name: '芬里爾', affection: 10, category: 'NPC', isActive: true, memories: [] }],
+      appearingNpcs: ['芬里爾'],
+      lorebookEntries: [loreNpc('芬里爾', { homeLocation: '迷霧森林' })],
+    });
+    expect(prompt).not.toContain(ROSTER);
+  });
+
+  it('沒有其他角色時整段省略', () => {
+    expect(build({ lorebookEntries: [] })).not.toContain(ROSTER);
+  });
+
+  // 這條規則才是真正阻止「另造一個設定雷同的新角色」的東西
+  it('NPC_NEW 的說明要求沿用清單上完全相同的名字', () => {
+    const prompt = build({ lorebookEntries: [] });
+    expect(prompt).toContain('【其他已知角色】');
+    expect(prompt).toContain('不要輸出 NPC_NEW');
+    expect(prompt).toContain('不要另造一個設定雷同的新角色');
+  });
+});
