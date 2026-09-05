@@ -28,6 +28,8 @@ export interface ImportedNpc {
   affection?: number;
   homeLocation?: string;
   roamLocations?: string[];
+  /** 不限地點：這個角色隨時可能出現，不受地點篩選限制（見 LorebookEntry.anyLocation） */
+  anyLocation?: boolean;
   isPinned?: boolean;
   /** 隨行同伴：常駐玩家身邊、不受地點限制（見 Npc.isCompanion） */
   isCompanion?: boolean;
@@ -229,6 +231,7 @@ export function parseNpcImport(raw: unknown): ParseResult {
       homeLocation: str(o.homeLocation),
       // 滑動窗口上限 3，與 lorebook 的 roamLocations 一致
       roamLocations: strArray(o.roamLocations).slice(0, 3),
+      anyLocation: o.anyLocation === true,
       isPinned: o.isPinned === true,
       isCompanion: o.isCompanion === true,
       memories: strArray(o.memories),
@@ -407,6 +410,7 @@ export function mergeImportedNpcs(
       other: src.other,
       homeLocation: src.homeLocation || undefined,
       roamLocations: src.roamLocations?.length ? src.roamLocations : undefined,
+      anyLocation: src.anyLocation || undefined,
     });
   }
 
@@ -488,6 +492,7 @@ export function buildNpcExport(
       put('other', pick(lore?.other));
       put('relationship', pick(n.relationship, ''));
       put('homeLocation', pick(lore?.homeLocation, n.location));
+      if (lore?.anyLocation) out.anyLocation = true;
 
       if (n.affection) out.affection = n.affection;
       if (n.isPinned) out.isPinned = true;

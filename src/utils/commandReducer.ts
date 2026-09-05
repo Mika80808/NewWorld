@@ -716,6 +716,16 @@ export function reduceCommands(
         const y = cmd.parsed.y as number;
         const locationType = cmd.parsed.locationType as LorebookEntry['locationType'];
         const desc = cmd.parsed.desc as string;
+        // 母地點只認設定集裡真的存在的地點，且不能是自己（自己當自己的母地點
+        // 會讓 rootLocationOf 的整棵樹失去意義）。認不得就留空——留空只是退回
+        // 「字串完全相等」的舊行為，寫錯卻會把兩座不相干的城判成同一座
+        const rawParent = (cmd.parsed.parent as string) || '';
+        const parent = rawParent && rawParent !== name && knownLocationTitles.has(rawParent)
+          ? rawParent
+          : '';
+        if (rawParent && !parent) {
+          console.warn(`[LOCATION_DISCOVER] 「${name}」的 parent=${rawParent} 不是設定集裡的地點（或指向自己），已忽略。原始指令：${cmd.raw}`);
+        }
 
         // 地圖狀態：AI 明講就聽它的，沒講就看「玩家此刻是不是就在這裡」。
         //
@@ -744,6 +754,8 @@ export function reduceCommands(
                   content: e.content?.trim() ? e.content : desc,
                   // 既有值一律不覆蓋：玩家可能在設定集裡調過座標或分類
                   mapX: e.mapX ?? x, mapY: e.mapY ?? y, locationType: e.locationType ?? locationType,
+                  // 母地點同樣先寫先贏：玩家可能在設定集裡調過歸屬
+                  parentLocation: e.parentLocation || parent || undefined,
                 }
               : e
           );
@@ -760,6 +772,7 @@ export function reduceCommands(
             // 不寫的話 Phase 1 會落在「未設定」＝野外上限 3 人，
             // 而 AI 新建的聚落十之八九是 town
             locationType,
+            parentLocation: parent || undefined,
           };
           workingLorebookEntries = [...workingLorebookEntries, newEntry];
         }

@@ -8,6 +8,7 @@ import { selectKnownItemNames, describeItem } from './itemCatalog'
 import { relationText } from './affectionLabel'
 import { resolveNpcProfile, npcIdentityBrief, selectKnownNpcNames } from './npcProfile'
 import { isNpcOnStage, resolveOnStageNames } from './npcPresence'
+import { isSameCity, childLocationsOf } from './locationTree'
 import { factionTypeLabel, factionRelationLabel } from './factionLabel'
 import { COMMANDS_VERSION } from './commandParser'
 
@@ -155,17 +156,40 @@ export function buildPrompt(
   // 隨行同伴**不列進候選名單**：候選的語意是「可能在場、由 AI 決定要不要出場」，
   // 而同伴是已經在場的既成事實。混在一起講會讓模型以為那個人要不要出現可以選，
   // 於是常駐角色三不五時就從場景裡蒸發。他們改由下方 [隨行同伴] 區塊宣告在場。
+  //
+  // 第四、第五個來源：同城與不限地點。
+  //
+  // 「同城」解的是玩家回報的「在月湖鎮開店的 NPC 只待在店裡」：老闆娘的主場是
+  // 「醉醺醺酒館」，玩家人在「月湖鎮」大街上時，字串完全相等的比對讓她永遠
+  // 比不中。`parentLocation` 把地點串成樹之後改以整座城為單位比對
+  // （見 utils/locationTree.ts）。
+  //
+  // 「不限地點」（`anyLocation`）是玩家在角色卡上明確設的：行商、信使、遊俠
+  // 這類到處跑的角色，本來就不該綁在某一個地點上。
+  //
+  // ⚠️ 兩者都排在本地角色**之後**。候選名單有上限（城鎮 8 / 其他 3），
+  // 讓四處遊走的人把真正住在這裡的居民擠掉會直接倒退回原本的症狀。
+  const isLocalHome = (e: LorebookEntry) => e.homeLocation === loc
+  const isRoaming = (e: LorebookEntry) => (e.roamLocations || []).includes(loc)
+  const hasFootprintHere = (e: LorebookEntry) =>
+    npcs.some(n => n.name === e.title && n.location === loc)
+  const isSameCityHome = (e: LorebookEntry) =>
+    !!e.homeLocation && isSameCity(lorebookEntries, e.homeLocation, loc)
+
   const npcCandidates = lorebookEntries
     .filter(e => e.category === 'NPC' && e.isActive && !isCompanionName(e.title) && (
-      e.homeLocation === loc ||
-      (e.roamLocations || []).includes(loc) ||
-      npcs.some(n => n.name === e.title && n.location === loc)
+      isLocalHome(e) ||
+      isRoaming(e) ||
+      hasFootprintHere(e) ||
+      isSameCityHome(e) ||
+      e.anyLocation === true
     ))
     .sort((a, b) => {
       const score = (e: LorebookEntry) => {
-        if (e.homeLocation === loc) return 0
-        if (npcs.some(n => n.name === e.title && n.isPinned)) return 1
-        return 2
+        if (isLocalHome(e)) return 0
+        if (isRoaming(e) || hasFootprintHere(e)) return 1
+        if (isSameCityHome(e)) return 2
+        return 3   // anyLocation
       }
       return score(a) - score(b)
     })
@@ -491,6 +515,16 @@ Personality: ${profile.personality}${profile.other ? `\nOther: ${profile.other}`
         }).join('、') + '\n以上為可能在場的角色，非必須出場。若故事需要新角色請自由創造。'
       : '無已知角色在附近。若故事需要新角色請自由創造。'}`,
 
+    // 城內地點：玩家此刻所在的這座城底下有哪些地方。
+    //
+    // 沒有這段的話，模型只知道自己站在「月湖鎮」，不知道鎮裡有酒館、鐵匠鋪、
+    // 公寓——它要嘛把場景寫得空無一物，要嘛現編一間設定集裡不存在的店
+    // （然後 LOCATION 的粒度守門會把玩家擋在原地，因為那個名字沒登錄過）。
+    section(
+      `[${loc} 城內地點（同一座城，玩家可直接走過去，不需要 LOCATION_DISCOVER）]`,
+      childLocationsOf(lorebookEntries, loc).join('、'),
+    ),
+
     // 「這個世界已經有誰」的名冊。
     //
     // 玩家回報 AI 會生出「同樣設定但不同名」的角色。成因是整條注入鏈以地點為軸：
@@ -705,7 +739,7 @@ NPC_HOME|name=姓名|loc=地點
 NPC_LOCATION|npc=姓名|loc=地點
 NPC_THOUGHT|npc=角色名|text=第一人稱內心想法
 NPC_RELATIONSHIP|npc=角色名|rel=關係描述
-LOCATION_DISCOVER|name=地點名稱|x=110|y=70|type=wilderness|status=known|desc=地點簡介
+LOCATION_DISCOVER|name=地點名稱|x=110|y=70|type=wilderness|status=known|desc=地點簡介|parent=所屬城鎮(選填)
 MEMORY_ADD|type=region|importance=normal|content=迷霧森林昨日大火|locations=迷霧森林|factions=黑牙氏族|keywords=大火,火災|sticky=3
 MEMORY_ADD|type=scene|importance=normal|content=酒館因打架暫時關閉|locations=酒館
 MEMORY_ADD|type=npc|importance=normal|content=芬里爾透露停火協議內容|npcs=芬里爾|keywords=停火,協議
@@ -764,6 +798,11 @@ NPC_RELATION|npc=NPC名|type=family/ally/rival/enemy/acquaintance/romantic|targe
 - LOCATION_DISCOVER 的 x/y 是**世界地圖絕對座標**，整數，月湖鎮=0,0，全圖範圍約 -150~150。
   下方 [已知地點座標] 列出現有地點的實際座標，請以它們為尺度基準，並與最接近的既有地點保持至少 20 的距離；不要輸出 -10~10 的小數字，那會全部疊在月湖鎮上。
 - LOCATION_DISCOVER 的 type 必填，三選一：town（城鎮／聚落，可容納較多角色）、wilderness（野外）、building（單一建築）。
+- LOCATION_DISCOVER 的 parent：這個地點**座落在某座城鎮裡**時必填，寫那座城鎮的名稱
+  （例：登錄月湖鎮裡的「醉醺醺酒館」就寫 parent=月湖鎮）。
+  獨立於荒野的地點不要寫。填了之後，在這間店工作的角色在**整座城**都可能出場；
+  沒填的話他就只會出現在店門內，玩家在鎮上其他地方永遠遇不到他。
+  parent 必須是設定集裡已存在的地點名稱，寫不存在的名字會被忽略。
 - LOCATION_DISCOVER 的 desc **必填**：一到三句，寫這裡是什麼、有什麼、給人什麼感覺（招牌、氣味、
   常客、賣什麼、誰在顧店）。這是玩家在設定集裡唯一看得到的地點資料，也是你下回合會讀回去的依據；
   留空的話那個條目就是一片空白，下次寫到同一個地方你只能重編一遍。desc 內不要出現 | 字元。

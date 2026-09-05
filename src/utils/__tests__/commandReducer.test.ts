@@ -950,3 +950,69 @@ describe('reduceCommands — NPC_NEW 對既有角色只補空欄位', () => {
     });
   });
 });
+
+// 玩家要求：「在地點的地方設置主城市跟城內地點的子母關係，例如：月湖鎮裡的
+// 醉醺醺酒館。」候選名單靠 parentLocation 判定同城（見 utils/locationTree.ts）。
+describe('reduceCommands — LOCATION_DISCOVER 的 parent', () => {
+  const town = (over: Partial<LorebookEntry> = {}): LorebookEntry => ({
+    id: 1, title: '月湖鎮', content: '', category: '地點', isActive: true,
+    locationType: 'town', mapX: 0, mapY: 0, mapStatus: 'known', ...over,
+  });
+
+  it('新地點掛在既有城鎮底下', () => {
+    const { stateChanges } = run(
+      'LOCATION_DISCOVER|name=醉醺醺酒館|x=2|y=1|type=building|parent=月湖鎮|desc=鎮上的酒館',
+      state({ lorebookEntries: [town()] }),
+    );
+    expect(stateChanges.lorebookEntries?.[1].parentLocation).toBe('月湖鎮');
+  });
+
+  /**
+   * parent 認不得就留空——留空只是退回「字串完全相等」的舊行為，
+   * 寫錯卻會把兩座不相干的城判成同一座，整批 NPC 互相亂竄。
+   */
+  it('parent 不是設定集裡的地點時忽略', () => {
+    const { stateChanges } = run(
+      'LOCATION_DISCOVER|name=醉醺醺酒館|x=2|y=1|parent=不存在的城',
+      state({ lorebookEntries: [town()] }),
+    );
+    expect(stateChanges.lorebookEntries?.[1].parentLocation).toBeUndefined();
+  });
+
+  it('parent 指向自己時忽略（否則整棵樹失去意義）', () => {
+    const { stateChanges } = run(
+      'LOCATION_DISCOVER|name=醉醺醺酒館|x=2|y=1|parent=醉醺醺酒館',
+      state({ lorebookEntries: [town()] }),
+    );
+    expect(stateChanges.lorebookEntries?.[1].parentLocation).toBeUndefined();
+  });
+
+  it('同一批指令裡新登錄的城鎮也能當 parent', () => {
+    const { stateChanges } = run(
+      'LOCATION_DISCOVER|name=新城鎮|x=90|y=40|type=town\n' +
+      'LOCATION_DISCOVER|name=新城鎮酒館|x=91|y=41|type=building|parent=新城鎮',
+    );
+    expect(stateChanges.lorebookEntries?.[1].parentLocation).toBe('新城鎮');
+  });
+
+  // 既有值先寫先贏：玩家可能在設定集裡調過歸屬
+  it('既有條目的母地點不被覆蓋', () => {
+    const { stateChanges } = run(
+      'LOCATION_DISCOVER|name=醉醺醺酒館|x=2|y=1|parent=月湖鎮',
+      state({ lorebookEntries: [
+        town(),
+        { id: 2, title: '醉醺醺酒館', content: '', category: '地點', isActive: true, parentLocation: '別座城' },
+        { id: 3, title: '別座城', content: '', category: '地點', isActive: true },
+      ] }),
+    );
+    expect(stateChanges.lorebookEntries?.[1].parentLocation).toBe('別座城');
+  });
+
+  it('沒給 parent 時不寫入這個欄位', () => {
+    const { stateChanges } = run(
+      'LOCATION_DISCOVER|name=醉醺醺酒館|x=2|y=1',
+      state({ lorebookEntries: [town()] }),
+    );
+    expect(stateChanges.lorebookEntries?.[1].parentLocation).toBeUndefined();
+  });
+});

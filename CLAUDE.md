@@ -427,6 +427,42 @@ interface NpcMemory {
 ⚠️ 空標記務必寫入。`appearingNpcs` 在 `buildPrompt` 裡**先於地點過濾**判定，只增不減的話
 該 NPC 會無視地點跟著玩家跨城鎮，而且此狀態會存進存檔。
 
+**Phase 1 候選名單的五個來源**（依優先序，超出上限時後面的先被截掉）：
+
+| 序 | 來源 | 說明 |
+|---|---|---|
+| 0 | `homeLocation === currentLocation` | 主場就在這裡 |
+| 1 | `roamLocations` 含當前地點、或 `Npc.location` 足跡在這裡 | |
+| 2 | **同城**（`isSameCity`） | 母子與兄弟都算，見下 |
+| 3 | **不限地點**（`LorebookEntry.anyLocation`） | 玩家在角色卡上明確設的 |
+
+### 地點的母子關係（`LorebookEntry.parentLocation`）
+
+玩家回報：「在月湖鎮裡開店的 NPC 應該會出現在月湖鎮的各個地方，而不是只待在店裡。」
+
+候選名單是**字串完全相等**比對。酒館老闆娘的主場是「醉醺醺酒館」，玩家人在
+「月湖鎮」大街上時比不中，於是她永遠不可能出場；反過來玩家走進酒館，鎮上其他人
+也全部消失。`parentLocation`（存**名稱**不是 id）把地點串成樹，比對改以整座城為單位。
+
+- 判定入口一律走 `utils/locationTree.ts` 的 `isSameCity()`／`rootLocationOf()`
+- **兄弟也算同城**——玩家說的是「月湖鎮的各個地方」，不是只有大街上
+- ⚠️ `rootLocationOf` 有 `MAX_LOCATION_DEPTH` 與 `seen` 兩道防環：`parentLocation`
+  是自由填寫的名稱，寫出 A → B → A 的話少了防線會無窮迴圈把分頁凍住
+- 查無條目時 root 回傳原名，退回「字串相等」的舊行為，不要把查不到的地點湊成一堆
+- `LOCATION_DISCOVER|parent=` 由 AI 寫入（只認設定集裡存在、且不等於自己的名稱），
+  玩家端在故事集的地點編輯畫面有下拉選單
+- **既有存檔不會自動補**：舊條目沒有 `parentLocation`，行為與先前完全相同，
+  要生效得由玩家設一次或等 AI 重新登錄
+
+### 不限地點（`LorebookEntry.anyLocation`）
+
+行商、信使、遊俠這類到處跑的角色。與 `Npc.isCompanion`（隨行同伴）是兩件事：
+同伴是「他此刻**就在**玩家旁邊」無條件在場；不限地點只是「他**可能**出現在任何
+地方」，照樣要 AI 從候選名單挑他、輸出 `[出場:]` 才算在場。
+排序上排在本地角色之後——候選名單有上限（城鎮 8 / 其他 3），讓四處遊走的角色把
+真正住在這裡的居民擠掉，等於倒退回原本的症狀。
+UI 在角色卡的「主場地點」下拉選單裡（與具體地點互斥，不是另一個獨立開關）。
+
 **NPC 注入資格（Phase 2 後）**：
 1. `appearingNpcs` 裡的 NPC
 2. `isPinned === true` 的 NPC
@@ -674,6 +710,7 @@ FACTION_NEW|name=黑牙氏族|type=criminal|desc=盤據東境的盜賊團
 | `useAuth` `saveToCloud / loadFromCloud / listCloudSaves / deleteCloudSave` | Supabase `saves` 表 CRUD |
 | `utils/npcProfile.ts` `normalizeNpcName / isSameNpcName / selectKnownNpcNames` | NPC 名稱正規化（所有指令的比對鍵）與 `[其他已知角色]` 名冊 |
 | `utils/npcProfile.ts` `resolveNpcProfile / findNpcLore / npcIdentityBrief` | NPC 身分設定的唯一讀取入口（來源是設定集條目，`Npc` 上沒有那些欄位） |
+| `utils/locationTree.ts` `rootLocationOf / isSameCity / childLocationsOf` | 地點母子關係（主城市 ↔ 城內地點）；候選名單的同城判定唯一入口，含防環 |
 | `utils/npcPresence.ts` `isNpcOnStage / resolveOnStageNames / updateNpcFootprints` | 「誰在場」的唯一判定入口。`resolveOnStageNames` 把隨行同伴併進 `[出場:]` 名單（無同伴時回傳原 reference） |
 | `utils/timeUtils.ts` `setClockForward / advanceTimeAndResolveQuestDeadlines` | 絕對時刻校準（**只往前**，落後 60 分內視為已到達）與時間推進＋期限結算 |
 | `utils/weather.ts` `normalizeWeather / WEATHER_VALUES` | 天氣詞彙的唯一準據（五種），同義詞收斂；狀態列圖示與天空梯度共用 |

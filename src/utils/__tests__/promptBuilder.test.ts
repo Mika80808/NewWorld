@@ -1047,3 +1047,108 @@ describe('buildPrompt 其他已知角色名冊', () => {
     expect(prompt).toContain('不要另造一個設定雷同的新角色');
   });
 });
+
+// ─── 候選名單：同城與不限地點 ─────────────────────────────────────────────────
+// 玩家回報：「原本在月湖鎮裡開店的 NPC 應該會出現在月湖鎮的各個地方，
+// 而不是只待在店裡」＋「想在角色欄位的地點加一個『不限地點』」。
+describe('buildPrompt 候選名單 — 同城與不限地點', () => {
+  const loc = (title: string, over: Partial<LorebookEntry> = {}): LorebookEntry => ({
+    id: Math.floor(Math.random() * 1e6), title, content: '',
+    category: '地點', isActive: true, ...over,
+  });
+  const npcLore = (title: string, over: Partial<LorebookEntry> = {}): LorebookEntry => ({
+    id: Math.floor(Math.random() * 1e6), title, content: '',
+    category: 'NPC', isActive: true, job: '店主', ...over,
+  });
+  const cityEntries = [
+    loc('月湖鎮', { locationType: 'town' }),
+    loc('醉醺醺酒館', { locationType: 'building', parentLocation: '月湖鎮' }),
+    loc('鐵匠鋪', { locationType: 'building', parentLocation: '月湖鎮' }),
+    loc('迷霧森林', { locationType: 'wilderness' }),
+  ];
+  const build = (over: Partial<BuildPromptDeps>) =>
+    buildPrompt({ ...deps([], () => false), ...over }, '測試輸入', messages).prompt;
+  const candidates = (prompt: string) =>
+    prompt.split('[當前場景可能出現的角色]')[1].split('\n\n')[0];
+
+  it('城內店家的老闆在整座城都可能出場', () => {
+    const prompt = build({
+      currentLocation: '月湖鎮',
+      lorebookEntries: [...cityEntries, npcLore('萊尼', { homeLocation: '醉醺醺酒館' })],
+    });
+    expect(candidates(prompt)).toContain('萊尼');
+  });
+
+  it('玩家走進店裡時，鎮上其他人仍在候選名單', () => {
+    const prompt = build({
+      currentLocation: '醉醺醺酒館',
+      lorebookEntries: [...cityEntries, npcLore('鐵匠', { homeLocation: '鐵匠鋪' })],
+    });
+    expect(candidates(prompt)).toContain('鐵匠');
+  });
+
+  it('別座城的人不會被拉進來', () => {
+    const prompt = build({
+      currentLocation: '月湖鎮',
+      lorebookEntries: [...cityEntries, npcLore('獵人', { homeLocation: '迷霧森林' })],
+    });
+    expect(candidates(prompt)).not.toContain('獵人');
+  });
+
+  it('沒設母地點時維持原本的字串完全相等行為', () => {
+    const prompt = build({
+      currentLocation: '月湖鎮',
+      lorebookEntries: [
+        loc('月湖鎮', { locationType: 'town' }),
+        loc('醉醺醺酒館', { locationType: 'building' }),   // 沒有 parentLocation
+        npcLore('萊尼', { homeLocation: '醉醺醺酒館' }),
+      ],
+    });
+    expect(candidates(prompt)).not.toContain('萊尼');
+  });
+
+  it('不限地點的角色在任何地方都是候選', () => {
+    const prompt = build({
+      currentLocation: '迷霧森林',
+      lorebookEntries: [...cityEntries, npcLore('行商', { anyLocation: true })],
+    });
+    expect(candidates(prompt)).toContain('行商');
+  });
+
+  /**
+   * 候選名單有上限（城鎮 8 / 其他 3）。讓四處遊走的角色把真正住在這裡的居民
+   * 擠掉，等於直接倒退回「店主永遠只待在店裡」的症狀。
+   */
+  it('本地角色優先於同城與不限地點，不會被擠掉', () => {
+    const locals = Array.from({ length: 3 }, (_, i) => npcLore(`本地${i}`, { homeLocation: '迷霧森林' }));
+    const prompt = build({
+      currentLocation: '迷霧森林',
+      lorebookEntries: [
+        ...cityEntries,
+        npcLore('行商', { anyLocation: true }),
+        ...locals,
+      ],
+    });
+    const list = candidates(prompt);
+    expect(list).toContain('本地0');
+    expect(list).toContain('本地2');
+    expect(list).not.toContain('行商');
+  });
+
+  it('城內地點列進 prompt，讓 AI 知道鎮上有哪些地方可去', () => {
+    const prompt = build({ currentLocation: '月湖鎮', lorebookEntries: cityEntries });
+    expect(prompt).toContain('[月湖鎮 城內地點');
+    expect(prompt).toContain('醉醺醺酒館、鐵匠鋪');
+  });
+
+  it('沒有子地點時整段省略', () => {
+    const prompt = build({ currentLocation: '迷霧森林', lorebookEntries: cityEntries });
+    expect(prompt).not.toContain('[迷霧森林 城內地點');
+  });
+
+  it('LOCATION_DISCOVER 的說明教 AI 輸出 parent', () => {
+    const prompt = build({ lorebookEntries: [] });
+    expect(prompt).toContain('parent=月湖鎮');
+    expect(prompt).toContain('在這間店工作的角色在**整座城**都可能出場');
+  });
+});
