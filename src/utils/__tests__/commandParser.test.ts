@@ -411,3 +411,35 @@ describe('parseCommandsToAST — LOCATION_DISCOVER 的 parent', () => {
     expect(one('LOCATION_DISCOVER|name=酒館|x=1|y=1|in=月湖鎮')?.parsed.parent).toBe('月湖鎮');
   });
 });
+
+describe('parseCommandsToAST — MEMORY_ADD 的 type / importance 收斂', () => {
+  const parseOne = (line: string) =>
+    parseCommandsToAST(`<<COMMANDS>>\n${line}\n<</COMMANDS>>`).commands[0];
+
+  /**
+   * 先前兩者都是裸的型別斷言（`as 'world' | ...`），而 `as` 在執行期什麼都不做。
+   * `type=地區` 會原封不動寫進存檔，而 promptBuilder 是按
+   * `m.type === 'world' | 'region' | 'scene' | 'npc'` 分區注入的——
+   * 值對不上的記憶落在每一個桶子外面，永遠不會被注入，且沒有任何 log。
+   */
+  it('收得住認得的中英文同義詞', () => {
+    expect(parseOne('MEMORY_ADD|type=地區|importance=重要|content=大火').parsed)
+      .toMatchObject({ memType: 'region', importance: 'critical' });
+    expect(parseOne('MEMORY_ADD|type=NPC|importance=Flavor|content=閒聊').parsed)
+      .toMatchObject({ memType: 'npc', importance: 'flavor' });
+  });
+
+  it('認不得的值退回預設而不是原樣寫進存檔', () => {
+    const cmd = parseOne('MEMORY_ADD|type=天氣|importance=urgent|content=下起大雨');
+    expect(cmd.parsed.memType).toBe('scene');
+    expect(cmd.parsed.importance).toBe('normal');
+    // 內容本身通常是對的，不因欄位打錯就整條丟掉
+    expect(cmd.parsed.content).toBe('下起大雨');
+  });
+
+  it('legacy 冒號格式走同一套收斂', () => {
+    const cmd = parseOne('MEMORY_ADD:地區:重要:迷霧森林昨日大火:keywords=大火');
+    expect(cmd.parsed.memType).toBe('region');
+    expect(cmd.parsed.importance).toBe('critical');
+  });
+});

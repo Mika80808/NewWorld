@@ -293,6 +293,18 @@ export function useCommandParser(deps: CommandParserDeps): UseCommandParserRetur
           }
         }
       }
+      // sticky = 0 的記憶：觸發完就直接進 cooldown，沒有「持續 N 則」的中間段。
+      //
+      // 先前只有上面那條路，而 stickyCounters 只有 `trigger.sticky` 為真的記憶
+      // 才會被寫進去——於是 `sticky: 0, cooldown: 5`（UI 上完全合法、也是預設
+      // sticky 值）的記憶永遠不會出現在 stickyBeforeTick 裡，cooldown 一次都沒
+      // 生效過。玩家把冷卻設成 10，那條記憶照樣每回合注入，而且沒有任何跡象。
+      for (const id of triggeredIds) {
+        const mem = memories.find(m => m.id === id);
+        if (mem && mem.trigger?.cooldown && !mem.trigger?.sticky) {
+          updated[id] = mem.trigger.cooldown;
+        }
+      }
       return updated;
     });
   };
