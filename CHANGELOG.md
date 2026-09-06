@@ -5,6 +5,75 @@
 
 ---
 
+### Bug 修正｜注入給 GM 的資料鏈路盤點（6 個靜默失效） 2026-09-06 [Claude Code]
+
+全面檢查「哪些資料會被送進主 GM 的 prompt」這條鏈路。六個問題的共同形狀都一樣：
+資料存在、玩家在 UI 上看得到、程式也沒有報錯，但那份資料**永遠到不了模型手上**，
+玩家只會覺得「AI 忘記了」。全部補上回歸測試（舊程式全紅）。
+
+**1. 出場的 NPC 被關鍵字門檻擋掉，模型手上一個字都沒有**（最嚴重）
+
+`promptBuilder` 的 NPC 注入判定最後一行是 `return lorebookHitsKeywords(e)`。
+條目設了關鍵字、這回合沒命中時，AI 剛用 `[出場:芬里爾]` 請上台的人整條被濾掉——
+而他既不在 `[Pinned NPCs]`（只收釘選／隨行），也不在 `[其他已知角色]`
+（名冊把在場的人排除掉了）。結果模型對這個角色沒有外貌、沒有個性、沒有對玩家的
+態度，只能現編一個，下一回合再編一個不一樣的。Phase 2 的契約本來就是
+「在場 → 完整注入」，改成 `return inScene`。隨行同伴那條豁免早就是同一個理由，
+只是當時只補了同伴一種。
+
+**2. 助理 GM 的 `loreHints` 把不在場的人塞進 `[Scene Lorebook]`**
+
+`loreHints` 原本「繞過下方所有規則比對」直接放行，包含 NPC 與地點。
+但助理挑的是「這條可能相關」，不等於「這個人就站在這裡」——而 `[Scene Lorebook]`
+的語意是**現在在場**，模型讀到就讓他走進場景（`mentionedAbsent` 標題上的警告
+講的正是這件事）。改為只有不帶在場語意的類別（歷史／物品／怪物）走直接放行，
+NPC 與地點的提示改收進 `[提及的設定]`（標題已寫明不在場）。助理的語意挑選照樣
+送得到模型手上，只是不再謊報在場。`MAX_MENTIONED` 的名額不夠時，玩家指名道姓
+提到的排在助理猜的前面。
+
+**3. `trigger.cooldown` 只有在 `sticky` 也設了才生效**
+
+`tickMemoryCounters` 裡 cooldown 只有一條生效路徑：sticky 從 1 遞減到 0 時。
+而 `stickyCounters` 只有 `trigger.sticky` 為真的記憶才會被寫進去——
+`sticky: 0, cooldown: 5`（sticky 的預設值就是 0）永遠不會出現在那裡，
+cooldown 一次都沒生效過。玩家把冷卻設成 10，那條記憶照樣每回合注入。
+補上「sticky = 0 的記憶觸發後直接進 cooldown」。
+
+**4. `MEMORY_ADD` 的 `type` / `importance` 沒有白名單**
+
+兩者都是裸的型別斷言（`(kv.type || 'scene') as ...`），而 `as` 在執行期什麼都不做。
+`type=地區`、`importance=high` 會原封不動寫進存檔，而注入端是按
+`m.type === 'world' | 'region' | 'scene' | 'npc'` 分區、按 `importance` 分
+critical / normal / flavor 截斷的：值對不上的記憶落在每一個桶子外面，
+**永遠不會被注入**，也不會被 `pruneMemories` 正確排序，而且沒有任何 log。
+比照 `STAT|field=` 的白名單與 `WEATHER|value=` 的同義詞收斂處理（認得的收斂、
+認不得的退回預設並 warn，不丟棄整條記憶——內容本身通常是對的）。v1 與 legacy
+冒號兩條路徑共用。
+
+**5. NPC 記憶的在場比對用完全相等，與全鏈路不一致**
+
+`appearingNpcMems` 是裸的 `onStageNpcs.includes(n)`。記憶的 `npcs` tag 是
+`MEMORY_ADD` 當下寫的、`[出場:]` 是另一回合寫的，用字不見得一致
+（「芬里爾」對「芬里爾·灰狼」），這條記憶就靜默不注入。改走 `isNpcOnStage`，
+與 `inScene`、足跡更新、右欄在場名單同一支。
+
+順帶把 `isNpcOnStage` 本身補上 `normalizeNpcName`（CLAUDE.md 第 22 條，
+名字中間的全形空白在畫面上看不出來卻會讓包含比對失效），以及空字串防衛——
+`''.includes(x)` 對任何字串都是 true，名單裡混進一個空值會讓**全部**角色被判成在場。
+
+**6. `[Active Diary]` 的關鍵字掃不到玩家這回合的輸入**
+
+`scanKeywords`（由 `useCommandParser` 注入）只掃 `messages` state，而那份停在
+玩家按下送出**之前**。設定集（`lorebookScanText`）與記憶（`isMemoryTriggered`）
+都把 userInput 算進掃描文字，只有日記漏了：玩家問「王城後來怎麼了」，
+關鍵字設「王城」的那篇日記這回合不會注入，要等下一回合——而那時玩家已經拿到
+一個沒讀過日記的答案。改成取聯集（`scanKeywords` 仍是地板，額外掃本回合輸入）。
+
+順手：`[已知地點座標]` 少了 `isActive` 過濾，玩家關掉的地點條目仍會出現在
+座標尺規裡（其他每一段注入都尊重那個開關）。
+
+---
+
 ### Bug 修正｜AI 回應一到，串流期間的編輯全被洗掉 2026-09-05 [Claude Code]
 
 **症狀**：AI 在串流時（幾秒到 90 秒）玩家仍可開角色卡釘選、寫記憶、改設定集、丟道具、

@@ -133,6 +133,23 @@ export function buildPrompt(
     return true
   }
 
+  /**
+   * 日記的關鍵字命中判定。
+   *
+   * `scanKeywords`（由 useCommandParser 注入）只掃 `messages` state——那份停在
+   * 玩家按下送出**之前**，看不到他這回合剛打的字。設定集（`lorebookScanText`）
+   * 與記憶（`isMemoryTriggered` 的 scanText）都把 userInput 算進去，只有日記漏了：
+   * 玩家問「王城後來怎麼了」，關鍵字設「王城」的那篇日記這回合不會被注入，
+   * 要等下一回合才補上——而那時玩家已經拿到一個沒讀過日記的答案了。
+   *
+   * 取聯集而非取代：`scanKeywords` 仍是地板，這裡只是多掃本回合的輸入。
+   */
+  const diaryHitsKeywords = (keywords: string[]): boolean => {
+    if (scanKeywords(keywords)) return true
+    const text = lorebookScanText.toLowerCase()
+    return keywords.some(k => !!k && text.includes(k.toLowerCase()))
+  }
+
   // Phase 1：依地點篩選候選 NPC（輕量名單）
   // 城鎮類（locationType === 'town'）上限 8，野外 / 建築 / 未設定 上限 3
   const currentLocEntry = lorebookEntries.find(
@@ -203,17 +220,34 @@ export function buildPrompt(
   const MAX_LORE_HINTS = 10
   const hintedLoreIds = new Set((loreHints ?? []).slice(0, MAX_LORE_HINTS))
 
+  /**
+   * 「這一類條目帶不帶在場語意」。
+   *
+   * 人與地點帶——`[Scene Lorebook]` 的語意是**現在在場**（同 `mentionedAbsent`
+   * 標題上那句警告的理由）。歷史／物品／怪物不帶：被提到就查得到，沒有
+   * 「他人在不在這裡」的問題。
+   */
+  const hasPresenceSemantics = (e: LorebookEntry): boolean =>
+    e.category === 'NPC' || e.category === '地點'
+
   const relevantLorebook = lorebookEntries
     .filter(e => {
       // isActive 是玩家明確關掉的意思，助理提示不得凌駕
       if (!e.isActive) return false
       // 助理 GM 挑中的直接放行，繞過下方所有規則比對。
       // 這條是規則的**補集**——規則命中的照樣進來，見 BuildPromptDeps.loreHints
-      if (hintedLoreIds.has(e.id)) return true
+      //
+      // ⚠️ 但**帶在場語意的兩類不走這條**。助理挑的是「這條可能相關」，
+      // 那不等於「這個人就站在這裡」——直接放行等於把住在三個城外的角色
+      // 塞進 `[Scene Lorebook]`，模型讀到就讓他走進場景。這兩類的提示改由
+      // 下方 `mentionedAbsent` 收進 `[提及的設定]`（標題已寫明不在場），
+      // 助理的語意挑選照樣送得到模型手上，只是不再謊報在場
+      if (hintedLoreIds.has(e.id) && !hasPresenceSemantics(e)) return true
       if (e.category === 'NPC') {
-        // 隨行同伴無條件放行，連關鍵字門檻也不過——他就站在玩家旁邊，
-        // 而下方 `lorebookHitsKeywords` 是會擋人的：條目設了關鍵字、這回合沒命中，
-        // GM 手上就只剩一個名字，只好把他寫成沒有身體的聲音
+        // 隨行同伴無條件放行——他就站在玩家旁邊，不必經過下面任何一道判定。
+        // （`resolveOnStageNames` 已經把同伴併進 onStageNpcs，所以下方的
+        //  `isNpcOnStage` 其實也會放行；這條留著是為了不讓同伴的在場資格
+        //  取決於另一支函數的實作細節。）
         if (isCompanionName(e.title)) return true
         // Phase 2：出場 NPC、釘選 NPC、或「就在當前地點」且好感度 ≥ 60 的核心 NPC → 完整注入
         //
@@ -237,8 +271,17 @@ export function buildPrompt(
           isNpcOnStage(e.title, onStageNpcs) ||
           npcs.some(n => n.isPinned && isSameNpcName(n.name, e.title)) ||
           isHighAffectionCandidate
-        if (!inScene) return false
-        return lorebookHitsKeywords(e)
+        // Phase 2 的契約就是「在場 → 完整注入」，在場之後不再過關鍵字門檻。
+        //
+        // 先前這裡是 `if (!inScene) return false; return lorebookHitsKeywords(e)`，
+        // 於是條目設了關鍵字、這回合沒命中時，AI 剛用 `[出場:芬里爾]` 請上台的人
+        // 會整條被濾掉——而他既不在 `[Pinned NPCs]`（那段只收釘選／隨行），
+        // 也不在 `[其他已知角色]`（名冊把在場的人排除掉了）。結果是模型手上
+        // 對這個角色**一個字都沒有**：沒有外貌、沒有個性、沒有對玩家的態度，
+        // 只能現編一個，下一回合再編一個不一樣的。
+        //
+        // 這與隨行同伴那條豁免是同一個理由，只是那時只補了同伴這一種。
+        return inScene
       }
       if (e.category === '地點') {
         // 當前地點：強制注入（不受關鍵字限制，AI 必須知道所在位置的完整資料）
@@ -292,14 +335,20 @@ export function buildPrompt(
     // 只收「有在場語意」的兩類：人與地點。歷史／物品／怪物被提到時，
     // lorebookHitsKeywords 已經讓它們正常進 [Scene Lorebook]，那裡沒有
     // 「在不在場」的問題
-    if (e.category !== 'NPC' && e.category !== '地點') return false
-    if (!titleMentioned(e)) return false
+    if (!hasPresenceSemantics(e)) return false
+    // 標題被提到，或助理 GM 挑中——兩者的語意都只是「這條可能相關」，
+    // 不是「這個人／這個地方就在眼前」，所以一律收在這段（標題已寫明不在場）
+    if (!titleMentioned(e) && !hintedLoreIds.has(e.id)) return false
     if (relevantLorebookIds.has(e.id)) return false
     if (e.category === '地點') return e.title !== loc && !adjacentLocTitles.has(e.title)
     return !relevantLorebookNpcTitles.has(e.title)
       && !isCompanionName(e.title)
       && !npcs.some(n => n.isPinned && isSameNpcName(n.name, e.title))
-  }).slice(0, MAX_MENTIONED)
+  })
+    // 玩家指名道姓提到的排在助理猜的前面——名額只有 MAX_MENTIONED 個，
+    // 被擠掉的該是猜測，不是玩家剛剛問的那個名字
+    .sort((a, b) => Number(titleMentioned(b)) - Number(titleMentioned(a)))
+    .slice(0, MAX_MENTIONED)
 
   /**
    * 相關勢力（含關係鏈）。
@@ -359,16 +408,20 @@ export function buildPrompt(
   )
 
   // 出場 NPC：全量（依重要度截斷）
+  // ⚠️ 名字比對走 isNpcOnStage，不要用裸的 Array.includes。記憶的 npcs tag 是
+  // AI 在 MEMORY_ADD 當下寫的、`[出場:]` 是另一回合寫的，兩者的用字不見得一致
+  // （「芬里爾」對「芬里爾·灰狼」）。完全相等的比對會讓這條記憶靜默不注入，
+  // 而全鏈路其他地方（inScene、足跡、右欄在場名單）用的都是這支
+  const isTaggedOnStage = (m: MemoryEntry): boolean =>
+    (m.tags?.npcs || []).some(n => isNpcOnStage(n, onStageNpcs))
+
   const appearingNpcMems = filterByImportance(
-    triggeredMemories.filter(m => {
-      if (m.type !== 'npc') return false
-      return (m.tags?.npcs || []).some(n => onStageNpcs.includes(n))
-    }), 5, 2
+    triggeredMemories.filter(m => m.type === 'npc' && isTaggedOnStage(m)), 5, 2
   )
   // 未出場但 pinned/高好感 NPC：只保留 critical，最多 2 條
   const specialNpcMems = triggeredMemories.filter(m => {
     if (m.type !== 'npc') return false
-    if ((m.tags?.npcs || []).some(n => onStageNpcs.includes(n))) return false
+    if (isTaggedOnStage(m)) return false
     return (m.tags?.npcs || []).some(n =>
       npcs.some(npc => isSameNpcName(npc.name, n) && (npc.isPinned || npc.affection >= 60))
     )
@@ -469,7 +522,8 @@ Personality: ${profile.personality}${profile.other ? `\nOther: ${profile.other}`
     // 這裡把實際座標攤開當尺規。放在動態區而非靜態前綴，否則每新增一個地點就讓 caching 整段失效。
     section('[已知地點座標（世界地圖尺規，新地點請落在同一量級且與既有地點相距 20 以上）]',
       lorebookEntries
-        .filter(e => e.category === '地點' && e.mapX != null && e.mapY != null)
+        // isActive === false 是玩家把這個條目關掉的意思，其他每一段注入都尊重它
+        .filter(e => e.category === '地點' && e.isActive && e.mapX != null && e.mapY != null)
         .map(e => `${e.title}(${e.mapX},${e.mapY})`)
         .join('、')),
 
@@ -718,7 +772,7 @@ Personality: ${profile.personality}${profile.other ? `\nOther: ${profile.other}`
     // 正是 `keywords: []`，所以玩家照 UI 說的做（勾選、關鍵字留空）之後，
     // 整個日記系統對 GM 而言等於不存在，且沒有任何跡象。
     section('[Active Diary]', diaryEntries
-      .filter(e => e.isActive && ((e.keywords?.length ?? 0) === 0 || scanKeywords(e.keywords || [])))
+      .filter(e => e.isActive && ((e.keywords?.length ?? 0) === 0 || diaryHitsKeywords(e.keywords || [])))
       .map(e => {
         const kwLabel = e.keywords?.length > 0 ? ` [觸發詞: ${e.keywords.join(',')}]` : ''
         return `- ${e.text}${kwLabel}`

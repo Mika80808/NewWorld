@@ -3,7 +3,7 @@ import '../../test/setupDom';
 import { describe, it, expect, vi } from 'vitest';
 import { act, renderHook } from '@testing-library/react';
 import { useCommandParser, CommandParserDeps } from '../useCommandParser';
-import { Npc, ItemEntry, LorebookEntry } from '../../types';
+import { Npc, ItemEntry, LorebookEntry, MemoryEntry } from '../../types';
 
 /**
  * 釘住一個實際壞掉過的行為：`parseAndExecuteCommands` 是在 AI 回應**回來之後**
@@ -126,5 +126,79 @@ describe('useCommandParser — parseAndExecuteCommands 讀的是最新 state，�
       res = await stale(wrap('ITEM_ADD|name=草藥|qty=1|desc=回復'));
     });
     expect(res?.newItems).toEqual([]);
+  });
+});
+
+/**
+ * `trigger.cooldown`（冷卻 N 則）先前只有一條生效路徑：sticky 從 1 遞減到 0 時。
+ * 而 stickyCounters 只有 `trigger.sticky` 為真的記憶才會被寫進去——
+ * `sticky: 0, cooldown: 5`（sticky 的預設值就是 0）的記憶永遠不會出現在那裡，
+ * cooldown 一次都沒生效過。玩家把冷卻設成 10，那條記憶照樣每回合注入，
+ * 而且沒有任何跡象。
+ */
+describe('useCommandParser — tickMemoryCounters 的 cooldown', () => {
+  const memOf = (over: Partial<MemoryEntry> = {}): MemoryEntry => ({
+    id: 'mem_1_a', type: 'scene', importance: 'normal', content: '酒館被砸毀',
+    tags: { locations: [], npcs: [], factions: [], keywords: [] },
+    trigger: { scanDepth: 5, probability: 100, sticky: 0, cooldown: 0 },
+    isActive: true, source: 'ai_generated', createdAt: '4/15',
+    ...over,
+  });
+
+  /** setState 的 functional update 攤平成實際寫入值 */
+  const applyUpdater = (
+    fn: ReturnType<typeof vi.fn>,
+    prev: Record<string, number>,
+  ): Record<string, number> => {
+    const updater = fn.mock.calls.at(-1)?.[0];
+    return typeof updater === 'function' ? updater(prev) : updater;
+  };
+
+  it('sticky = 0 的記憶觸發後直接進 cooldown', () => {
+    const setStickyCounters = vi.fn();
+    const setCooldownCounters = vi.fn();
+    const memory = memOf({ trigger: { scanDepth: 5, probability: 100, sticky: 0, cooldown: 5 } });
+    const { result } = renderHook((d: CommandParserDeps) => useCommandParser(d), {
+      initialProps: makeDeps({ memories: [memory], setStickyCounters, setCooldownCounters }),
+    });
+
+    act(() => { result.current.tickMemoryCounters([memory.id]); });
+
+    // sticky 的 updater 必須先跑：cooldown 的分支讀它捕捉到的遞減前快照
+    applyUpdater(setStickyCounters, {});
+    expect(applyUpdater(setCooldownCounters, {})[memory.id]).toBe(5);
+  });
+
+  it('cooldown = 0 時不寫入計數器', () => {
+    const setStickyCounters = vi.fn();
+    const setCooldownCounters = vi.fn();
+    const memory = memOf();
+    const { result } = renderHook((d: CommandParserDeps) => useCommandParser(d), {
+      initialProps: makeDeps({ memories: [memory], setStickyCounters, setCooldownCounters }),
+    });
+
+    act(() => { result.current.tickMemoryCounters([memory.id]); });
+
+    applyUpdater(setStickyCounters, {});
+    expect(applyUpdater(setCooldownCounters, {})[memory.id]).toBeUndefined();
+  });
+
+  it('sticky > 0 時維持原行為：撐完 sticky 才進 cooldown', () => {
+    const setStickyCounters = vi.fn();
+    const setCooldownCounters = vi.fn();
+    const memory = memOf({ trigger: { scanDepth: 5, probability: 100, sticky: 3, cooldown: 5 } });
+    const { result } = renderHook((d: CommandParserDeps) => useCommandParser(d), {
+      initialProps: makeDeps({ memories: [memory], setStickyCounters, setCooldownCounters }),
+    });
+
+    // 觸發的這一回合：只設 sticky，不進 cooldown
+    act(() => { result.current.tickMemoryCounters([memory.id]); });
+    applyUpdater(setStickyCounters, {});
+    expect(applyUpdater(setCooldownCounters, {})[memory.id]).toBeUndefined();
+
+    // sticky 剩 1 且本回合沒再觸發 → 歸零並進 cooldown
+    act(() => { result.current.tickMemoryCounters([]); });
+    applyUpdater(setStickyCounters, { [memory.id]: 1 });
+    expect(applyUpdater(setCooldownCounters, {})[memory.id]).toBe(5);
   });
 });

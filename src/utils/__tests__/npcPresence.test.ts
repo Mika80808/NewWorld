@@ -128,3 +128,25 @@ describe('resolveOnStageNames', () => {
     expect(resolveOnStageNames([npc('芬里爾')], appearing)).toBe(appearing);
   });
 });
+
+describe('isNpcOnStage — 名稱正規化與空值防衛', () => {
+  it('名字中間的全形／半形空白差異不影響判定', () => {
+    expect(isNpcOnStage('凱爾　溫德', ['凱爾 溫德'])).toBe(true);
+    expect(isNpcOnStage('凱爾 溫德', ['凱爾　溫德'])).toBe(true);
+  });
+
+  /**
+   * `''.includes(x)` 對任何字串都是 true。名單裡混進一個空值
+   * （舊存檔、或 `[出場: , ]` 這種寫法）就會讓**全部**角色被判成在場，
+   * 而那份名單會存進存檔、每回合注入 prompt。
+   */
+  it('名單裡的空字串不會把所有人判成在場', () => {
+    expect(isNpcOnStage('芬里爾', [''])).toBe(false);
+    expect(isNpcOnStage('芬里爾', ['   '])).toBe(false);
+    expect(isNpcOnStage('芬里爾', ['', '芬里爾'])).toBe(true);
+  });
+
+  it('空名字本身不會匹配任何人', () => {
+    expect(isNpcOnStage('', ['芬里爾'])).toBe(false);
+  });
+});

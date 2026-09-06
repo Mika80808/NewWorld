@@ -1277,3 +1277,118 @@ describe('buildPrompt 回歸 — Npc 與設定集條目的名稱比對', () => {
     expect(prompt).toContain('對玩家：信賴（好感度 90）');
   });
 });
+
+describe('buildPrompt 回歸 — 在場的人一定拿得到資料，不在場的一定不進 [Scene Lorebook]', () => {
+  const build = (over: Partial<BuildPromptDeps>, input = '測試輸入') =>
+    buildPrompt({ ...deps([], () => false), ...over }, input, messages).prompt;
+
+  const npcOf = (over: Partial<Npc> = {}): Npc =>
+    ({ id: 1, name: '芬里爾', affection: 0, category: 'NPC', isActive: true, memories: [], ...over }) as Npc;
+  const loreOf = (over: Partial<LorebookEntry> = {}): LorebookEntry =>
+    ({ id: 3, title: '芬里爾', content: '', category: 'NPC', isActive: true,
+       gender: '男', job: '獵人', appearance: '銀髮', personality: '寡言', ...over }) as LorebookEntry;
+
+  /**
+   * 實際壞掉過：Phase 2 的契約是「在場 → 完整注入」，但注入判定的最後一行是
+   * `return lorebookHitsKeywords(e)`。條目設了關鍵字、這回合沒命中時，
+   * AI 剛用 `[出場:芬里爾]` 請上台的人會整條被濾掉——他既不在 `[Pinned NPCs]`
+   * （只收釘選／隨行），也不在 `[其他已知角色]`（名冊排除在場者），
+   * 於是模型手上一個字都沒有，只能現編。
+   */
+  it('出場 NPC 的條目設了本回合沒命中的關鍵字，仍然完整注入', () => {
+    const prompt = build({
+      npcs: [npcOf()],
+      appearingNpcs: ['芬里爾'],
+      lorebookEntries: [loreOf({ homeLocation: '月湖鎮', keywords: ['狩獵'] })],
+    }, '你好啊');
+    expect(prompt).toContain('[Scene Lorebook]');
+    expect(prompt).toContain('[NPC] 芬里爾');
+    expect(prompt).toContain('外貌：銀髮');
+  });
+
+  /**
+   * 助理 GM 的 loreHints 先前是「繞過下方所有規則比對」直接放行，包含 NPC。
+   * 但助理挑的是「這條可能相關」，不是「這個人就站在這裡」——直接進
+   * `[Scene Lorebook]`（語意＝現在在場）會讓模型把住在別城的角色寫進這一幕。
+   */
+  it('助理 GM 挑中的不在場 NPC 走 [提及的設定]，不進 [Scene Lorebook]', () => {
+    const prompt = build({
+      npcs: [npcOf({ name: '遠方人' })],
+      lorebookEntries: [loreOf({ id: 7, title: '遠方人', homeLocation: '別的城' })],
+      loreHints: [7],
+    });
+    const sceneBlock = prompt.slice(
+      prompt.indexOf('[Scene Lorebook]'),
+      prompt.indexOf('[提及的設定'),
+    );
+    expect(sceneBlock).not.toContain('遠方人');
+    expect(prompt).toContain('[提及的設定');
+    expect(prompt.slice(prompt.indexOf('[提及的設定'))).toContain('遠方人');
+  });
+
+  it('助理 GM 挑中的非在場類條目（歷史等）照舊直接進 [Scene Lorebook]', () => {
+    const prompt = build({
+      lorebookEntries: [{
+        id: 9, title: '大崩壞', content: '三百年前的災變', category: '歷史',
+        isActive: true, keywords: ['災變'],
+      } as LorebookEntry],
+      loreHints: [9],
+    });
+    expect(prompt).toContain('[歷史] 大崩壞：三百年前的災變');
+  });
+
+  /**
+   * 記憶的 npcs tag 與 `[出場:]` 是不同回合寫的，用字不見得一致。
+   * 先前是裸的 `onStageNpcs.includes(n)`（完全相等），與全鏈路其他地方
+   * 用的 `isNpcOnStage`（前後包含）不一致，記憶會靜默不注入。
+   */
+  it('NPC 記憶的名字比對與在場判定同一套規則（長短名互通）', () => {
+    const m: MemoryEntry = mem('mem_1_a', '芬里爾透露了停火協議', {
+      type: 'npc',
+      tags: { locations: [], npcs: ['芬里爾'], factions: [], keywords: [] },
+      source: 'ai_generated',
+    });
+    const prompt = buildPrompt(
+      { ...deps([m], () => true), npcs: [npcOf({ name: '芬里爾·灰狼' })], appearingNpcs: ['芬里爾·灰狼'] },
+      '測試輸入', messages,
+    ).prompt;
+    expect(prompt).toContain('芬里爾透露了停火協議');
+  });
+});
+
+describe('buildPrompt 回歸 — 日記的關鍵字要掃得到玩家本回合的輸入', () => {
+  /**
+   * `scanKeywords` 由 useCommandParser 注入，只掃 `messages` state——那份停在
+   * 玩家按下送出**之前**。設定集與記憶都把 userInput 算進掃描文字，只有日記漏了：
+   * 玩家問「王城後來怎麼了」，關鍵字設「王城」的日記這回合不會注入。
+   */
+  it('關鍵字只出現在本回合輸入時也會注入', () => {
+    const { prompt } = buildPrompt({
+      ...deps([], () => false),
+      diaryEntries: [{ id: 1, text: '王城的舊事', isActive: true, keywords: ['王城'] } as never],
+    }, '王城後來怎麼了', messages);
+    expect(prompt).toContain('王城的舊事');
+  });
+
+  it('關鍵字完全沒命中時仍然不注入', () => {
+    const { prompt } = buildPrompt({
+      ...deps([], () => false),
+      diaryEntries: [{ id: 1, text: '王城的舊事', isActive: true, keywords: ['王城'] } as never],
+    }, '今天天氣真好', messages);
+    expect(prompt).not.toContain('王城的舊事');
+  });
+});
+
+describe('buildPrompt 回歸 — 地點座標尺規尊重 isActive', () => {
+  it('玩家關掉的地點條目不出現在座標清單', () => {
+    const { prompt } = buildPrompt({
+      ...deps([], () => false),
+      lorebookEntries: [
+        { id: 1, title: '月湖鎮', content: '', category: '地點', isActive: true, mapX: 0, mapY: 0 } as LorebookEntry,
+        { id: 2, title: '廢棄礦坑', content: '', category: '地點', isActive: false, mapX: 40, mapY: 30 } as LorebookEntry,
+      ],
+    }, '測試輸入', messages);
+    expect(prompt).toContain('月湖鎮(0,0)');
+    expect(prompt).not.toContain('廢棄礦坑(40,30)');
+  });
+});

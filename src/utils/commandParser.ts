@@ -11,6 +11,7 @@
  * 未來升 v2 時在 parseCommandsToAST 入口加版本分流即可。
  */
 
+import { MemoryEntry } from '../types';
 import { normalizeWeather, WEATHER_VALUES } from './weather';
 
 export const COMMANDS_VERSION = 'v1';
@@ -54,6 +55,53 @@ export interface ParseResult {
 }
 
 // ─── Key=Value 解析工具 ───────────────────────────────────────────────────────
+
+/**
+ * 記憶的 type / importance 收斂（同 `STAT|field=` 的白名單、`WEATHER|value=` 的
+ * 同義詞收斂）。
+ *
+ * 先前兩者都是裸的型別斷言（`(kv.type || 'scene') as ...`）——TypeScript 的
+ * `as` 在執行期什麼都不做，`type=地區`、`importance=high` 會原封不動寫進存檔。
+ * 而 promptBuilder 是按 `m.type === 'world' | 'region' | 'scene' | 'npc'` 分區注入、
+ * 按 `importance` 分 critical / normal / flavor 截斷的：值對不上的記憶落在
+ * 每一個桶子外面，**永遠不會被注入**，也不會被 pruneMemories 正確排序，
+ * 而且沒有任何 log。玩家只會覺得「AI 忘了這件事」。
+ *
+ * 認得的同義詞一律收斂，認不得的退回預設值並 warn（不丟棄整條記憶——
+ * 內容本身通常是對的，丟掉損失更大，同 `TIME|delta=` 缺單位的處理）。
+ */
+type MemoryType = MemoryEntry['type'];
+const MEMORY_TYPE_ALIASES: Record<string, MemoryType> = {
+  world: 'world', 世界: 'world', global: 'world',
+  region: 'region', 區域: 'region', 地區: 'region', area: 'region',
+  scene: 'scene', 場景: 'scene', location: 'scene', 地點: 'scene',
+  npc: 'npc', 角色: 'npc', character: 'npc', 人物: 'npc',
+};
+
+function normalizeMemoryType(raw: string | undefined): MemoryType {
+  const key = (raw || '').trim().toLowerCase();
+  if (!key) return 'scene';
+  const hit = MEMORY_TYPE_ALIASES[key];
+  if (hit) return hit;
+  console.warn(`[MEMORY_ADD] 未知的 type「${raw}」，改用 scene。`);
+  return 'scene';
+}
+
+type MemoryImportance = MemoryEntry['importance'];
+const MEMORY_IMPORTANCE_ALIASES: Record<string, MemoryImportance> = {
+  critical: 'critical', 重要: 'critical', high: 'critical', major: 'critical',
+  normal: 'normal', 一般: 'normal', medium: 'normal',
+  flavor: 'flavor', 氛圍: 'flavor', low: 'flavor', minor: 'flavor',
+};
+
+function normalizeMemoryImportance(raw: string | undefined): MemoryImportance {
+  const key = (raw || '').trim().toLowerCase();
+  if (!key) return 'normal';
+  const hit = MEMORY_IMPORTANCE_ALIASES[key];
+  if (hit) return hit;
+  console.warn(`[MEMORY_ADD] 未知的 importance「${raw}」，改用 normal。`);
+  return 'normal';
+}
 
 /**
  * 數量解析：缺失、非數字、0 或負數一律退回 1。
@@ -447,8 +495,8 @@ function parseSingleCommand(line: string): CommandAST | null {
     // MEMORY_ADD，由 default case 的 parseLegacyMemoryAdd 處理）
     // v1:  MEMORY_ADD|type=region|importance=normal|content=...|locations=...|keywords=...|sticky=3
     case 'MEMORY_ADD': {
-      const memType = (kv.type || 'scene') as 'world' | 'region' | 'scene' | 'npc';
-      const importance = (kv.importance || 'normal') as 'critical' | 'normal' | 'flavor';
+      const memType = normalizeMemoryType(kv.type);
+      const importance = normalizeMemoryImportance(kv.importance);
       const content = kv.content || kv.text || '';
       if (!content) return null;
       return {
@@ -626,8 +674,9 @@ function parseLegacyMemoryAdd(trimmed: string): CommandAST | null {
   const afterPrefix = trimmed.slice('MEMORY_ADD'.length + 1);
   const colonParts = afterPrefix.split(':');
   if (colonParts.length < 3) return null;
-  const memType = colonParts[0].trim() as 'world' | 'region' | 'scene' | 'npc';
-  const importance = colonParts[1].trim() as 'critical' | 'normal' | 'flavor';
+  // 同 v1 分支：值不收斂的話，寫進存檔的記憶會落在注入端每一個桶子外面
+  const memType = normalizeMemoryType(colonParts[0]);
+  const importance = normalizeMemoryImportance(colonParts[1]);
   // content 本身可能含半形冒號（「魔王宣布:向月湖鎮宣戰」），不能只取 colonParts[2]，
   // 否則後半段會被當成 meta、又因為沒有 `=` 而被靜默丟棄。
   // 改為往後掃到第一個「已知 meta key=value」片段為止，中間全部接回來當 content。

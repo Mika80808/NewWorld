@@ -469,6 +469,17 @@ UI 在角色卡的「主場地點」下拉選單裡（與具體地點互斥，�
 3. 候選名單內 `affection >= 60` 的 NPC
 4. `isCompanion === true` 的隨行同伴（見下）
 
+⚠️ **通過上面任一條＝完整注入，之後不再過 `lorebookHitsKeywords` 的關鍵字門檻。**
+先前是 `if (!inScene) return false; return lorebookHitsKeywords(e)`，於是條目設了
+關鍵字、這回合沒命中時，AI 剛用 `[出場:]` 請上台的人會整條被濾掉——而他既不在
+`[Pinned NPCs]`（只收釘選／隨行），也不在 `[其他已知角色]`（名冊排除在場者），
+模型手上**一個字都沒有**，只能現編一個，下回合再編一個不一樣的。
+
+**助理 GM 的 `loreHints` 不得凌駕「在不在場」**。它挑的是「這條可能相關」，
+NPC 與地點兩類帶在場語意（`hasPresenceSemantics`），提示一律改走 `[提及的設定]`
+（標題寫明不在場），不進 `[Scene Lorebook]`。其餘類別（歷史／物品／怪物）
+沒有在場問題，維持直接放行。
+
 ### 隨行同伴（`Npc.isCompanion`）——地點軸之外的第三條路
 
 兩階段注入整條鏈都以**地點**為軸：Phase 1 依 `currentLocation` 篩候選 → AI 從候選名單
@@ -557,6 +568,7 @@ FACTION_NEW|name=黑牙氏族|type=criminal|desc=盤據東境的盜賊團
 | `LOCATION_DISCOVER\|status=` | `known`／`heard`（收同義詞）；認不得或省略時**依玩家所在地推定**（本批指令套用後 `currentLocation === name` → `known`）。既有的 `known` **只升不降** | 先前寫死 `heard`：玩家人就坐在店裡，設定集標「聽說過」、地圖顯示 `???`。更糟的是既有條目也一起被寫回 `heard`——走過一次之後 AI 再提一次那個地點，狀態就被降級，而 `LOCATION` 與 `LOCATION_DISCOVER` 誰先誰後還會影響結果 |
 | `LOCATION_DISCOVER\|desc=` | 寫進 `LorebookEntry.content`；既有簡介**先寫先贏**不覆蓋，原本是空的才補 | 先前根本沒有這個參數，新條目一律 `content: ''`。設定集裡一片空白，玩家看不到，AI 下回合也讀不回自己寫過的地方，只能重編一遍 |
 | `WEATHER\|value=` | `normalizeWeather()`：收斂同義詞，認不得就丟棄並 warn | 天氣不是自由文字。「微風徐徐帶著海鹽味」進了欄位就沒有圖示也沒有天空梯度，而且下回合被 AI 讀回去當事實 |
+| `MEMORY_ADD\|type=`／`importance=` | 白名單＋同義詞收斂（`normalizeMemoryType` / `normalizeMemoryImportance`）；認不得就退回 `scene` / `normal` 並 warn，不丟棄整條記憶 | 兩者原本是裸的 `as` 斷言，執行期什麼都不做。注入端按 `type` 分區、按 `importance` 截斷，值對不上的記憶落在每一個桶子外面，**永遠不會被注入**，也不會被 `pruneMemories` 正確排序，而且沒有 log |
 | `qty=` | `parseQty()`：非正整數退回 1 | `parseInt(x) \|\| 1` 讓**負數**原樣通過（負數是 truthy），ITEM_ADD 會變成扣庫存 |
 
 認不得的指令在 reducer 的 `UNKNOWN` / `default` 分支會 `console.warn` 並附上原始文字。
@@ -614,7 +626,7 @@ FACTION_NEW|name=黑牙氏族|type=criminal|desc=盤據東境的盜賊團
 
 2. **不要直接 `new GoogleGenAI(...)` 散落在各處**，統一走 `callAI`
 
-3. **lorebookEntries 的 NPC 類**注入條件與其他類不同：需在 Phase 2 出場名單、釘選、或候選名單內好感 ≥ 60，才進入 `relevantLorebook`
+3. **lorebookEntries 的 NPC 類**注入條件與其他類不同：需在 Phase 2 出場名單、釘選、或候選名單內好感 ≥ 60，才進入 `relevantLorebook`。通過之後**不再過關鍵字門檻**（見上方「NPC 注入資格」的說明）
 
 4. **memories 取代了舊的三個陣列**（`worldMemory` / `factionMemory` / `locationMemory`），不要重新加回去
 
@@ -695,6 +707,12 @@ FACTION_NEW|name=黑牙氏族|type=criminal|desc=盤據東境的盜賊團
 25. **「把 NPC 加進遊戲」一律要建兩份資料**：`npcs[]`（好感度／記憶庫／釘選／足跡）＋ `lorebookEntries` 的 NPC 條目（注入 prompt 的靜態設定）。`NPC_NEW`、`handleAddNpc`、`mergeImportedNpcs` 三個入口都是這樣做的。只建設定集條目的話，角色進得了 prompt 但沒有好感度、開不了記憶庫；只建 `npcs[]` 的話則不會出現在 Phase 1 的地點候選名單裡，**而且身分設定無處可存**（schema v10 起 `Npc` 上沒有那些欄位）
 
 26. **NPC 身分設定的唯一來源是設定集條目**（性別／種族／年齡／職業／外貌／個性／背景／備註）。讀取一律 `resolveNpcProfile(findNpcLore(entries, name))`，不要自己 `find(e => e.category === 'NPC' && ...)`。`Npc` 上只有執行狀態。舊的雙來源留下的教訓：角色卡的編輯只寫設定集，`Npc` 那份從建檔之後就再也沒更新過
+
+27. **注入端的名字比對一律走 `isNpcOnStage` / `isSameNpcName`，不要用裸的 `Array.includes` 或 `===`**。記憶的 `tags.npcs` 是 `MEMORY_ADD` 當下寫的、`appearingNpcs` 是另一回合的 `[出場:]` 寫的，用字不見得一致（「芬里爾」對「芬里爾·灰狼」）——完全相等的比對會讓那條 NPC 記憶靜默不注入。`isNpcOnStage` 內部已含 `normalizeNpcName` 與空字串防衛（`''.includes(x)` 對任何字串都是 true，名單裡混進一個空值會把**全部**角色判成在場）
+
+28. **`trigger.cooldown` 不依賴 `sticky`**。`tickMemoryCounters` 原本只有「sticky 從 1 遞減到 0」一條路徑會寫 cooldown，而 `stickyCounters` 只收 `trigger.sticky` 為真的記憶——`sticky: 0, cooldown: N`（sticky 的預設值就是 0）永遠不會進 cooldown，玩家設的冷卻一次都沒生效過。sticky = 0 的記憶觸發後直接進 cooldown
+
+29. **注入 prompt 的關鍵字掃描必須含玩家本回合的輸入**。`scanKeywords`（`useCommandParser` 注入）只掃 `messages` state，而那份停在送出**之前**。設定集走 `lorebookScanText`、記憶走 `isMemoryTriggered` 的 scanText，兩者都算進 userInput；日記先前漏了，於是玩家問「王城後來怎麼了」時，關鍵字設「王城」的日記要等下一回合才注入——而答案這回合就已經給出去了
 
 ---
 
