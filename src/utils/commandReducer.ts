@@ -184,24 +184,26 @@ export function reduceCommands(
       knownLocationTitles.add(cmd.parsed.name as string);
     }
   }
-  const requestedLocation = commands.find(c => c.type === 'LOCATION')?.parsed.location as string | undefined;
-  if (requestedLocation) {
+  // 同一批可能有多條 LOCATION（「離開酒館走到鎮上，再進鐵匠鋪」），**最後一條放行的**
+  // 才是玩家最終所在。先前只看第一條，之後的移動全部被丟掉、也沒有 log
+  for (const cmd of commands) {
+    if (cmd.type !== 'LOCATION') continue;
+    const requestedLocation = cmd.parsed.location as string;
     // ⚠️ 只有「玩家目前就站在一個已登錄的地點上」時才擋。
     //
     // 目前地點自己都不在設定集裡（舊存檔卡在「廚房」、或是這條規則上線前留下的
     // 自由文字地名）代表已經在地圖之外了——這時再擋下移動，玩家會被永久困住，
     // 連走回營地都做不到。這種情況一律放行，讓他有機會回到地圖上的地點。
-    const onKnownLocation = knownLocationTitles.has(currentState.currentLocation);
+    const from = stateChanges.currentLocation ?? currentState.currentLocation;
+    const onKnownLocation = knownLocationTitles.has(from);
     if (knownLocationTitles.has(requestedLocation) || !onKnownLocation) {
       stateChanges.currentLocation = requestedLocation;
     } else {
       // 不要靜默丟棄——指令失效時玩家只看得到「地點沒變」，沒有 log 就無從查起
       console.warn(
         `[LOCATION] 「${requestedLocation}」不是設定集裡的地點條目，視為目前地點內的房間／角落，` +
-        `不改變所在地（維持「${currentState.currentLocation}」）。` +
-        `真的是新地點的話，請同時輸出 LOCATION_DISCOVER 登錄它。原始指令：${
-          commands.find(c => c.type === 'LOCATION')?.raw ?? ''
-        }`
+        `不改變所在地（維持「${from}」）。` +
+        `真的是新地點的話，請同時輸出 LOCATION_DISCOVER 登錄它。原始指令：${cmd.raw}`
       );
     }
   }

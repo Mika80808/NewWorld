@@ -829,6 +829,28 @@ describe('reduceCommands — LOCATION 的粒度守門', () => {
     expect(cook?.homeLocation).toBe('黑牙氏族營地');
   });
 
+  // 同一批多條 LOCATION：先前只看第一條，之後的移動全部靜默丟掉
+  it('同批多條 LOCATION 以最後一條放行的為準', () => {
+    const forest = { ...camp(), id: 2, title: '迷霧森林' };
+    const well = { ...camp(), id: 3, title: '古井' };
+    const { stateChanges, feedback } = run(
+      'LOCATION|name=迷霧森林\nLOCATION|name=古井',
+      atCamp({ lorebookEntries: [camp(), forest, well] }),
+    );
+    expect(stateChanges.currentLocation).toBe('古井');
+    // 只有最終目的地推「移動至」，中途站不推
+    expect(feedback.cmdResults.filter(r => r.includes('移動至'))).toEqual(['📍 移動至 古井']);
+  });
+
+  it('最後一條是房間名時，維持前一條放行的地點', () => {
+    const forest = { ...camp(), id: 2, title: '迷霧森林' };
+    const { stateChanges } = run(
+      'LOCATION|name=迷霧森林\nLOCATION|name=樹洞',
+      atCamp({ lorebookEntries: [camp(), forest] }),
+    );
+    expect(stateChanges.currentLocation).toBe('迷霧森林');
+  });
+
   /**
    * 安全閥：目前地點自己都不在設定集裡，代表已經在地圖之外（舊存檔卡在「廚房」，
    * 或這條規則上線前留下的自由文字地名）。這時再擋就是把玩家永久困住，

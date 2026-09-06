@@ -3,7 +3,7 @@
  * 整合 parse → reduce → effects 三層邏輯
  */
 
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
 import {
   Profile, Npc, Quest, LorebookEntry, MemoryEntry,
   EquipmentItem, ItemEntry, ItemCatalog, TimeState, Message, StatusEffect, Faction,
@@ -85,19 +85,47 @@ export interface UseCommandParserReturn {
 // ─── Hook 實現 ──────────────────────────────────────────────────────────────────
 
 export function useCommandParser(deps: CommandParserDeps): UseCommandParserReturn {
+  // 這幾支（isMemoryTriggered / scanKeywords / consumeItem）都是在事件當下**同步**
+  // 呼叫的，讀當次 render 的閉包即可；await 之後才跑的那兩支見下方 depsRef
   const {
-    timeState, profile, currentLocation, quests, memories, items, itemCatalog, npcs, lorebookEntries, statusEffects,
-    factions,
+    timeState, items, lorebookEntries,
     stickyCounters, cooldownCounters, messages,
-    setTimeState, setProfile, setCurrentLocation, setQuests, setMemories,
-    setItems, setItemCatalog, setNpcs, setLorebookEntries,
-    setStickyCounters, setCooldownCounters, setStatusEffects, setFactions,
-    showToast, notifyCommandResult, callAI,
+    setItems, setItemCatalog,
+    showToast,
   } = deps;
+
+  /**
+   * 最新值 ref。`parseAndExecuteCommands` 是在 `handleSendMessage` **await 完 AI 回應之後**
+   * 才被呼叫的，而它是玩家按下送出那一次 render 產生的閉包——裡面的 `npcs`、`items`、
+   * `lorebookEntries`⋯⋯全部停在送出當下。
+   *
+   * 串流期間（幾秒到 90 秒）玩家仍然可以開角色卡釘選、寫記憶、改設定集、丟道具、
+   * 用地圖旅行（`handleTravel` 會先 `setCurrentLocation` 再送訊息）。reducer 拿舊快照算出
+   * `stateChanges.npcs / items / lorebookEntries …`，`applyStateChanges` 再**整份**
+   * `setNpcs(stateChanges.npcs)` 寫回去——等待期間的每一筆編輯就這樣被回應一到就洗掉，
+   * 而畫面上什麼提示都沒有。旅行的 `known` 標記、剛釘選的角色、剛寫的記憶都會消失。
+   *
+   * 走 ref 才讀得到 commit 後的最新值（同 App.tsx 的 itemsRef / summaryPoolRef）。
+   * 一律在 commit 後同步，不在 render 期間寫 ref（render 必須是純函數）。
+   */
+  const depsRef = useRef(deps);
+  useEffect(() => {
+    depsRef.current = deps;
+  });
 
   // ─── 核心函數：parseAndExecuteCommands（整合三層邏輯）──────────────────────────
 
   const parseAndExecuteCommands = async (fullText: string): Promise<ParseResult> => {
+    // 一律讀最新值，不讀閉包（理由見 depsRef 的說明）
+    const {
+      timeState, profile, currentLocation, quests, memories, items, itemCatalog, npcs, lorebookEntries,
+      statusEffects, factions, stickyCounters, cooldownCounters, messages,
+      setTimeState, setProfile, setCurrentLocation, setQuests, setMemories,
+      setItems, setItemCatalog, setNpcs, setLorebookEntries,
+      setStickyCounters, setCooldownCounters, setStatusEffects, setFactions,
+      showToast, notifyCommandResult, callAI,
+    } = depsRef.current;
+
     // Phase 1: Parse
     const { commands, narrative } = parseCommandsToAST(fullText);
 
@@ -150,7 +178,7 @@ export function useCommandParser(deps: CommandParserDeps): UseCommandParserRetur
     );
 
     // Bug #3 fix: 改用名稱比對而非 id 比對（避免閉包舊快照誤判）
-    const prevItemNames = new Set(deps.items.map(i => i.name));
+    const prevItemNames = new Set(items.map(i => i.name));
     const newItems = stateChanges.items
       ? stateChanges.items
           .filter(item => !prevItemNames.has(item.name))
@@ -222,6 +250,9 @@ export function useCommandParser(deps: CommandParserDeps): UseCommandParserRetur
   // ─── 工具函數：記憶計數器更新 ─────────────────────────────────────────────────
 
   const tickMemoryCounters = (triggeredIds: string[]) => {
+    // 同 parseAndExecuteCommands：這支也是在 await 之後才被呼叫，讀最新值
+    const { memories, setMemories, setStickyCounters, setCooldownCounters } = depsRef.current;
+
     // LRU 時間戳：讓 pruneMemories 能分辨「老但一直在用」與「老且沒人碰」。
     // touchMemories 在無實際變更時回傳原 reference，不會每回合白白產生新陣列。
     setMemories(prev => touchMemories(prev, triggeredIds));

@@ -6,7 +6,7 @@ import {
 import { getTotalDaysFromTimeState, getQuestRemainingDays } from './timeUtils'
 import { selectKnownItemNames, describeItem } from './itemCatalog'
 import { relationText } from './affectionLabel'
-import { resolveNpcProfile, npcIdentityBrief, selectKnownNpcNames, isSameNpcName } from './npcProfile'
+import { resolveNpcProfile, npcIdentityBrief, selectKnownNpcNames, isSameNpcName, findNpcLore } from './npcProfile'
 import { isNpcOnStage, resolveOnStageNames } from './npcPresence'
 import { isSameCity, childLocationsOf } from './locationTree'
 import { factionTypeLabel, factionRelationLabel } from './factionLabel'
@@ -351,8 +351,11 @@ export function buildPrompt(
 
   // 沒有設定集條目的釘選／隨行角色的兜底資料來源（有條目的走 [Scene Lorebook]）。
   // 同伴一定要收在這裡：他無條件在場，卻不見得有人替他建過設定集條目
+  // 名稱比對走 isSameNpcName：條目標題與 Npc.name 只差一個空白時，
+  // 同一個人會同時出現在 [Scene Lorebook] 與 [Pinned NPCs]
   const pinnedNpcs = npcs.filter(
-    n => (n.isPinned || n.isCompanion) && !relevantLorebookNpcTitles.has(n.name)
+    n => (n.isPinned || n.isCompanion)
+      && ![...relevantLorebookNpcTitles].some(t => isSameNpcName(t, n.name))
   )
 
   // 出場 NPC：全量（依重要度截斷）
@@ -501,7 +504,7 @@ Personality: ${profile.personality}${profile.other ? `\nOther: ${profile.other}`
     section(
       '[隨行同伴（不受地點限制，此刻就在玩家身邊）]',
       companionNpcs.map(n => {
-        const lore = lorebookEntries.find(e => e.category === 'NPC' && e.title === n.name)
+        const lore = findNpcLore(lorebookEntries, n.name)
         const prof = resolveNpcProfile(lore)
         const brief = [prof.gender, prof.race, prof.job].filter(Boolean).join('・')
         return `- ${n.name}${brief ? `（${brief}）` : ''}｜對玩家：${relationText(n.relationship, n.affection)}（好感度 ${n.affection}）`
@@ -651,7 +654,7 @@ Personality: ${profile.personality}${profile.other ? `\nOther: ${profile.other}`
     ? `｜[近期想法] ${n.thoughts.map((t, i) => `${i + 1}.${t.text}`).join(' / ')}`
     : ''
   return (() => {
-    const lorePinned = lorebookEntries.find(e => e.category === 'NPC' && e.title === n.name)
+    const lorePinned = findNpcLore(lorebookEntries, n.name)
     // 同 [Scene Lorebook]：設定集沒填時退回 Npc 那份，避免與角色卡顯示的不一致
     const profPinned = resolveNpcProfile(lorePinned)
     const genderPinned = profPinned.gender ? `${profPinned.gender}・` : ''
