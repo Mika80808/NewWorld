@@ -100,9 +100,14 @@ describe('parseNpcImport — 逐筆驗證', () => {
     expect(parseNpcImport({ npcs: [{ name: 'A', anyLocation: true }] }).npcs[0].anyLocation).toBe(true);
   });
 
-  it('isCompanion 只接受布林 true', () => {
-    expect(parseNpcImport({ npcs: [{ name: 'A', isCompanion: 'yes' }] }).npcs[0].isCompanion).toBe(false);
-    expect(parseNpcImport({ npcs: [{ name: 'A', isCompanion: true }] }).npcs[0].isCompanion).toBe(true);
+  it('canAppear 只接受布林 true', () => {
+    expect(parseNpcImport({ npcs: [{ name: 'A', canAppear: 'yes' }] }).npcs[0].canAppear).toBe(false);
+    expect(parseNpcImport({ npcs: [{ name: 'A', canAppear: true }] }).npcs[0].canAppear).toBe(true);
+  });
+
+  /** 舊的匯出檔帶的是 isCompanion。認不得就等於常駐角色跨檔之後全部掉光 */
+  it('舊檔案的 isCompanion 仍然收得進 canAppear', () => {
+    expect(parseNpcImport({ npcs: [{ name: 'A', isCompanion: true }] }).npcs[0].canAppear).toBe(true);
   });
 
   it('內建範本自己解析得過', () => {
@@ -280,12 +285,12 @@ describe('buildNpcExport — 與匯入格式來回', () => {
     expect(out.npcs[0].factions).toEqual(['黑牙氏族']);
   });
 
-  // 隨行是「這個角色常駐在玩家身邊」的設定，跨檔沒有 id 問題，照樣來回
-  it('隨行同伴的旗標來回都在', () => {
-    const out = buildNpcExport([existingNpc({ name: '引路者', isCompanion: true })], []);
-    expect(out.npcs[0].isCompanion).toBe(true);
+  // 可出場是「這個角色永遠列在候選名單上」的設定，跨檔沒有 id 問題，照樣來回
+  it('可出場的旗標來回都在', () => {
+    const out = buildNpcExport([existingNpc({ name: '引路者', canAppear: true })], []);
+    expect(out.npcs[0].canAppear).toBe(true);
     const back = mergeImportedNpcs(parseNpcImport(out).npcs, [], [], '4/15');
-    expect(back.npcs[0].isCompanion).toBe(true);
+    expect(back.npcs[0].canAppear).toBe(true);
   });
 
   // 不限地點是設定集條目上的欄位，跨檔沒有 id 問題，照樣來回
@@ -299,9 +304,9 @@ describe('buildNpcExport — 與匯入格式來回', () => {
     expect(back.lorebookEntries[0].anyLocation).toBe(true);
   });
 
-  it('沒有隨行時不匯出這個欄位', () => {
+  it('沒有可出場時不匯出這個欄位', () => {
     const out = buildNpcExport([existingNpc({ name: 'A', memories: [] })], []);
-    expect(out.npcs[0].isCompanion).toBeUndefined();
+    expect(out.npcs[0].canAppear).toBeUndefined();
   });
 
   it('對不到勢力定義的 id 直接略過，不匯出空值', () => {

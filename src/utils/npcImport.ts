@@ -31,8 +31,12 @@ export interface ImportedNpc {
   /** 不限地點：這個角色隨時可能出現，不受地點篩選限制（見 LorebookEntry.anyLocation） */
   anyLocation?: boolean;
   isPinned?: boolean;
-  /** 隨行同伴：常駐玩家身邊、不受地點限制（見 Npc.isCompanion） */
-  isCompanion?: boolean;
+  /**
+   * 可出場：永遠列在候選名單最前面、不受地點限制（見 Npc.canAppear）。
+   * 舊名 `isCompanion`（隨行同伴），匯入時仍然收——舊的匯出檔還帶著那個鍵，
+   * 認不得就等於玩家辛苦標過的常駐角色跨檔之後全部掉光。
+   */
+  canAppear?: boolean;
   /** 角色記憶，純字串陣列；好感度 ≥ 60 才會注入 prompt */
   memories?: string[];
   /**
@@ -233,7 +237,7 @@ export function parseNpcImport(raw: unknown): ParseResult {
       roamLocations: strArray(o.roamLocations).slice(0, 3),
       anyLocation: o.anyLocation === true,
       isPinned: o.isPinned === true,
-      isCompanion: o.isCompanion === true,
+      canAppear: o.canAppear === true || o.isCompanion === true,
       memories: strArray(o.memories),
       factions: strArray(o.factions),
     });
@@ -387,7 +391,7 @@ export function mergeImportedNpcs(
       relationship: src.relationship || undefined,
       location: src.homeLocation || undefined,
       isPinned: src.isPinned,
-      isCompanion: src.isCompanion,
+      canAppear: src.canAppear,
       category: '登場人物',
       isActive: true,
       memories,
@@ -496,7 +500,7 @@ export function buildNpcExport(
 
       if (n.affection) out.affection = n.affection;
       if (n.isPinned) out.isPinned = true;
-      if (n.isCompanion) out.isCompanion = true;
+      if (n.canAppear) out.canAppear = true;
 
       const roam = lore?.roamLocations ?? [];
       if (roam.length > 0) out.roamLocations = roam;
@@ -554,7 +558,7 @@ export const NPC_IMPORT_TEMPLATE: { factions: ImportedFaction[]; npcs: ImportedN
       homeLocation: '迷霧森林',
       roamLocations: ['月湖鎮'],
       isPinned: false,
-      isCompanion: false,
+      canAppear: false,
       memories: ['第一次見面時借給你一支箭'],
       factions: ['黑牙氏族'],
     },

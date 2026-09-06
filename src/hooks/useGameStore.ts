@@ -21,7 +21,7 @@ import {
 } from '../constants';
 
 // ─── Schema 版本 ──────────────────────────────────────────────────────────────
-export const CURRENT_SCHEMA = 10;
+export const CURRENT_SCHEMA = 11;
 
 // ─── 型別：儲存快照 ───────────────────────────────────────────────────────────
 export interface GameSaveData {
@@ -380,6 +380,33 @@ export function migrateV9toV10(data: Record<string, unknown>): Record<string, un
   return out;
 }
 
+/**
+ * v10 → v11：`Npc.isCompanion`（隨行同伴）改名為 `canAppear`（可出場）。
+ *
+ * 不只是改名，語意也降級了：舊的隨行是「無條件視為在場」——繞過候選名單、
+ * 繞過 `[出場:]` 標記、繞過關鍵字門檻。那條旁路修好了常駐角色進不了候選名單的
+ * 症狀，卻讓「AI 說誰在場」與「誰跟著玩家」永久混在一起。
+ *
+ * 新的 `canAppear` 只保證**永遠是候選人**（`npcCandidates` 給最高分，
+ * 不會被名單上限擠掉），實際在不在場一律回到 `[出場:]` 決定。
+ *
+ * 遷移直接沿用舊值：勾過隨行的角色仍然每回合都出現在候選名單最前面，
+ * 差別只在 AI 現在可以判斷他這一幕該不該登場。
+ */
+export function migrateV10toV11(data: Record<string, unknown>): Record<string, unknown> {
+  const out = { ...data };
+  const npcs = Array.isArray(out.npcs) ? (out.npcs as Record<string, unknown>[]) : [];
+  if (npcs.length === 0) return out;
+
+  out.npcs = npcs.map(npc => {
+    const next = { ...npc };
+    if (next.isCompanion === true) next.canAppear = true;
+    delete next.isCompanion;
+    return next;
+  });
+  return out;
+}
+
 const MIGRATIONS: Record<number, (d: Record<string, unknown>) => Record<string, unknown>> = {
   0: migrateV0toV1,
   1: migrateV1toV2,
@@ -391,6 +418,7 @@ const MIGRATIONS: Record<number, (d: Record<string, unknown>) => Record<string, 
   7: migrateV7toV8,
   8: migrateV8toV9,
   9: migrateV9toV10,
+  10: migrateV10toV11,
 };
 
 function runMigrations(raw: Record<string, unknown>): Record<string, unknown> {
@@ -594,8 +622,8 @@ export function useGameStore() {
         lastSeenLocation: undefined,
         lastSeenDate:     undefined,
         isPinned: false,
-        // 隨行是「這一局誰跟著玩家走」的執行狀態，與足跡同一類，重置時一併清空
-        isCompanion: false,
+        // 可出場是「這一局誰永遠列在候選名單上」的執行狀態，與足跡同一類，重置時一併清空
+        canAppear: false,
       })),
     };
 

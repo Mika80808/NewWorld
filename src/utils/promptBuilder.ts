@@ -7,10 +7,20 @@ import { getTotalDaysFromTimeState, getQuestRemainingDays } from './timeUtils'
 import { selectKnownItemNames, describeItem } from './itemCatalog'
 import { relationText } from './affectionLabel'
 import { resolveNpcProfile, npcIdentityBrief, selectKnownNpcNames, isSameNpcName, findNpcLore } from './npcProfile'
-import { isNpcOnStage, resolveOnStageNames } from './npcPresence'
-import { isSameCity, childLocationsOf } from './locationTree'
+import { isNpcOnStage } from './npcPresence'
+import { childLocationsOf } from './locationTree'
+import { selectNpcCandidates } from './npcCandidates'
 import { factionTypeLabel, factionRelationLabel } from './factionLabel'
 import { COMMANDS_VERSION } from './commandParser'
+
+/**
+ * 「人就在玩家這一格」的候選來源。
+ *
+ * 好感度 ≥ 60 的完整注入只認這三層。同城（`sameCity`）與不限地點
+ * （`anyLocation`）代表「可能在這裡」，可出場（`canAppear`）代表「永遠是候選人」——
+ * 三者都不是「他現在站在這裡」，塞進 `[Scene Lorebook]` 就等於謊報在場。
+ */
+const LOCAL_CANDIDATE_REASONS = new Set(['home', 'roam', 'footprint'])
 
 export interface BuildPromptDeps {
   profile: Profile
@@ -86,12 +96,16 @@ export function buildPrompt(
   const loc = locationOverride ?? deps.currentLocation
   const SLIDING_WINDOW = 20
 
-  // 隨行同伴：跟著玩家走的角色，不受地點候選、[出場:] 標記與關鍵字門檻管轄。
-  // 場上名單一律讀 onStageNpcs（＝[出場:] ∪ 同伴），不要再直接讀 appearingNpcs。
-  const companionNpcs = npcs.filter(n => n.isCompanion)
-  const isCompanionName = (name: string): boolean =>
-    companionNpcs.some(n => isSameNpcName(n.name, name))
-  const onStageNpcs = resolveOnStageNames(npcs, appearingNpcs)
+  // 「誰在場」只有一個來源：AI 這一回合寫的 `[出場:]`。
+  //
+  // 舊的隨行同伴（`isCompanion`）會被無條件併進這份名單，於是「AI 說誰在場」
+  // 與「誰跟著玩家」永久混在一起。改成「可出場」（`canAppear`）之後，
+  // 那個旗標只影響候選名單的排序分數（見 utils/npcCandidates.ts），
+  // 在場與否回到與所有其他角色相同的規則。
+  const onStageNpcs = appearingNpcs
+  const canAppearNpcs = npcs.filter(n => n.canAppear)
+  const isCanAppearName = (name: string): boolean =>
+    canAppearNpcs.some(n => isSameNpcName(n.name, name))
 
   // 取得 NPC 所屬勢力名稱字串
   const getNpcFactionText = (npcFactionIds?: number[]): string => {
@@ -157,60 +171,24 @@ export function buildPrompt(
   )
   const candidateLimit = currentLocEntry?.locationType === 'town' ? 8 : 3
 
-  // ⚠️ 第三個來源（足跡）不可省略。`homeLocation` / `roamLocations` **在整個 UI 裡
-  // 都沒有編輯入口**，只有 AI 的 NPC_HOME / NPC_LOCATION 指令寫得到；而 NPC_NEW
-  // 建立設定集條目時也不寫 homeLocation。於是兩種角色永遠進不了候選名單：
-  // 玩家自己在角色卡建立的、以及 AI 建檔後忘了補 NPC_HOME 的。
+  // Phase 1 的候選名單改由 `utils/npcCandidates.ts` 打分排序。
   //
-  // 進不了候選名單 → 不出現在「當前場景可能出現的角色」→ AI 不知道有這個人 →
-  // 不會輸出 [出場:名字] → 不在 appearingNpcs → 設定集條目過不了 inScene →
-  // **GM 永遠讀不到這個角色的設定**。除非玩家剛好把他釘選了。
+  // 這裡原本是一串 or 起來的布林條件（主場／遊蕩／足跡／同城／不限地點），
+  // 每一條都是為了修一個症狀後加的旁路，而底下「字串完全相等」的地基沒換過。
+  // 打分把那些旁路變成權重：同一件事只問一次，排序天然就是本地優先、
+  // 四處跑的墊後，上限直接砍尾巴。各層的理由與分數見該檔案的說明。
   //
-  // 這裡用 `Npc.location`（出場時寫入的足跡）當第三個來源把鏈接回去。
-  // 足跡對「候選名單＝誰可能在這裡」正是恰當語意——它不等於「誰現在在台上」，
-  // 後者一律以 appearingNpcs 為準（見 utils/npcPresence.ts）
-  //
-  // 隨行同伴**不列進候選名單**：候選的語意是「可能在場、由 AI 決定要不要出場」，
-  // 而同伴是已經在場的既成事實。混在一起講會讓模型以為那個人要不要出現可以選，
-  // 於是常駐角色三不五時就從場景裡蒸發。他們改由下方 [隨行同伴] 區塊宣告在場。
-  //
-  // 第四、第五個來源：同城與不限地點。
-  //
-  // 「同城」解的是玩家回報的「在月湖鎮開店的 NPC 只待在店裡」：老闆娘的主場是
-  // 「醉醺醺酒館」，玩家人在「月湖鎮」大街上時，字串完全相等的比對讓她永遠
-  // 比不中。`parentLocation` 把地點串成樹之後改以整座城為單位比對
-  // （見 utils/locationTree.ts）。
-  //
-  // 「不限地點」（`anyLocation`）是玩家在角色卡上明確設的：行商、信使、遊俠
-  // 這類到處跑的角色，本來就不該綁在某一個地點上。
-  //
-  // ⚠️ 兩者都排在本地角色**之後**。候選名單有上限（城鎮 8 / 其他 3），
-  // 讓四處遊走的人把真正住在這裡的居民擠掉會直接倒退回原本的症狀。
-  const isLocalHome = (e: LorebookEntry) => e.homeLocation === loc
-  const isRoaming = (e: LorebookEntry) => (e.roamLocations || []).includes(loc)
-  const hasFootprintHere = (e: LorebookEntry) =>
-    npcs.some(n => isSameNpcName(n.name, e.title) && n.location === loc)
-  const isSameCityHome = (e: LorebookEntry) =>
-    !!e.homeLocation && isSameCity(lorebookEntries, e.homeLocation, loc)
-
-  const npcCandidates = lorebookEntries
-    .filter(e => e.category === 'NPC' && e.isActive && !isCompanionName(e.title) && (
-      isLocalHome(e) ||
-      isRoaming(e) ||
-      hasFootprintHere(e) ||
-      isSameCityHome(e) ||
-      e.anyLocation === true
-    ))
-    .sort((a, b) => {
-      const score = (e: LorebookEntry) => {
-        if (isLocalHome(e)) return 0
-        if (isRoaming(e) || hasFootprintHere(e)) return 1
-        if (isSameCityHome(e)) return 2
-        return 3   // anyLocation
-      }
-      return score(a) - score(b)
-    })
-    .slice(0, candidateLimit)
+  // ⚠️ 足跡那一層不可省略：`homeLocation` 只有 AI 的 NPC_HOME 與角色卡的
+  // 下拉選單寫得到，AI 建檔後忘了補的角色就靠足跡把鏈接回去。進不了候選名單
+  // → AI 不知道有這個人 → 不會輸出 [出場:] → 條目過不了 inScene →
+  // GM 永遠讀不到這個角色的設定。
+  const scoredCandidates = selectNpcCandidates(
+    { location: loc, lorebookEntries, npcs },
+    candidateLimit,
+  )
+  const npcCandidates = scoredCandidates.map(c => c.entry)
+  const candidateReasonByTitle = new Map(scoredCandidates.map(c => [c.entry.title, c.reason]))
+  const candidateReasonOf = (title: string) => candidateReasonByTitle.get(title)
 
   // 相鄰地點清單（讓 AI 知道玩家可以去哪裡）
   const adjacentLocTitles = new Set(currentLocEntry?.adjacentTo ?? [])
@@ -244,28 +222,25 @@ export function buildPrompt(
       // 助理的語意挑選照樣送得到模型手上，只是不再謊報在場
       if (hintedLoreIds.has(e.id) && !hasPresenceSemantics(e)) return true
       if (e.category === 'NPC') {
-        // 隨行同伴無條件放行——他就站在玩家旁邊，不必經過下面任何一道判定。
-        // （`resolveOnStageNames` 已經把同伴併進 onStageNpcs，所以下方的
-        //  `isNpcOnStage` 其實也會放行；這條留著是為了不讓同伴的在場資格
-        //  取決於另一支函數的實作細節。）
-        if (isCompanionName(e.title)) return true
         // Phase 2：出場 NPC、釘選 NPC、或「就在當前地點」且好感度 ≥ 60 的核心 NPC → 完整注入
         //
-        // ⚠️ 這裡的「當前地點」**不等於** npcCandidates。候選名單後來擴進了同城
-        // （`isSameCityHome`）與不限地點（`anyLocation`）兩個來源，那對「AI 可以挑誰
-        // 出場」是對的，但拿來當完整注入的門檻就錯了：`[Scene Lorebook]` 的語意是
-        // 「**現在在場的人**」，把不在場的塞進去，模型會直接讓他走進場景
-        // （同 `mentionedAbsent` 那段標題上的警告）。
+        // ⚠️ 這裡的「當前地點」**不等於**「在候選名單上」。名單收的是同城
+        // （店主在鎮上任何一處都算）與不限地點（行商）這些「可能在這裡」的人，
+        // 那對「AI 可以挑誰出場」是對的，但拿來當完整注入的門檻就錯了：
+        // `[Scene Lorebook]` 的語意是「**現在在場的人**」，把不在場的塞進去，
+        // 模型會直接讓他走進場景（同 `mentionedAbsent` 那段標題上的警告）。
         //
         // 具體症狀：好感度 ≥ 60 的不限地點角色會在**每一個地點、每一回合**被完整
         // 注入並被寫進戲裡；同城的店主也一樣，玩家在鎮上任何地方都會遇到她，
         // 那正好抵銷掉「由 AI 決定誰出場」的設計。
-        const isLocalTier = (x: LorebookEntry) =>
-          isLocalHome(x) || isRoaming(x) || hasFootprintHere(x)
-        const isInCandidates = npcCandidates.some(c => c.title === e.title)
-        const npcData = isInCandidates ? npcs.find(n => isSameNpcName(n.name, e.title)) : undefined
+        //
+        // 打分版本把這件事講得更直接：只有分數來自「人就在這一格」的三層
+        // （主場／遊蕩／足跡）才算本地，同城與不限地點不算，可出場也不算——
+        // 可出場只保證他是候選人，不保證他人在這裡。
+        const npcData = npcs.find(n => isSameNpcName(n.name, e.title))
         const isHighAffectionCandidate =
-          isInCandidates && isLocalTier(e) && (npcData?.affection ?? 0) >= 60
+          LOCAL_CANDIDATE_REASONS.has(candidateReasonOf(e.title))
+          && (npcData?.affection ?? 0) >= 60
 
         const inScene =
           isNpcOnStage(e.title, onStageNpcs) ||
@@ -275,7 +250,7 @@ export function buildPrompt(
         //
         // 先前這裡是 `if (!inScene) return false; return lorebookHitsKeywords(e)`，
         // 於是條目設了關鍵字、這回合沒命中時，AI 剛用 `[出場:芬里爾]` 請上台的人
-        // 會整條被濾掉——而他既不在 `[Pinned NPCs]`（那段只收釘選／隨行），
+        // 會整條被濾掉——而他既不在 `[角色補充資料]`（那段當時只收釘選／隨行），
         // 也不在 `[其他已知角色]`（名冊把在場的人排除掉了）。結果是模型手上
         // 對這個角色**一個字都沒有**：沒有外貌、沒有個性、沒有對玩家的態度，
         // 只能現編一個，下一回合再編一個不一樣的。
@@ -342,7 +317,6 @@ export function buildPrompt(
     if (relevantLorebookIds.has(e.id)) return false
     if (e.category === '地點') return e.title !== loc && !adjacentLocTitles.has(e.title)
     return !relevantLorebookNpcTitles.has(e.title)
-      && !isCompanionName(e.title)
       && !npcs.some(n => n.isPinned && isSameNpcName(n.name, e.title))
   })
     // 玩家指名道姓提到的排在助理猜的前面——名額只有 MAX_MENTIONED 個，
@@ -398,12 +372,17 @@ export function buildPrompt(
     .sort((a, b) => Number(seedFactionIds.has(b.id)) - Number(seedFactionIds.has(a.id)))
     .slice(0, MAX_FACTIONS)
 
-  // 沒有設定集條目的釘選／隨行角色的兜底資料來源（有條目的走 [Scene Lorebook]）。
-  // 同伴一定要收在這裡：他無條件在場，卻不見得有人替他建過設定集條目
+  // 沒有設定集條目的角色的兜底資料來源（有條目的走 [Scene Lorebook]）。
+  //
+  // 收兩種人：玩家釘選的，以及**這一回合真的在場**的。後者先前是靠
+  // 「隨行同伴」順帶收進來的，但那個旗標只是常駐角色的特例——任何角色只要
+  // 沒有設定集條目（`handleAddNpc` 建的、舊存檔帶進來的），一旦被 AI 請上台，
+  // 模型就只拿得到一個名字。在場才是該給資料的理由，隨不隨行不是。
+  //
   // 名稱比對走 isSameNpcName：條目標題與 Npc.name 只差一個空白時，
-  // 同一個人會同時出現在 [Scene Lorebook] 與 [Pinned NPCs]
+  // 同一個人會同時出現在 [Scene Lorebook] 與這一段
   const pinnedNpcs = npcs.filter(
-    n => (n.isPinned || n.isCompanion)
+    n => (n.isPinned || isNpcOnStage(n.name, onStageNpcs))
       && ![...relevantLorebookNpcTitles].some(t => isSameNpcName(t, n.name))
   )
 
@@ -549,27 +528,6 @@ Personality: ${profile.personality}${profile.other ? `\nOther: ${profile.other}`
     section(`[🏠 Scene Memory: ${loc}]`, memLines(finalSceneMems)),
     section('[👤 NPC Memory]', memLines(finalNpcMems, 'npcs')),
 
-    // 隨行同伴：宣告「這些人此刻就在場」，與下面的「可能出現」是兩回事。
-    //
-    // 光把常駐角色放進設定集是不夠的——那只給了模型一份資料，沒有給它「這個人
-    // 現在站在這裡」的事實。模型於是把他當成可以引用的知識而不是在場的人，
-    // 寫成憑空傳來的聲音／腦中低語／神諭。所以這段話要明講三件事：
-    // 在場、有身體、會主動開口。
-    section(
-      '[隨行同伴（不受地點限制，此刻就在玩家身邊）]',
-      companionNpcs.map(n => {
-        const lore = findNpcLore(lorebookEntries, n.name)
-        const prof = resolveNpcProfile(lore)
-        const brief = [prof.gender, prof.race, prof.job].filter(Boolean).join('・')
-        return `- ${n.name}${brief ? `（${brief}）` : ''}｜對玩家：${relationText(n.relationship, n.affection)}（好感度 ${n.affection}）`
-      }).join('\n') + (companionNpcs.length > 0
-        ? '\n以上角色常駐在玩家身旁，玩家走到哪他們就跟到哪，本回合必定在場。' +
-          '\n他們是有實體的同行者：會主動開口、主動行動、主動插話與提醒，不必等玩家呼喚或發問。' +
-          '\n不要把他們寫成憑空傳來的聲音、腦中的低語或神諭，也不要讓他們無故消失或留在原地。' +
-          '\n他們無須列入 [出場:] 標記，系統已自動視為在場。'
-        : ''),
-    ),
-
     // 不套 section()：沒有候選角色時那句話是給 AI 的指示，不是佔位符
     //
     // ⚠️ 名單必須帶性別。先前只給「名字（職業）」，而完整設定要等 AI 輸出
@@ -577,11 +535,24 @@ Personality: ${profile.personality}${profile.other ? `\nOther: ${profile.other}`
     // 模型手上根本沒有性別，只能自己編。編錯就寫進對話歷史，之後即使拿到
     // 正確設定也會為了前後一致繼續錯下去，玩家看到的就是「設定寫女的，
     // 故事裡是男的」。性別與種族只多幾個字，遠比事後救回便宜。
+    //
+    // 「可出場」（`Npc.canAppear`）的角色在這裡標成【常駐】。舊版是另開一段
+    // `[隨行同伴]` 宣告他們「本回合必定在場」，完全繞過 `[出場:]`——那讓
+    // 「AI 說誰在場」與「誰跟著玩家」永久混成一團。現在他們與其他人同列，
+    // 只是永遠排在最前面（分數 1000，不會被名單上限擠掉），並多一句話告訴模型
+    // 除非有理由否則應該讓他們登場。
     `[當前場景可能出現的角色]\n${npcCandidates.length > 0
       ? npcCandidates.map(e => {
           const brief = npcIdentityBrief(e)
-          return brief ? `${e.title}（${brief}）` : e.title
-        }).join('、') + '\n以上為可能在場的角色，非必須出場。若故事需要新角色請自由創造。'
+          const tag = isCanAppearName(e.title) ? '【常駐】' : ''
+          return `${tag}${e.title}${brief ? `（${brief}）` : ''}`
+        }).join('、')
+        + '\n以上為可能在場的角色，非必須出場。若故事需要新角色請自由創造。'
+        + (npcCandidates.some(e => isCanAppearName(e.title))
+          ? '\n標【常駐】的角色長期待在玩家身邊，除非劇情上有明確理由（他去辦事、被支開、玩家獨處），' +
+            '否則本回合應該讓他在場並寫進 [出場:] 標記。他有實體，會主動開口與行動，' +
+            '不要寫成憑空傳來的聲音或腦中的低語。'
+          : '')
       : '無已知角色在附近。若故事需要新角色請自由創造。'}`,
 
     // 城內地點：玩家此刻所在的這座城底下有哪些地方。
@@ -611,7 +582,7 @@ Personality: ${profile.personality}${profile.other ? `\nOther: ${profile.other}`
         new Set([
           ...npcCandidates.map(e => e.title),
           ...onStageNpcs,
-          ...companionNpcs.map(n => n.name),
+          ...canAppearNpcs.map(n => n.name),
           ...mentionedAbsent.map(e => e.title),
         ]),
       ).join('、'),
@@ -703,7 +674,7 @@ Personality: ${profile.personality}${profile.other ? `\nOther: ${profile.other}`
       }).join('\n'),
     ),
 
-    section('[Pinned NPCs]', pinnedNpcs.map(n => {
+    section('[角色補充資料（釘選追蹤中，或本回合在場但設定集裡沒有條目）]', pinnedNpcs.map(n => {
   const thoughtsText = n.thoughts && n.thoughts.length > 0
     ? `｜[近期想法] ${n.thoughts.map((t, i) => `${i + 1}.${t.text}`).join(' / ')}`
     : ''
@@ -833,7 +804,8 @@ NPC_RELATION|npc=NPC名|type=family/ally/rival/enemy/acquaintance/romantic|targe
 
 敘事開頭輸出出場標記（非 COMMANDS 區塊，每回應必須）：
 [出場:姓名1,姓名2]（從候選名單選誰實際在場；無人可輸出 [出場:]；可加候選外新角色）
-[隨行同伴] 區塊裡的角色不必寫進這個標記，系統一律視為在場；寫了也不會出錯。
+候選名單裡標【常駐】的角色也一樣要寫進這個標記才算在場——他們長期跟在玩家身邊，
+除非劇情上有明確理由（去辦事、被支開、玩家獨處），否則每回合都應該列進去。
 
 【各指令觸發時機】
 - TIME：每次回應必須輸出 delta，依行動性質推進。

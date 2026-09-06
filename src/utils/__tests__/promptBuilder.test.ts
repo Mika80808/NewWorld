@@ -183,7 +183,7 @@ describe('buildPrompt — 空區塊省略', () => {
 
   it('沒有任務／裝備／狀態時，相關區塊標題不出現', () => {
     const { prompt } = buildPrompt(deps([], () => false), '測試輸入', messages);
-    for (const title of ['[進行中任務]', '[Inventory]', '[Active Diary]', '[Pinned NPCs]', '[Scene Lorebook]', 'Status Effects:']) {
+    for (const title of ['[進行中任務]', '[Inventory]', '[Active Diary]', '[角色補充資料（釘選追蹤中，或本回合在場但設定集裡沒有條目）]', '[Scene Lorebook]', 'Status Effects:']) {
       expect(prompt).not.toContain(title);
     }
   });
@@ -408,7 +408,7 @@ describe('buildPrompt NPC 性別注入', () => {
 
   /**
    * 釘選的 NPC 若有設定集條目，會走 [Scene Lorebook]（見 promptBuilder 的
-   * `relevantLorebookNpcTitles` 去重）。所以 [Pinned NPCs] 這一段實際上只會
+   * `relevantLorebookNpcTitles` 去重）。所以 [角色補充資料] 這一段實際上只會
    * 收到**沒有設定集條目**的角色——而 schema v10 之後那種角色身上沒有任何
    * 身分欄位可印，只剩名字與好感度。
    *
@@ -416,12 +416,12 @@ describe('buildPrompt NPC 性別注入', () => {
    * `NPC_NEW` / `handleAddNpc` / `mergeImportedNpcs` 也都是兩份一起建
    * （CLAUDE.md 注意事項 20）。這條釘的是「即使真的缺條目也不要壞掉」。
    */
-  it('[Pinned NPCs] 收的是沒有設定集條目的釘選角色，只印得出名字', () => {
+  it('[角色補充資料] 收的是沒有設定集條目的釘選角色，只印得出名字', () => {
     const prompt = build({
       npcs: [npc({ isPinned: true })],
       lorebookEntries: [],
     });
-    expect(prompt).toContain('[Pinned NPCs]');
+    expect(prompt).toContain('[角色補充資料（釘選追蹤中，或本回合在場但設定集裡沒有條目）]');
     expect(prompt).toContain('凱爾');
     expect(prompt).not.toContain('凱爾（）');
   });
@@ -432,7 +432,7 @@ describe('buildPrompt NPC 性別注入', () => {
       lorebookEntries: [loreNpc({ gender: '女' })],
     });
     expect(prompt).toContain('[NPC] 凱爾｜性別：女');
-    expect(prompt).not.toContain('[Pinned NPCs]');
+    expect(prompt).not.toContain('[角色補充資料（釘選追蹤中，或本回合在場但設定集裡沒有條目）]');
   });
 });
 
@@ -780,18 +780,17 @@ describe('buildPrompt 勢力與關係鏈', () => {
   });
 });
 
-// ─── 隨行同伴（Npc.isCompanion）─────────────────────────────────────────────
-// 玩家回報：「引路者的設定是常駐在玩家身邊，但它現在誤會成一種神諭，
-// 即使把他放進 NPC 裡，但引路者不該綁定在地點，他需要獨立設定成會主動出現。」
+// ─── 可出場（Npc.canAppear）───────────────────────────────────────────────
+// 舊名「隨行同伴」（isCompanion），語意是「無條件視為在場」——繞過候選名單、
+// 繞過 [出場:] 標記、繞過關鍵字門檻。那條旁路解決了常駐角色永遠進不了候選名單
+// 的症狀，代價是「AI 說誰在場」與「誰跟著玩家」永久混在一起。
 //
-// 成因是整條 NPC 注入鏈都以「地點」為軸：Phase 1 依 currentLocation 篩候選 →
-// AI 從候選名單挑人輸出 [出場:] → Phase 2 才注入完整資料。常駐角色的主場
-// 不會等於玩家當下的所在地，於是他永遠不在候選名單、AI 永遠不會讓他出場，
-// 模型手上只有一份「查得到但不在場」的資料——寫出來就是一個沒有身體的聲音。
-describe('buildPrompt 隨行同伴', () => {
+// 改成「可出場」之後只保證一件事：永遠是候選人（分數 1000，不被名單上限擠掉）。
+// 在不在場一律回到 [出場:]，與其他所有角色同一套規則。
+describe('buildPrompt 可出場（canAppear）', () => {
   const guide = (over: Partial<Npc> = {}): Npc => ({
     id: 1, name: '引路者', affection: 40,
-    category: 'NPC', isActive: true, memories: [], isCompanion: true, ...over,
+    category: 'NPC', isActive: true, memories: [], canAppear: true, ...over,
   });
   // 主場刻意不是當前地點（月湖鎮），關鍵字刻意不命中本回合的輸入
   const guideLore = (over: Partial<LorebookEntry> = {}): LorebookEntry => ({
@@ -802,85 +801,81 @@ describe('buildPrompt 隨行同伴', () => {
   const build = (over: Partial<BuildPromptDeps>) =>
     buildPrompt({ ...deps([], () => false), ...over }, '測試輸入', messages).prompt;
 
-  it('宣告在場：不受地點限制，也不必等 AI 輸出 [出場:]', () => {
+  const candidateBlock = (prompt: string) =>
+    prompt.split('[當前場景可能出現的角色]')[1].split('\n\n')[0];
+
+  it('不受地點限制，永遠列進候選名單並標【常駐】', () => {
     const prompt = build({ npcs: [guide()], lorebookEntries: [guideLore()] });
-    expect(prompt).toContain('[隨行同伴（不受地點限制，此刻就在玩家身邊）]');
-    expect(prompt).toContain('- 引路者（女・嚮導）｜對玩家：相識（好感度 40）');
+    expect(candidateBlock(prompt)).toContain('【常駐】引路者（女・嚮導）');
   });
 
   /**
-   * 「在場」不夠，還要講清楚是**有身體的人**。模型把常駐角色寫成神諭，
-   * 正是因為它只拿到一份資料、沒拿到「這個人現在站在這裡、會自己開口」。
+   * 只把人放進名單不夠——模型會把常駐角色當成「可有可無的選項」而讓他三不五時
+   * 蒸發，或反過來寫成沒有身體的聲音。名單底下那句話要同時交代兩件事：
+   * 通常該在場、而且他是有實體的人。
    */
-  it('明講是實體在場且會主動開口，不是聲音或神諭', () => {
+  it('附上指示：通常該讓他登場，而且他有實體不是聲音', () => {
     const prompt = build({ npcs: [guide()], lorebookEntries: [guideLore()] });
-    expect(prompt).toContain('主動開口');
-    expect(prompt).toContain('神諭');
+    expect(prompt).toContain('標【常駐】的角色長期待在玩家身邊');
+    expect(prompt).toContain('不要寫成憑空傳來的聲音');
   });
 
-  it('完整設定注入 [Scene Lorebook]，即使地點不符且關鍵字沒命中', () => {
-    const prompt = build({ npcs: [guide()], lorebookEntries: [guideLore()] });
+  /**
+   * 這是與舊「隨行同伴」最關鍵的行為差異，也是改動的重點：
+   * 可出場只保證他是候選人，不保證他在場。AI 沒讓他登場時，
+   * 他的完整檔案不該出現在 [Scene Lorebook]（那段的語意是「現在在場的人」）。
+   */
+  it('AI 沒讓他登場時不進 [Scene Lorebook]', () => {
+    const prompt = build({ npcs: [guide()], appearingNpcs: [], lorebookEntries: [guideLore()] });
+    expect(prompt).not.toContain('[NPC] 引路者｜性別：女');
+  });
+
+  it('AI 讓他登場後照常完整注入，關鍵字沒命中也一樣', () => {
+    const prompt = build({
+      npcs: [guide()], appearingNpcs: ['引路者'], lorebookEntries: [guideLore()],
+    });
     expect(prompt).toContain('[NPC] 引路者｜性別：女');
     expect(prompt).toContain('對玩家：相識（好感度 40）');
   });
 
   /**
-   * 候選名單的語意是「可能在場，由你決定要不要出場」。把既成事實混進去講，
-   * 模型會以為常駐角色出不出現可以選——於是他三不五時就從場景裡蒸發。
+   * 候選名單有上限（城鎮 8 / 野外 3）。可出場是玩家親手指定的，
+   * 不該被一群剛好住在這裡的路人擠掉——所以分數給到 1000。
    */
-  it('不列進「當前場景可能出現的角色」', () => {
+  it('名單額滿時也不會被本地角色擠掉', () => {
+    const locals = Array.from({ length: 6 }, (_, i) => ({
+      id: 10 + i, title: `路人${i}`, content: '', category: 'NPC', isActive: true,
+      homeLocation: '月湖鎮',
+    } as LorebookEntry));
     const prompt = build({
       npcs: [guide()],
-      lorebookEntries: [guideLore({ homeLocation: '月湖鎮' })],
+      lorebookEntries: [guideLore(), ...locals],
     });
-    const candidates = prompt.split('[當前場景可能出現的角色]')[1].split('\n\n')[0];
-    expect(candidates).not.toContain('引路者');
+    // 野外／未設定 locationType 的上限是 3
+    expect(candidateBlock(prompt)).toContain('【常駐】引路者');
   });
 
-  /** [出場:] 空標記＝現場無人。同伴不是這個場景的人，不受它清空 */
-  it('AI 輸出空的 [出場:] 也不會讓同伴消失', () => {
+  it('關掉之後回到依地點判斷，主場不符就不列入候選', () => {
     const prompt = build({
-      npcs: [guide()], appearingNpcs: [], lorebookEntries: [guideLore()],
+      npcs: [guide({ canAppear: false })], lorebookEntries: [guideLore()],
     });
-    expect(prompt).toContain('[NPC] 引路者｜性別：女');
+    expect(candidateBlock(prompt)).not.toContain('引路者');
   });
 
-  it('沒有設定集條目時由 [Pinned NPCs] 兜底，資料不會整個消失', () => {
-    const prompt = build({ npcs: [guide()], lorebookEntries: [] });
-    expect(prompt).toContain('[隨行同伴（不受地點限制，此刻就在玩家身邊）]');
-    expect(prompt).toContain('[Pinned NPCs]');
-    expect(prompt).toContain('引路者');
-  });
-
-  /**
-   * 「提及的設定」那一段的標題明白寫著「不在當前場景」。同伴掉進去的話，
-   * 等於同一份 prompt 一邊說他在場、一邊說他不在。
-   */
-  it('被玩家點名時不會被歸進「不在當前場景」那一段', () => {
-    const prompt = buildPrompt(
-      { ...deps([], () => false), npcs: [guide()], lorebookEntries: [guideLore()] },
-      '引路者，我們接下來去哪？',
-      messages,
-    ).prompt;
-    expect(prompt).not.toContain('[提及的設定');
-  });
-
-  // 比對整個標題而非前綴：靜態的 COMMAND FORMAT 裡也提了一次「[隨行同伴] 區塊」
-  // （教 AI 那些人不必寫進 [出場:]），那句話是常駐文字，不代表本回合有同伴
-  it('沒有同伴時整段省略，不留空標題', () => {
+  /** 釘選只是把人釘到右欄追蹤好感度，不影響出場；兩個旗標不可互相代替 */
+  it('只有釘選、沒有可出場時不會被標成常駐', () => {
     const prompt = build({
-      npcs: [guide({ isCompanion: false })], lorebookEntries: [guideLore()],
-    });
-    expect(prompt).not.toContain('[隨行同伴（不受地點限制');
-  });
-
-  /** 釘選只是把人釘到右欄，人可能還在另一座城；兩個旗標不可互相代替 */
-  it('只有釘選、沒有隨行時不會被當成同伴', () => {
-    const prompt = build({
-      npcs: [guide({ isCompanion: false, isPinned: true })],
+      npcs: [guide({ canAppear: false, isPinned: true })],
       lorebookEntries: [guideLore()],
     });
-    expect(prompt).not.toContain('[隨行同伴（不受地點限制');
+    expect(candidateBlock(prompt)).not.toContain('【常駐】');
+  });
+
+  it('沒有可出場角色時不輸出那段常駐說明', () => {
+    const prompt = build({
+      npcs: [guide({ canAppear: false })], lorebookEntries: [guideLore()],
+    });
+    expect(prompt).not.toContain('標【常駐】的角色長期待在玩家身邊');
   });
 });
 
@@ -958,13 +953,13 @@ describe('buildPrompt NPC 核心記憶', () => {
     expect(prompt).not.toContain('閒聊內容');
   });
 
-  // [Pinned NPCs]（沒有設定集條目的角色）走另一條路徑，兩邊規則必須一致
-  it('[Pinned NPCs] 也在低好感時注入核心記憶並標 ★', () => {
+  // [角色補充資料]（沒有設定集條目的角色）走另一條路徑，兩邊規則必須一致
+  it('[角色補充資料] 也在低好感時注入核心記憶並標 ★', () => {
     const prompt = build({
       npcs: [kael({ affection: 10, isPinned: true, memories: [coreMem('關鍵事實')] })],
       lorebookEntries: [],
     });
-    expect(prompt).toContain('[Pinned NPCs]');
+    expect(prompt).toContain('[角色補充資料（釘選追蹤中，或本回合在場但設定集裡沒有條目）]');
     expect(prompt).toContain('關鍵事實 [★核心]');
   });
 
@@ -1291,7 +1286,7 @@ describe('buildPrompt 回歸 — 在場的人一定拿得到資料，不在場�
   /**
    * 實際壞掉過：Phase 2 的契約是「在場 → 完整注入」，但注入判定的最後一行是
    * `return lorebookHitsKeywords(e)`。條目設了關鍵字、這回合沒命中時，
-   * AI 剛用 `[出場:芬里爾]` 請上台的人會整條被濾掉——他既不在 `[Pinned NPCs]`
+   * AI 剛用 `[出場:芬里爾]` 請上台的人會整條被濾掉——他既不在 `[角色補充資料]`
    * （只收釘選／隨行），也不在 `[其他已知角色]`（名冊排除在場者），
    * 於是模型手上一個字都沒有，只能現編。
    */

@@ -62,23 +62,23 @@ describe('SceneNpcsWidget 當前場景人物', () => {
   });
 
   /**
-   * 隨行同伴（`isCompanion`）是「不在 appearingNpcs 也算在場」的**唯一**例外，
-   * 而且是玩家明確設定的例外：他常駐在玩家身邊、跟著玩家走。
+   * 在場名單再也沒有例外：`[出場:]` 是唯一真相。
    *
-   * ⚠️ 這與上面被拔掉的 `isPinned` 不同。釘選只是把人釘到右欄方便追蹤好感度，
-   * 人可能還待在另一座城；隨行是「他此刻就跟你站在一起」。prompt 那頭也是
-   * 這樣算的（buildPrompt 的 onStageNpcs），兩邊必須一致，否則會出現
+   * 舊的隨行同伴（`isCompanion`）會被無條件算成在場，於是「GM 說誰在場」與
+   * 「誰跟著玩家」混成一團。改名成「可出場」（`canAppear`）之後語意只剩
+   * 「永遠列在候選名單上」，實際登場與否一律以 GM 寫出來的標記為準——
+   * prompt 那頭也是這樣算的，兩邊必須一致，否則會出現
    * 「GM 當他在場、UI 說此處沒有人」的分歧。
    */
-  it('隨行同伴不在 appearingNpcs 也照常顯示', () => {
-    renderWidget([npc('引路者', { isCompanion: true, location: '起始神殿' })], []);
-    expect(screen.getByText('引路者')).toBeInTheDocument();
-  });
-
-  it('取消隨行後就不再顯示', () => {
-    renderWidget([npc('引路者', { isCompanion: false })], []);
+  it('可出場的角色不在 appearingNpcs 時不算在場', () => {
+    renderWidget([npc('引路者', { canAppear: true, location: '起始神殿' })], []);
     expect(screen.queryByText('引路者')).not.toBeInTheDocument();
     expect(screen.getByText('此處目前沒有人...')).toBeInTheDocument();
+  });
+
+  it('GM 讓可出場的角色登場後就顯示', () => {
+    renderWidget([npc('引路者', { canAppear: true })], ['引路者']);
+    expect(screen.getByText('引路者')).toBeInTheDocument();
   });
 
   /**

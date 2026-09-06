@@ -427,14 +427,27 @@ interface NpcMemory {
 ⚠️ 空標記務必寫入。`appearingNpcs` 在 `buildPrompt` 裡**先於地點過濾**判定，只增不減的話
 該 NPC 會無視地點跟著玩家跨城鎮，而且此狀態會存進存檔。
 
-**Phase 1 候選名單的五個來源**（依優先序，超出上限時後面的先被截掉）：
+**Phase 1 候選名單＝打分排序**（`utils/npcCandidates.ts`），不是布林過濾。
 
-| 序 | 來源 | 說明 |
+原本是一串 or 起來的條件，每一條都是為了修一個症狀後加的旁路（店主比不中就加同城、
+行商綁不住就加不限地點），而底下「字串完全相等」的地基從頭到尾沒換過。打分把那些
+旁路變成權重：同一件事只問一次，排序天然就是本地優先、四處跑的墊後，上限直接砍尾巴。
+
+| 來源 | 分數 | 說明 |
 |---|---|---|
-| 0 | `homeLocation === currentLocation` | 主場就在這裡 |
-| 1 | `roamLocations` 含當前地點、或 `Npc.location` 足跡在這裡 | |
-| 2 | **同城**（`isSameCity`） | 母子與兄弟都算，見下 |
-| 3 | **不限地點**（`LorebookEntry.anyLocation`） | 玩家在角色卡上明確設的 |
+| `Npc.canAppear`（可出場） | 1000 | 玩家親手指定的常駐角色，永遠排第一、不被上限擠掉 |
+| `homeLocation === currentLocation` | 100 | 主場就在這裡 |
+| `roamLocations` 含當前地點 | 80 | AI 的 `NPC_LOCATION` 寫入 |
+| `Npc.location` 足跡在這裡 | 70 | 上次出場就在這裡 |
+| **同城**（`isSameCity`） | 40 | 母子與兄弟都算，見下 |
+| **不限地點**（`LorebookEntry.anyLocation`） | 20 | 玩家在角色卡上明確設的 |
+| 好感度加成 | +0～10 | `affection × 0.1`，上限 10 |
+
+- 地點那幾層取**最大值不加總**：主場在這裡的人同時也滿足同城，加總會稀釋掉層距
+- 好感度只夠**打破同層平手**（先列跟玩家熟的那個），永遠不足以越級——
+  好感 100 的同城店主仍排在好感 0 的本地居民之後
+- **沒有任何地點理由時好感度不加分**，否則住在三座城外的摯友會出現在每一個地方
+- 分數 0 ＝不列入候選；同分維持設定集原順序（每回合換一批人會讓 context caching 失效）
 
 ### 地點的母子關係（`LorebookEntry.parentLocation`）
 
@@ -456,10 +469,11 @@ interface NpcMemory {
 
 ### 不限地點（`LorebookEntry.anyLocation`）
 
-行商、信使、遊俠這類到處跑的角色。與 `Npc.isCompanion`（隨行同伴）是兩件事：
-同伴是「他此刻**就在**玩家旁邊」無條件在場；不限地點只是「他**可能**出現在任何
-地方」，照樣要 AI 從候選名單挑他、輸出 `[出場:]` 才算在場。
-排序上排在本地角色之後——候選名單有上限（城鎮 8 / 其他 3），讓四處遊走的角色把
+行商、信使、遊俠這類到處跑的角色。與 `Npc.canAppear`（可出場）是**程度之差**，
+不是兩種東西：可出場是玩家指定的常駐角色，1000 分永遠排第一；不限地點只有 20 分，
+排在本地角色之後、名單額滿時會被擠掉。兩者都要 AI 從候選名單挑他、
+輸出 `[出場:]` 才算在場。
+排在本地角色之後是刻意的——候選名單有上限（城鎮 8 / 其他 3），讓四處遊走的角色把
 真正住在這裡的居民擠掉，等於倒退回原本的症狀。
 UI 在角色卡的「主場地點」下拉選單裡（與具體地點互斥，不是另一個獨立開關）。
 
@@ -467,12 +481,12 @@ UI 在角色卡的「主場地點」下拉選單裡（與具體地點互斥，�
 1. `appearingNpcs` 裡的 NPC
 2. `isPinned === true` 的 NPC
 3. 候選名單內 `affection >= 60` 的 NPC
-4. `isCompanion === true` 的隨行同伴（見下）
+4. `canAppear === true` 的可出場角色——⚠️ **只有 AI 真的讓他登場時**（見下）
 
 ⚠️ **通過上面任一條＝完整注入，之後不再過 `lorebookHitsKeywords` 的關鍵字門檻。**
 先前是 `if (!inScene) return false; return lorebookHitsKeywords(e)`，於是條目設了
 關鍵字、這回合沒命中時，AI 剛用 `[出場:]` 請上台的人會整條被濾掉——而他既不在
-`[Pinned NPCs]`（只收釘選／隨行），也不在 `[其他已知角色]`（名冊排除在場者），
+`[角色補充資料]`（只收釘選與在場無條目者），也不在 `[其他已知角色]`（名冊排除在場者），
 模型手上**一個字都沒有**，只能現編一個，下回合再編一個不一樣的。
 
 **助理 GM 的 `loreHints` 不得凌駕「在不在場」**。它挑的是「這條可能相關」，
@@ -480,7 +494,7 @@ NPC 與地點兩類帶在場語意（`hasPresenceSemantics`），提示一律改
 （標題寫明不在場），不進 `[Scene Lorebook]`。其餘類別（歷史／物品／怪物）
 沒有在場問題，維持直接放行。
 
-### 隨行同伴（`Npc.isCompanion`）——地點軸之外的第三條路
+### 可出場（`Npc.canAppear`）——地點軸之外的第三條路
 
 兩階段注入整條鏈都以**地點**為軸：Phase 1 依 `currentLocation` 篩候選 → AI 從候選名單
 挑人輸出 `[出場:]` → Phase 2 才注入完整資料。常駐角色（引路者、契約精靈、隨行護衛）
@@ -488,28 +502,36 @@ NPC 與地點兩類帶在場語意（`hasPresenceSemantics`），提示一律改
 
 釘選能讓他的資料進 `[Scene Lorebook]`，但那只解決了「查得到」，沒解決「在場」——
 模型拿到一份查得到卻不在場的資料，寫出來就是一個沒有身體的聲音（玩家原話：「誤會成一種神諭」）。
-`npcCandidates` 的排序裡那條「釘選者優先」是**死碼**，因為釘選者根本過不了前面的地點
-filter；這正說明原始設計本來就想讓常駐角色進名單，只是沒接上。
 
-`isCompanion` 就是這條線：
+`canAppear` 解的就是這條線：**永遠是候選人**（1000 分，不被名單上限擠掉）。
 
 | 面向 | 行為 |
 |---|---|
-| 在場判定 | `resolveOnStageNames(npcs, appearingNpcs)`＝`[出場:]` ∪ 同伴。**不受空標記清空** |
-| 候選名單 | **排除**。候選的語意是「可能在場、AI 可以選」，同伴是既成事實，混講會讓他三不五時蒸發 |
-| 完整注入 | 無條件，連 `lorebookHitsKeywords` 也繞過。沒有設定集條目時由 `[Pinned NPCs]` 兜底 |
-| 足跡 | 跟著玩家走（`updateNpcFootprints` 吃合併後的名單），AI 沒寫標記也照樣更新 |
-| prompt | 另開 `[隨行同伴]` 區塊宣告在場，並明講「有實體、會主動開口、不是神諭」 |
+| 在場判定 | 與所有人相同——只認 `[出場:]`。這個旗標**不帶在場語意** |
+| 候選名單 | 永遠列入，標【常駐】排在第一個 |
+| 完整注入 | AI 讓他登場才注入。沒有設定集條目時由 `[角色補充資料]` 兜底 |
+| 足跡 | 與所有人相同：只有出現在 `[出場:]` 名單上才更新 |
+| prompt | 候選名單裡標【常駐】，並附一句「除非有理由否則本回合應該讓他在場、他有實體」 |
 
-⚠️ **合併只發生在讀取端，不要把同伴寫回 `appearingNpcs` state**。那個欄位進存檔，
-混進去之後「AI 說誰在場」與「誰跟著玩家」就再也分不開，取消隨行時人也清不掉。
+⚠️ **這是舊 `isCompanion`（隨行同伴）的降級版，schema v11 改名兼改語意。**
+舊的隨行是「無條件視為在場」——繞過候選名單、繞過 `[出場:]`、繞過關鍵字門檻，
+並且被 `resolveOnStageNames` 併進場上名單。那條旁路確實治好了症狀，代價是
+「AI 說誰在場」與「誰跟著玩家」再也分不開，而玩家還得自己分辨它跟釘選、
+跟不限地點差在哪。降級之後在場判定只剩一個來源，語意重疊也少一層。
 
-⚠️ **`isCompanion` 與 `isPinned` 是兩件事，不可互相代替**。釘選只是把角色釘到右欄方便
-追蹤好感度，人可能還待在另一座城（`SceneNpcsWidget` 當初正是為此把 `isPinned` 拔掉）；
-隨行是「他此刻就跟玩家站在一起」。UI 上是角色卡標題列的兩個獨立按鈕（📌／👣）。
+⚠️ **不要把任何「系統自動視為在場」的旁路寫回 `appearingNpcs` state**。那個欄位進存檔，
+混進去之後就再也分不開誰是 AI 說的、誰是系統加的。
+
+⚠️ **`canAppear` 與 `isPinned` 是兩件事，不可互相代替**。釘選只是把角色釘到右欄方便
+追蹤好感度，不影響出場（`SceneNpcsWidget` 當初正是為此把 `isPinned` 拔掉）；
+可出場是「他永遠被列入考慮」。UI 上是角色卡標題列的兩個獨立按鈕（📌／✅）。
+
+⚠️ **代價要記著**：常駐角色現在有可能被 AI 判斷成「這一幕他不在」。候選名單那句
+指示是唯一的護欄——刪掉它，引路者就會三不五時蒸發。真的又出現角色消失，
+第一個要檢查的是那句話還在不在，而不是再加一條旁路。
 
 預設世界觀的 `roleplayRules` 另有一段「## 引路者」把它定義成常駐同伴。那份文字**會存進
-存檔**，改 `constants.ts` 只影響新開的遊戲；既有存檔要靠上面的隨行開關即時生效。
+存檔**，改 `constants.ts` 只影響新開的遊戲；既有存檔要靠上面的可出場開關即時生效。
 
 ---
 
@@ -610,7 +632,9 @@ FACTION_NEW|name=黑牙氏族|type=criminal|desc=盤據東境的盜賊團
 | `LOCATION` 的粒度對齊 `LOCATION_DISCOVER` | 兩者指的必須是同一種東西（地圖上佔一格的地點）。`LOCATION_DISCOVER` 早就寫明「建築內的個別房間一律不要登錄」，`LOCATION` 卻連觸發時機都沒寫，AI 於是把每次走進房間都當成移動——而那個欄位正是決定「誰可能在場」的比對鍵 |
 | `LOCATION_DISCOVER` 要帶 `desc` 與 `status` | 這兩個欄位是玩家在設定集與地圖上**唯一看得到**的地點資料。少了 desc 條目就是空白；status 寫死 `heard` 則讓親自走過的地方全標成「聽說過」。兩者都不該由前端猜，但也不能沒有——所以 AI 必填、系統依所在地兜底 |
 | 手動結案的獎勵閘門是 `isGoalMet` | `isGoalMet` 由 AI 的 `QUEST_GOAL_MET` 寫入、玩家改不到，是唯一「目標確實達成過」的憑據。沒有它就照發獎勵的話，接任務→按一下→領錢，任務系統變成無限金幣按鈕 |
-| 隨行同伴獨立於釘選（`Npc.isCompanion`） | 常駐角色的問題不是「查不查得到」而是「在不在場」。釘選只讓資料進得了 prompt，人依舊不在任何一份在場名單上，模型於是把他寫成沒有身體的聲音。而釘選本身有另一個用途（釘到右欄追蹤好感度，人可能在別的城），兩者合併會互相汙染 |
+| 可出場獨立於釘選（`Npc.canAppear`） | 常駐角色的問題是「進不了候選名單」，釘選解的是「查不查得到」，兩件事。而釘選本身有另一個用途（釘到右欄追蹤好感度，人可能在別的城），合併會互相汙染 |
+| 候選名單改打分（`utils/npcCandidates.ts`） | 布林過濾每修一個症狀就多一條旁路（同城、不限地點、足跡⋯⋯），而「字串完全相等」的地基沒換過。打分讓同一件事只問一次，加新來源＝加一個權重，不必再往那串 or 裡插分支 |
+| 「在場」只有一個來源（`[出場:]`） | 舊的隨行同伴會被自動併進場上名單，於是「AI 說誰在場」與「誰跟著玩家」永久混在一起，取消隨行時人也清不掉 |
 
 ---
 
@@ -739,7 +763,8 @@ FACTION_NEW|name=黑牙氏族|type=criminal|desc=盤據東境的盜賊團
 | `utils/npcProfile.ts` `normalizeNpcName / isSameNpcName / selectKnownNpcNames` | NPC 名稱正規化（所有指令的比對鍵）與 `[其他已知角色]` 名冊 |
 | `utils/npcProfile.ts` `resolveNpcProfile / findNpcLore / npcIdentityBrief` | NPC 身分設定的唯一讀取入口（來源是設定集條目，`Npc` 上沒有那些欄位） |
 | `utils/locationTree.ts` `rootLocationOf / isSameCity / childLocationsOf` | 地點母子關係（主城市 ↔ 城內地點）；候選名單的同城判定唯一入口，含防環 |
-| `utils/npcPresence.ts` `isNpcOnStage / resolveOnStageNames / updateNpcFootprints` | 「誰在場」的唯一判定入口。`resolveOnStageNames` 把隨行同伴併進 `[出場:]` 名單（無同伴時回傳原 reference） |
+| `utils/npcPresence.ts` `isNpcOnStage / updateNpcFootprints` | 「誰在場」的唯一判定入口，只認 `[出場:]`（含名稱正規化與空字串防衛） |
+| `utils/npcCandidates.ts` `scoreNpcCandidate / selectNpcCandidates` | Phase 1 候選名單的打分排序，取代舊的布林過濾 |
 | `utils/timeUtils.ts` `setClockForward / advanceTimeAndResolveQuestDeadlines` | 絕對時刻校準（**只往前**，落後 60 分內視為已到達）與時間推進＋期限結算 |
 | `utils/weather.ts` `normalizeWeather / WEATHER_VALUES` | 天氣詞彙的唯一準據（五種），同義詞收斂；狀態列圖示與天空梯度共用 |
 | `utils/itemCatalog.ts` `selectConsumedItems(pending, sentText)` | 送出時決定扣哪些待用道具（名字還在文字裡才扣） |

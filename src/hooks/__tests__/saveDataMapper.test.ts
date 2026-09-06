@@ -489,3 +489,46 @@ describe('migrateV9toV10 — NPC 身分設定收斂到設定集', () => {
     expect(() => run([])).not.toThrow();
   });
 });
+
+// v10 → v11：隨行同伴（isCompanion）改名為可出場（canAppear），語意同時降級。
+// 舊的隨行是「無條件視為在場」，繞過候選名單、繞過 [出場:] 標記；
+// 新的可出場只保證「永遠是候選人」，在不在場一律回到 GM 的標記決定。
+describe('migrateV10toV11 — 隨行同伴改名為可出場', () => {
+  const run = (npcs: Record<string, unknown>[]) =>
+    saveDataMapper({ schemaVersion: 10, npcs });
+
+  const legacy = (over: Record<string, unknown> = {}) => ({
+    id: 1, name: '引路者', affection: 40, category: 'NPC', isActive: true,
+    memories: [] as unknown[], ...over,
+  });
+
+  it('勾過隨行的角色沿用成可出場', () => {
+    const d = run([legacy({ isCompanion: true })]);
+    expect(d.npcs[0].canAppear).toBe(true);
+  });
+
+  it('舊欄位一併移除，不留下第二個來源', () => {
+    const d = run([legacy({ isCompanion: true })]);
+    expect(d.npcs[0] as unknown as Record<string, unknown>).not.toHaveProperty('isCompanion');
+  });
+
+  it('沒勾過的角色不會被誤設成可出場', () => {
+    const d = run([legacy({ isCompanion: false }), legacy({ id: 2, name: '芬里爾' })]);
+    expect(d.npcs[0].canAppear).toBeUndefined();
+    expect(d.npcs[1].canAppear).toBeUndefined();
+  });
+
+  it('其餘執行狀態原封不動', () => {
+    const d = run([legacy({ isCompanion: true, isPinned: true, location: '月湖鎮' })]);
+    expect(d.npcs[0]).toMatchObject({ name: '引路者', affection: 40, isPinned: true, location: '月湖鎮' });
+  });
+
+  it('沒有 NPC 的存檔不會壞掉', () => {
+    expect(() => run([])).not.toThrow();
+  });
+
+  it('遷移後 schemaVersion 是最新版', () => {
+    const d = run([legacy({ isCompanion: true })]);
+    expect(d.schemaVersion).toBe(CURRENT_SCHEMA);
+  });
+});

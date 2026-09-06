@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Users, BookPlus, Pin, Footprints, Star, Trash2, Lock, ChevronDown, ChevronUp, Edit2, Check, X, BookOpen, Heart, AlertTriangle } from 'lucide-react';
+import { Users, BookPlus, Pin, UserCheck, Star, Trash2, Lock, ChevronDown, ChevronUp, Edit2, Check, X, BookOpen, Heart, AlertTriangle } from 'lucide-react';
 import { Npc, NpcMemory, LorebookEntry, Faction } from '../types';
 import { affectionColor } from '../utils/affectionColor';
 import { relationText } from '../utils/affectionLabel';
@@ -28,11 +28,11 @@ interface NpcModalProps {
   onRecordNpc: (npc: Npc, fields?: Partial<LorebookEntry>) => void;
   onTogglePinNpc: (id: number) => void;
   /**
-   * 切換「隨行同伴」。與釘選是兩件事：釘選只是把角色釘到右欄方便追蹤，
-   * 人可能還待在另一座城；隨行是「他此刻就跟著玩家走」，會無條件視為在場。
-   * 未提供時不渲染該按鈕（既有測試不必補這個 prop）。
+   * 切換「可出場」。與釘選是兩件事：釘選只是把角色釘到右欄方便追蹤好感度，
+   * 不影響他出不出場；可出場是「他永遠列在候選名單最前面」，不受地點限制，
+   * 但實際在不在場仍由 GM 決定。未提供時不渲染該按鈕（既有測試不必補這個 prop）。
    */
-  onToggleCompanionNpc?: (id: number) => void;
+  onToggleCanAppearNpc?: (id: number) => void;
   onAddNpcMemory: (id: number, text: string, importance?: 'core' | 'normal') => void;
   onRemoveNpcMemory: (id: number, memId: string) => void;
   onUpdateNpcMemory: (id: number, memId: string, updates: Partial<NpcMemory>) => void;
@@ -54,7 +54,7 @@ export const NpcModal: React.FC<NpcModalProps> = ({
   onClose,
   onRecordNpc,
   onTogglePinNpc,
-  onToggleCompanionNpc,
+  onToggleCanAppearNpc,
   onAddNpcMemory,
   onRemoveNpcMemory,
   onUpdateNpcMemory,
@@ -257,18 +257,21 @@ export const NpcModal: React.FC<NpcModalProps> = ({
                 <Heart className="w-3.5 h-3.5 fill-current" />
                 {selectedNpc.affection}
               </span>
-              {/* 隨行同伴：開啟後角色不受地點限制、每回合都被視為在場 */}
-              {onToggleCompanionNpc && (
+              {/* 可出場：開啟後角色永遠排在候選名單最前面、不受地點限制。
+                  在不在場仍由 GM 的 [出場:] 決定——這個按鈕只保證他被列入考慮 */}
+              {onToggleCanAppearNpc && (
                 <button
                   className="transition p-0.5 rounded"
-                  style={{ color: selectedNpc.isCompanion ? 'var(--text-primary)' : 'var(--text-muted)' }}
-                  onClick={() => onToggleCompanionNpc(selectedNpc.id)}
-                  title={selectedNpc.isCompanion ? '取消隨行（不再常駐玩家身邊）' : '設為隨行同伴（常駐玩家身邊，不受地點限制）'}
-                  aria-pressed={!!selectedNpc.isCompanion}
-                  onMouseEnter={e => { if (!selectedNpc.isCompanion) e.currentTarget.style.color = 'var(--text-title)'; }}
-                  onMouseLeave={e => { if (!selectedNpc.isCompanion) e.currentTarget.style.color = 'var(--text-muted)'; }}
+                  style={{ color: selectedNpc.canAppear ? 'var(--text-primary)' : 'var(--text-muted)' }}
+                  onClick={() => onToggleCanAppearNpc(selectedNpc.id)}
+                  title={selectedNpc.canAppear
+                    ? '取消可出場（回到依地點判斷）'
+                    : '設為可出場（不受地點限制，永遠列入候選；是否登場仍由 GM 決定）'}
+                  aria-pressed={!!selectedNpc.canAppear}
+                  onMouseEnter={e => { if (!selectedNpc.canAppear) e.currentTarget.style.color = 'var(--text-title)'; }}
+                  onMouseLeave={e => { if (!selectedNpc.canAppear) e.currentTarget.style.color = 'var(--text-muted)'; }}
                 >
-                  <Footprints className={`w-3.5 h-3.5 ${selectedNpc.isCompanion ? 'fill-current' : ''}`} />
+                  <UserCheck className={`w-3.5 h-3.5 ${selectedNpc.canAppear ? 'fill-current' : ''}`} />
                 </button>
               )}
               {/* 釘選 */}
@@ -475,8 +478,9 @@ export const NpcModal: React.FC<NpcModalProps> = ({
                     >
                       <option value="">未設定（GM 不會讓他主動出場）</option>
                       {/* 不限地點：行商、信使、遊俠這類到處跑的角色。
-                          與「隨行同伴」（📌 旁邊的 👣）不同——那是「他此刻就在你旁邊」，
-                          這只是「他可能出現在任何地方」，照樣由 GM 決定要不要讓他出場 */}
+                          與標題列的「可出場」是程度之差——可出場是玩家指定的常駐角色，
+                          永遠排在候選名單第一個；不限地點排在本地角色之後，
+                          名單額滿時會被擠掉。兩者都由 GM 決定要不要讓他出場 */}
                       <option value={ANY_LOCATION}>不限地點（隨時可能出現）</option>
                       {knownLocations.map(title => (
                         <option key={title} value={title}>{title}</option>
