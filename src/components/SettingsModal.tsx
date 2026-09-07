@@ -16,6 +16,84 @@ const GEMINI_MODELS = [
   { value: 'gemma-4-31b-it',            label: 'Gemma 4 31B（開源模型）' },
 ];
 
+/** 下拉選單裡代表「自訂型號」的哨兵值。不會寫進設定，只用來當 select 的 value */
+const CUSTOM_MODEL = '__custom__';
+
+const isKnownModel = (model: string) => GEMINI_MODELS.some(m => m.value === model);
+
+/**
+ * 模型選擇：下拉清單 ＋ 自訂型號輸入框。
+ *
+ * 清單是寫死的，Google 一出新型號就得改程式重新部署，玩家只能乾等。
+ * 加一個自由輸入的入口之後，清單只是常用捷徑，任何 model id 都能直接用。
+ *
+ * ⚠️ 「是否處於自訂模式」**不另外存進設定**——由「目前的值不在清單上」推導。
+ * 存成旗標的話它會跟著 model 一起進 localStorage，兩份資料之後必然漂移
+ * （同 `Npc.affectionLabel` 與舊的雙來源身分欄位留下的教訓）。
+ * 只有「剛切到自訂、還沒改字」這個瞬間需要一個純 UI 的 state 記住。
+ */
+const ModelPicker: React.FC<{
+  label: string;
+  value: string;
+  onChange: (model: string) => void;
+  inputStyle: React.CSSProperties;
+}> = ({ label, value, onChange, inputStyle }) => {
+  const [customMode, setCustomMode] = useState(() => !isKnownModel(value));
+  const showCustom = customMode || !isKnownModel(value);
+
+  return (
+    <div>
+      <label className="text-xs mb-1 block" style={{ color: 'var(--text-body)' }}>{label}</label>
+      <select
+        value={showCustom ? CUSTOM_MODEL : value}
+        onChange={e => {
+          if (e.target.value === CUSTOM_MODEL) {
+            // 不清空 model：帶著目前的型號進輸入框，讓玩家在既有字串上改
+            // （多半是加一段 preview 後綴），比清成空白重打整串友善
+            setCustomMode(true);
+          } else {
+            setCustomMode(false);
+            onChange(e.target.value);
+          }
+        }}
+        className="w-full border rounded-[8px] px-3 py-2 text-sm outline-none transition"
+        style={inputStyle}
+      >
+        {GEMINI_MODELS.map(m => (
+          <option key={m.value} value={m.value}>{m.label}</option>
+        ))}
+        <option value={CUSTOM_MODEL}>自訂型號⋯</option>
+      </select>
+
+      {showCustom && (
+        <>
+          <input
+            type="text"
+            value={value}
+            onChange={e => onChange(e.target.value.trim())}
+            placeholder="例如 gemini-2.5-flash"
+            aria-label={`${label} 自訂型號`}
+            spellCheck={false}
+            autoComplete="off"
+            className="w-full border rounded-[8px] px-3 py-2 text-sm outline-none transition mt-2 font-mono"
+            style={inputStyle}
+          />
+          {/* 空字串在 callAI 會靜默退回 gemini-2.0-flash（`cfg.model || 'gemini-2.0-flash'`），
+              玩家會以為自己在用某個型號、實際上跑的是另一個，所以明講 */}
+          {!value && (
+            <p className="text-[11px] mt-1" style={{ color: 'var(--color-amber)' }}>
+              留空會退回 gemini-2.0-flash
+            </p>
+          )}
+          <p className="text-[11px] mt-1" style={{ color: 'var(--text-muted)' }}>
+            直接送給 Google SDK 的 model id，打錯要等到送出訊息時才會報錯。
+          </p>
+        </>
+      )}
+    </div>
+  );
+};
+
 interface SettingsModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -213,19 +291,12 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               )}
             </div>
 
-            <div>
-              <label className="text-xs mb-1 block" style={{ color: 'var(--text-body)' }}>模型</label>
-              <select
-                value={draftMain.model}
-                onChange={e => setDraftMain(p => ({ ...p, model: e.target.value }))}
-                className="w-full border rounded-[8px] px-3 py-2 text-sm outline-none transition"
-                style={inputStyle}
-              >
-                {GEMINI_MODELS.map(m => (
-                  <option key={m.value} value={m.value}>{m.label}</option>
-                ))}
-              </select>
-            </div>
+            <ModelPicker
+              label="模型"
+              value={draftMain.model}
+              onChange={model => setDraftMain(p => ({ ...p, model }))}
+              inputStyle={inputStyle}
+            />
 
             <div>
               <label className="text-xs mb-1 block" style={{ color: 'var(--text-body)' }}>Token 上限（回應長度）</label>
@@ -281,19 +352,12 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               </div>
             )}
 
-            <div>
-              <label className="text-xs mb-1 block" style={{ color: 'var(--text-body)' }}>模型</label>
-              <select
-                value={draftSub.model}
-                onChange={e => setDraftSub(p => ({ ...p, model: e.target.value }))}
-                className="w-full border rounded-[8px] px-3 py-2 text-sm outline-none transition"
-                style={inputStyle}
-              >
-                {GEMINI_MODELS.map(m => (
-                  <option key={m.value} value={m.value}>{m.label}</option>
-                ))}
-              </select>
-            </div>
+            <ModelPicker
+              label="模型"
+              value={draftSub.model}
+              onChange={model => setDraftSub(p => ({ ...p, model }))}
+              inputStyle={inputStyle}
+            />
 
             <div>
               <label className="text-xs mb-1 block" style={{ color: 'var(--text-body)' }}>Token 上限（背景摘要）</label>

@@ -253,7 +253,10 @@ callAI(prompt: string, options?: {
 // timeout 觸發時會讓背景串流停止，不再消耗配額
 ```
 
-**Gemini 靜態模型清單：**
+**Gemini 模型清單（`SettingsModal.tsx`）**——清單是常用捷徑，下拉最後一項「自訂型號⋯」可自由輸入任何 model id。
+「是否自訂」由「值不在清單上」推導，**不另外存旗標**（存了會跟 `model` 兩份資料互相漂移）。
+⚠️ 型號留空時 `callAI` 會靜默退回 `gemini-2.0-flash`（`cfg.model || ...`），UI 端有明講：
+
 ```typescript
 const GEMINI_MODELS = [
   { value: 'gemini-3.1-pro-preview',    label: 'Gemini 3.1 Pro Preview（最強推理）' },
