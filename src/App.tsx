@@ -42,6 +42,7 @@ import { setFactionRelation, removeFactionRelation } from './utils/factionRelati
 import { ThemeId, loadTheme, saveTheme, applyTheme } from './utils/theme';
 import { describeItem, registerItemDef, normalizeItemName, selectConsumedItems } from './utils/itemCatalog';
 import { updateNpcFootprints, resolveOnStageNames } from './utils/npcPresence';
+import { findNpcLore } from './utils/npcProfile';
 import { nextVisibleMessageCount } from './utils/visibleMessages';
 import { editMemoryContent, selectMergeableMemories, replaceMemoriesWithMerged, MIN_MERGE_CANDIDATES } from './utils/memoryStore';
 import { SaveSlotsModal } from './components/SaveSlotsModal';
@@ -1601,24 +1602,31 @@ ${poolText}
     }
   };
 
-  const handleRecordNpc = (npc: Npc) => {
-    const exists = lorebookEntries.some(e => e.category === 'NPC' && e.title === npc.name);
-    if (exists) {
+  /**
+   * 替一個只有 `npcs[]` 紀錄、沒有設定集條目的角色補建條目。
+   *
+   * @param fields 角色卡編輯模式按下儲存時玩家填的身分欄位。角色沒有條目時，
+   *   `NpcModal.handleSaveEdit` 走的是這條路——先前這裡完全不收欄位，
+   *   玩家填的性別／職業／外貌按下儲存後靜默消失，畫面上只看到一張空白條目
+   */
+  const handleRecordNpc = (npc: Npc, fields: Partial<LorebookEntry> = {}) => {
+    // 名稱比對走共用入口（前後／中間空白不同也算同一個人），不要裸的 ===
+    if (findNpcLore(lorebookEntries, npc.name)) {
       showToast('此人物已在設定集中');
       return;
     }
 
-    // 身分欄位不從 npc 複製——它們的唯一來源就是設定集條目本身（schema v10）。
-    // 走到這裡代表這個角色還沒有條目，所以本來就沒有設定可搬；建一張空白的
-    // 給玩家在角色卡上填。
+    // 身分欄位不從 npc 複製——它們的唯一來源就是設定集條目本身（schema v10），
+    // 只收角色卡這次填的 fields。
     const newId = lorebookEntries.length > 0 ? Math.max(...lorebookEntries.map(e => e.id)) + 1 : 1;
     const newEntry: LorebookEntry = {
+      ...fields,
       id: newId,
       title: npc.name,
       category: 'NPC',
       isActive: true,
       content: '',
-      homeLocation: currentLocation,
+      homeLocation: fields.homeLocation || currentLocation,
     };
     
     setLorebookEntries(prev => [newEntry, ...prev]);

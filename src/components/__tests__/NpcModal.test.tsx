@@ -163,3 +163,27 @@ describe('NpcModal 主場地點', () => {
     expect(screen.getByText('主場地點：').parentElement?.textContent).toContain('月湖鎮');
   });
 });
+
+// ─── 沒有設定集條目的角色：儲存時要把填的欄位一起交出去 ─────────────────────
+// 身分欄位 schema v10 起只在設定集條目上。角色沒有條目時，儲存走的是
+// onRecordNpc 補建條目那條路——先前只傳了 npc 物件，欄位塞在 Npc 上對方讀不到，
+// 玩家填的性別／職業按下儲存後靜默消失。
+describe('NpcModal 儲存（沒有設定集條目）', () => {
+  it('把編輯中的身分欄位透過 onRecordNpc 的第二個參數交出去', async () => {
+    const user = userEvent.setup();
+    const onRecordNpc = vi.fn();
+    render(
+      <NpcModal {...noopProps} onRecordNpc={onRecordNpc} lorebookEntries={[]} selectedNpc={makeNpc({ id: 7, name: '凱爾' })} />
+    );
+
+    await user.click(screen.getByTitle('編輯角色'));
+    await user.type(screen.getByPlaceholderText('男、女⋯'), '女');
+    await user.type(screen.getByPlaceholderText('職業⋯'), '鐵匠');
+    await user.click(screen.getByRole('button', { name: '儲存' }));
+
+    expect(onRecordNpc).toHaveBeenCalledTimes(1);
+    const [npc, fields] = onRecordNpc.mock.calls[0];
+    expect(npc.name).toBe('凱爾');
+    expect(fields).toMatchObject({ gender: '女', job: '鐵匠' });
+  });
+});

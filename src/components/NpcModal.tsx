@@ -24,7 +24,8 @@ interface NpcModalProps {
   selectedNpc: Npc | null;
   lorebookEntries: LorebookEntry[];
   onClose: () => void;
-  onRecordNpc: (npc: Npc) => void;
+  /** 補建設定集條目。第二個參數是角色卡這次填的身分欄位（沒有條目時儲存走這條路） */
+  onRecordNpc: (npc: Npc, fields?: Partial<LorebookEntry>) => void;
   onTogglePinNpc: (id: number) => void;
   /**
    * 切換「隨行同伴」。與釘選是兩件事：釘選只是把角色釘到右欄方便追蹤，
@@ -174,8 +175,10 @@ export const NpcModal: React.FC<NpcModalProps> = ({
       onUpdateLorebook(lore.id, { ...editFields, title: trimmedName });
     } else {
       // 沒有設定集條目時先前整段 if 直接跳過——玩家填的性別／外貌按下儲存後
-      // 靜默消失，什麼都沒寫進去。改成補建一筆條目（設定集條目才是注入 prompt 的那份）
-      onRecordNpc({ ...selectedNpc, ...editFields, name: trimmedName } as Npc);
+      // 靜默消失，什麼都沒寫進去。改成補建一筆條目（設定集條目才是注入 prompt 的那份）。
+      // 欄位要**另外**傳：Npc 上早就沒有身分欄位了（schema v10），塞進 npc 物件裡
+      // 對方讀不到，等於還是丟掉
+      onRecordNpc({ ...selectedNpc, name: trimmedName }, editFields);
     }
     if (trimmedName !== selectedNpc.name) {
       onUpdateNpcName?.(selectedNpc.id, trimmedName);

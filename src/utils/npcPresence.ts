@@ -1,3 +1,5 @@
+import { normalizeNpcName } from './npcProfile';
+
 /**
  * 「這個 NPC 現在在不在場上」的唯一判定入口。
  *
@@ -14,9 +16,20 @@
  * 比對採前後包含（而非嚴格相等），與 `promptBuilder` 的 `inScene` 判定一致：
  * AI 可能輸出「凱爾」而角色全名是「凱爾·溫德」，兩邊必須用同一套規則，
  * 否則會出現「prompt 當他在場、UI 說他不在」的分歧。
+ *
+ * 兩側都先過 `normalizeNpcName`：名字裡的半形／全形空白差異在畫面上看不出來，
+ * 卻會讓包含比對整個失效（同 CLAUDE.md 第 22 條，所有 NPC 名稱比對的共同規則）。
  */
 export function isNpcOnStage(npcName: string, appearingNpcs: string[]): boolean {
-  return appearingNpcs.some(n => npcName.includes(n) || n.includes(npcName));
+  const target = normalizeNpcName(npcName);
+  if (!target) return false;
+  return appearingNpcs.some(n => {
+    const other = normalizeNpcName(n);
+    // 空字串一定要擋掉：`''.includes` 對任何字串都是 true，名單裡混進一個空值
+    // （舊存檔、`[出場: , ]` 這種寫法）就會讓**全部**角色被判定成在場
+    if (!other) return false;
+    return target.includes(other) || other.includes(target);
+  });
 }
 
 /**
