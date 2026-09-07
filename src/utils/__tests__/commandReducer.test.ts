@@ -1080,3 +1080,56 @@ describe('reduceCommands — 想法打包後先濃縮', () => {
     expect(condenseTasks(asyncTasks)).toHaveLength(0);
   });
 });
+
+// 玩家貼出的實際存檔：10 則想法 1180 字（平均 118 字／則），
+// 而且其中兩則**一字不差**。指令規格裡的範例是「覺得玩家值得信任」，只有 8 字。
+describe('reduceCommands — NPC_THOUGHT 去重', () => {
+  const withThought = (text: string) =>
+    state({ npcs: [npc({ thoughts: [{ text, createdAt: '4/1' }] })] });
+
+  it('一字不差的想法不重複記錄', () => {
+    const { stateChanges } = run(
+      'NPC_THOUGHT|npc=芬里爾|text=他到底藏了多少秘密',
+      withThought('他到底藏了多少秘密'),
+    );
+    expect(stateChanges.npcs?.[0].thoughts).toHaveLength(1);
+  });
+
+  it('只差空白也算重複', () => {
+    const { stateChanges } = run(
+      'NPC_THOUGHT|npc=芬里爾|text=他到底藏了  多少秘密',
+      withThought('他到底藏了 多少秘密'),
+    );
+    expect(stateChanges.npcs?.[0].thoughts).toHaveLength(1);
+  });
+
+  /**
+   * 刻意只擋「完全相同」。想法本來就會反覆繞著同一件事，
+   * 換個措辭重講一次是合理的角色刻畫，一字不差才是 bug。
+   */
+  it('措辭不同的相似想法照常記錄', () => {
+    const { stateChanges } = run(
+      'NPC_THOUGHT|npc=芬里爾|text=他身上還有別的秘密',
+      withThought('他到底藏了多少秘密'),
+    );
+    expect(stateChanges.npcs?.[0].thoughts).toHaveLength(2);
+  });
+
+  it('與較舊的想法重複也擋得住，不只比最新那一則', () => {
+    const s = state({ npcs: [npc({ thoughts: [
+      { text: '第三則', createdAt: '4/3' },
+      { text: '第二則', createdAt: '4/2' },
+      { text: '重複的那則', createdAt: '4/1' },
+    ] })] });
+    const { stateChanges } = run('NPC_THOUGHT|npc=芬里爾|text=重複的那則', s);
+    expect(stateChanges.npcs?.[0].thoughts).toHaveLength(3);
+  });
+
+  /** 被擋掉的那一格要留給真的發生過的事，所以打包門檻不能被重複的想法湊滿 */
+  it('重複的想法不佔打包名額', () => {
+    const s = state({ npcs: [npc({ thoughts: thoughts(THOUGHTS_LIMIT - 1) })] });
+    const { stateChanges } = run('NPC_THOUGHT|npc=芬里爾|text=想法1', s);
+    expect(stateChanges.npcs?.[0].thoughts).toHaveLength(THOUGHTS_LIMIT - 1);
+    expect(stateChanges.npcs?.[0].memories).toHaveLength(0);
+  });
+});

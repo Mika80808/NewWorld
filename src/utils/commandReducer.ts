@@ -140,6 +140,16 @@ export const MEMORY_MERGE_LIMIT = 5;
 export const isMergeable = (m: NpcMemory): boolean =>
   !m.isMerged && m.source !== 'manual';
 
+/**
+ * 想法去重用的正規化：收斂空白，其餘原樣比對。
+ *
+ * 刻意只做「完全相同」的判定，不做模糊比對——想法本來就會反覆繞著同一件事，
+ * 「他到底藏了什麼秘密」寫兩次措辭不同的版本是合理的角色刻畫，
+ * 一字不差地出現兩次才是 bug。
+ */
+const normalizeThought = (text: string): string =>
+  (text || '').replace(/[\s\u3000]+/g, ' ').trim();
+
 // ─── Main Reduce Function ──────────────────────────────────────────────────────
 
 export function reduceCommands(
@@ -447,6 +457,17 @@ export function reduceCommands(
         const thought = cmd.parsed.thought as string;
         workingNpcs = workingNpcs.map(npc => {
           if (!isSameNpcName(npc.name, npcName)) return npc;
+          // 重複的想法直接丟棄。實際存檔裡出現過一字不差的兩則
+          // （AI 在同一批指令輸出兩次、或下一輪把自己剛寫的想法讀回去再寫一次），
+          // 而 thoughts[] 只有 10 格——重複的每佔一格，就少記錄一件真的發生過的事，
+          // 打包出來的那一大塊也跟著多一份贅字
+          const isDuplicate = (npc.thoughts || []).some(
+            t => normalizeThought(t.text) === normalizeThought(thought)
+          );
+          if (isDuplicate) {
+            console.warn(`[NPC_THOUGHT] 「${npc.name}」已有一模一樣的想法，略過。原始指令：${cmd.raw}`);
+            return npc;
+          }
           const updatedThoughts = [
             { text: thought, createdAt: gameDate },
             ...(npc.thoughts || []),
