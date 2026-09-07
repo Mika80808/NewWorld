@@ -814,7 +814,7 @@ QUEST_COMPLETE|id=任務短ID
 NPC_NEW|name=姓名|race=種族|gender=性別|age=年齡|job=職業|appearance=外貌|personality=個性|backstory=背景(選填)
 NPC_HOME|name=姓名|loc=地點
 NPC_LOCATION|npc=姓名|loc=地點
-NPC_THOUGHT|npc=角色名|text=第一人稱內心想法
+NPC_THOUGHT|npc=角色名|text=第一人稱想法（40 字內）
 NPC_RELATIONSHIP|npc=角色名|rel=關係描述
 LOCATION_DISCOVER|name=地點名稱|x=110|y=70|type=wilderness|status=known|desc=地點簡介|parent=所屬城鎮(選填)
 MEMORY_ADD|type=region|importance=normal|content=迷霧森林昨日大火|locations=迷霧森林|factions=黑牙氏族|keywords=大火,火災|sticky=3
@@ -863,6 +863,11 @@ NPC_RELATION|npc=NPC名|type=family/ally/rival/enemy/acquaintance/romantic|targe
   既有角色的設定以設定集為準，不要在敘事裡改寫他的性別、種族或外貌。
 - NPC_LOCATION：NPC 出現於非主場地點時記錄足跡。
 - NPC_THOUGHT：NPC 有明顯情緒變化、做出重要決定、或對玩家產生新看法時，第一人稱。
+  **一則 40 字以內，寫「結論」不要寫內心獨白**——這是後台的一行筆記，不是台詞也不是散文。
+  例：text=覺得他隱瞞了身分，但不像懷有惡意
+  想法會累積 10 則才濃縮成記憶，每則寫成一整段的話那一塊會膨脹到上千字，
+  模型之後讀回去只會被那些重複的措辭帶著走。
+  同一件事已經寫過就不要再寫一次；換句話說重講一遍也算重複。
 - NPC_RELATIONSHIP：玩家與 NPC 初次確立明確關係，或關係發生重大轉變時輸出。
 - LOCATION：**只在玩家移動到不同的「地圖地點」時輸出**，粒度與 LOCATION_DISCOVER 完全一致
   （城鎮、村落、據點、地標、獨立建築）。建築內的房間（廚房、地窖、二樓、某人的房間）、

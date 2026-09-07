@@ -40,15 +40,37 @@ export interface Feedback {
   cmdResults: string[];
 }
 
-export interface AsyncTask {
-  type: 'merge_npc_memories';
-  payload: {
-    npcId: number;
-    npcName: string;
-    memories: NpcMemory[];
-    gameDate: string;
-  };
-}
+export type AsyncTask =
+  | {
+      type: 'merge_npc_memories';
+      payload: {
+        npcId: number;
+        npcName: string;
+        memories: NpcMemory[];
+        gameDate: string;
+      };
+    }
+  | {
+      /**
+       * 想法打包時先濃縮一次。
+       *
+       * 打包是把 10 則想法**原文**串起來，實測約 1000 字，而且劇情密度很高
+       * （玩家回報）。那一大塊之後會整塊進 `[記憶庫]`，重複的措辭也一起進去。
+       * 這個任務在寫入之後把它換成一段濃縮過的文字。
+       *
+       * ⚠️ 記憶本身是**同步先寫進去的**（原文版），這個任務只負責「換掉 text」。
+       * 反過來做（等 AI 回來才寫）的話，AI 失敗或沒設 API Key 時，那 10 則想法
+       * 已經從 `thoughts[]` 清空、卻沒有任何地方留下——直接遺失。
+       */
+      type: 'condense_npc_thoughts';
+      payload: {
+        npcId: number;
+        npcName: string;
+        memoryId: string;
+        /** 原文（由舊到新），交給助理 GM 濃縮 */
+        thoughts: { text: string; createdAt: string }[];
+      };
+    };
 
 export interface ReduceResult {
   stateChanges: StateChanges;
@@ -117,6 +139,16 @@ export const MEMORY_MERGE_LIMIT = 5;
  */
 export const isMergeable = (m: NpcMemory): boolean =>
   !m.isMerged && m.source !== 'manual';
+
+/**
+ * 想法去重用的正規化：收斂空白，其餘原樣比對。
+ *
+ * 刻意只做「完全相同」的判定，不做模糊比對——想法本來就會反覆繞著同一件事，
+ * 「他到底藏了什麼秘密」寫兩次措辭不同的版本是合理的角色刻畫，
+ * 一字不差地出現兩次才是 bug。
+ */
+const normalizeThought = (text: string): string =>
+  (text || '').replace(/[\s\u3000]+/g, ' ').trim();
 
 // ─── Main Reduce Function ──────────────────────────────────────────────────────
 
@@ -427,6 +459,17 @@ export function reduceCommands(
         const thought = cmd.parsed.thought as string;
         workingNpcs = workingNpcs.map(npc => {
           if (!isSameNpcName(npc.name, npcName)) return npc;
+          // 重複的想法直接丟棄。實際存檔裡出現過一字不差的兩則
+          // （AI 在同一批指令輸出兩次、或下一輪把自己剛寫的想法讀回去再寫一次），
+          // 而 thoughts[] 只有 10 格——重複的每佔一格，就少記錄一件真的發生過的事，
+          // 打包出來的那一大塊也跟著多一份贅字
+          const isDuplicate = (npc.thoughts || []).some(
+            t => normalizeThought(t.text) === normalizeThought(thought)
+          );
+          if (isDuplicate) {
+            console.warn(`[NPC_THOUGHT] 「${npc.name}」已有一模一樣的想法，略過。原始指令：${cmd.raw}`);
+            return npc;
+          }
           const updatedThoughts = [
             { text: thought, createdAt: gameDate },
             ...(npc.thoughts || []),
@@ -434,9 +477,10 @@ export function reduceCommands(
           // 滿 10 則就打包。舊版判斷 > 10，第 11 則才觸發，而打包只取最新 10 條，
           // 接著 thoughts 整個清空 —— 最舊那則從未寫進記憶就消失了。
           if (updatedThoughts.length >= THOUGHTS_LIMIT) {
-            const mergedText = updatedThoughts
-              .slice(0, THOUGHTS_LIMIT)
-              .reverse()
+            // 由舊到新。原文同時是「同步寫入的保底版本」與「送去濃縮的素材」，
+            // 兩邊必須是同一份，否則濃縮出來的內容會與保底版本對不上
+            const packedThoughts = updatedThoughts.slice(0, THOUGHTS_LIMIT).reverse();
+            const mergedText = packedThoughts
               .map(t => `[${t.createdAt}] ${t.text}`)
               .join('；');
             const newMemory: NpcMemory = {
@@ -454,6 +498,18 @@ export function reduceCommands(
               asyncTasks.push({
                 type: 'merge_npc_memories',
                 payload: { npcId: npc.id, npcName: npc.name, memories: updatedMemories, gameDate },
+              });
+            } else {
+              // 這一批要被融合掉的話就不必先濃縮——融合本身就是一次濃縮，
+              // 先濃縮只是白花一次 API 呼叫，而且融合端讀的是打包當下的快照
+              asyncTasks.push({
+                type: 'condense_npc_thoughts',
+                payload: {
+                  npcId: npc.id,
+                  npcName: npc.name,
+                  memoryId: newMemory.id,
+                  thoughts: packedThoughts,
+                },
               });
             }
             return { ...npc, thoughts: [], memories: updatedMemories };

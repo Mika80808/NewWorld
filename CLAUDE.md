@@ -253,7 +253,10 @@ callAI(prompt: string, options?: {
 // timeout 觸發時會讓背景串流停止，不再消耗配額
 ```
 
-**Gemini 靜態模型清單：**
+**Gemini 模型清單（`SettingsModal.tsx`）**——清單是常用捷徑，下拉最後一項「自訂型號⋯」可自由輸入任何 model id。
+「是否自訂」由「值不在清單上」推導，**不另外存旗標**（存了會跟 `model` 兩份資料互相漂移）。
+⚠️ 型號留空時 `callAI` 會靜默退回 `gemini-2.0-flash`（`cfg.model || ...`），UI 端有明講：
+
 ```typescript
 const GEMINI_MODELS = [
   { value: 'gemini-3.1-pro-preview',    label: 'Gemini 3.1 Pro Preview（最強推理）' },
@@ -633,7 +636,16 @@ FACTION_NEW|name=黑牙氏族|type=criminal|desc=盤據東境的盜賊團
 5. **`package.json` 的 dev script 綁定 `0.0.0.0:3000`**，不要改動
 
 6. **NPC 記憶濃縮鏈：想法滿 10 則 → 1 條記憶，可融合記憶滿 5 條 → 1 條摘要**，兩個閾值都在 `commandReducer.ts`（`THOUGHTS_LIMIT` / `MEMORY_MERGE_LIMIT`）
+   - **每則想法有字數規範（prompt 端 40 字以內），且一字不差的重複會被丟棄**。
+     玩家貼出的實際存檔是 10 則共 1180 字（平均 118 字／則），其中兩則完全相同——
+     而指令規格自己的範例「覺得玩家值得信任」只有 8 字。想法是後台的一行筆記，
+     不是台詞也不是散文；寫成整段的話光是打包那一塊就上千字，模型讀回去只會被
+     重複的措辭帶著走。去重刻意只擋**完全相同**：換個措辭重講一次是合理的角色刻畫
    - `thoughts[]` 滿 10 則串接寫入 `memories[]`（source: `pre_merge`）並清空。判斷式是 `>= 10` 不是 `> 10`，後者會在第 11 則才觸發、且打包只取最新 10 條，最舊那則隨清空一起消失
+   - **打包之後排一個 `condense_npc_thoughts` 任務先濃縮一次**（玩家回報：10 則想法約 1000 字、劇情密度高）。
+     ⚠️ 記憶是**同步先以原文寫進去**的，這個任務只負責之後把 `text` 換掉——反過來做（等 AI 回來才寫）
+     的話，AI 失敗或沒設 API Key 時那 10 則想法已經從 `thoughts[]` 清空，會直接遺失。
+     同一回合會觸發融合時就不排濃縮（融合本身就是一次濃縮，先濃縮只是白花一次呼叫）
    - 可融合記憶（`pre_merge` / `merged`）滿 5 條時交助理 GM 濃縮成一條 `merged`，原文標記 `isMerged: true` 封存。
      **`MEMORY_MERGE_LIMIT` 必須小於 `THOUGHTS_LIMIT`**：`pre_merge` 是把 10 則想法原文串成的一大塊，
      而 `[記憶庫]` 一次注入最近 5 條非摘要記憶——門檻放在 10 的時候，模型同時讀到 5 大塊措辭雷同的

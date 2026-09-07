@@ -1278,6 +1278,30 @@ describe('buildPrompt 回歸 — Npc 與設定集條目的名稱比對', () => {
   });
 });
 
+// 玩家貼出的實際存檔：每則想法平均 118 字，而規格裡的範例只有 8 字。
+// 想法會累積 10 則才濃縮，每則寫成一整段的話那一塊會膨脹到上千字。
+describe('buildPrompt NPC_THOUGHT 的長度規範', () => {
+  const prompt = () =>
+    buildPrompt(deps([], () => false), '測試輸入', messages).prompt;
+
+  it('指令說明給出字數上限', () => {
+    expect(prompt()).toContain('40 字以內');
+  });
+
+  it('講明是後台筆記而不是內心獨白，並附短例子', () => {
+    expect(prompt()).toContain('寫「結論」不要寫內心獨白');
+    expect(prompt()).toContain('覺得他隱瞞了身分');
+  });
+
+  it('要求不要重複已經寫過的想法', () => {
+    expect(prompt()).toContain('同一件事已經寫過就不要再寫一次');
+  });
+
+  it('範例參數也標了字數，不再只寫「第一人稱內心想法」', () => {
+    expect(prompt()).toContain('NPC_THOUGHT|npc=角色名|text=第一人稱想法（40 字內）');
+  });
+});
+
 describe('buildPrompt 回歸 — 在場的人一定拿得到資料，不在場的一定不進 [Scene Lorebook]', () => {
   const build = (over: Partial<BuildPromptDeps>, input = '測試輸入') =>
     buildPrompt({ ...deps([], () => false), ...over }, input, messages).prompt;
