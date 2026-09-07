@@ -625,6 +625,10 @@ FACTION_NEW|name=黑牙氏族|type=criminal|desc=盤據東境的盜賊團
 
 6. **NPC 記憶濃縮鏈：想法滿 10 則 → 1 條記憶，可融合記憶滿 5 條 → 1 條摘要**，兩個閾值都在 `commandReducer.ts`（`THOUGHTS_LIMIT` / `MEMORY_MERGE_LIMIT`）
    - `thoughts[]` 滿 10 則串接寫入 `memories[]`（source: `pre_merge`）並清空。判斷式是 `>= 10` 不是 `> 10`，後者會在第 11 則才觸發、且打包只取最新 10 條，最舊那則隨清空一起消失
+   - **打包之後排一個 `condense_npc_thoughts` 任務先濃縮一次**（玩家回報：10 則想法約 1000 字、劇情密度高）。
+     ⚠️ 記憶是**同步先以原文寫進去**的，這個任務只負責之後把 `text` 換掉——反過來做（等 AI 回來才寫）
+     的話，AI 失敗或沒設 API Key 時那 10 則想法已經從 `thoughts[]` 清空，會直接遺失。
+     同一回合會觸發融合時就不排濃縮（融合本身就是一次濃縮，先濃縮只是白花一次呼叫）
    - 可融合記憶（`pre_merge` / `merged`）滿 5 條時交助理 GM 濃縮成一條 `merged`，原文標記 `isMerged: true` 封存。
      **`MEMORY_MERGE_LIMIT` 必須小於 `THOUGHTS_LIMIT`**：`pre_merge` 是把 10 則想法原文串成的一大塊，
      而 `[記憶庫]` 一次注入最近 5 條非摘要記憶——門檻放在 10 的時候，模型同時讀到 5 大塊措辭雷同的

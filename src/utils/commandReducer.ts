@@ -40,15 +40,37 @@ export interface Feedback {
   cmdResults: string[];
 }
 
-export interface AsyncTask {
-  type: 'merge_npc_memories';
-  payload: {
-    npcId: number;
-    npcName: string;
-    memories: NpcMemory[];
-    gameDate: string;
-  };
-}
+export type AsyncTask =
+  | {
+      type: 'merge_npc_memories';
+      payload: {
+        npcId: number;
+        npcName: string;
+        memories: NpcMemory[];
+        gameDate: string;
+      };
+    }
+  | {
+      /**
+       * 想法打包時先濃縮一次。
+       *
+       * 打包是把 10 則想法**原文**串起來，實測約 1000 字，而且劇情密度很高
+       * （玩家回報）。那一大塊之後會整塊進 `[記憶庫]`，重複的措辭也一起進去。
+       * 這個任務在寫入之後把它換成一段濃縮過的文字。
+       *
+       * ⚠️ 記憶本身是**同步先寫進去的**（原文版），這個任務只負責「換掉 text」。
+       * 反過來做（等 AI 回來才寫）的話，AI 失敗或沒設 API Key 時，那 10 則想法
+       * 已經從 `thoughts[]` 清空、卻沒有任何地方留下——直接遺失。
+       */
+      type: 'condense_npc_thoughts';
+      payload: {
+        npcId: number;
+        npcName: string;
+        memoryId: string;
+        /** 原文（由舊到新），交給助理 GM 濃縮 */
+        thoughts: { text: string; createdAt: string }[];
+      };
+    };
 
 export interface ReduceResult {
   stateChanges: StateChanges;
@@ -432,9 +454,10 @@ export function reduceCommands(
           // 滿 10 則就打包。舊版判斷 > 10，第 11 則才觸發，而打包只取最新 10 條，
           // 接著 thoughts 整個清空 —— 最舊那則從未寫進記憶就消失了。
           if (updatedThoughts.length >= THOUGHTS_LIMIT) {
-            const mergedText = updatedThoughts
-              .slice(0, THOUGHTS_LIMIT)
-              .reverse()
+            // 由舊到新。原文同時是「同步寫入的保底版本」與「送去濃縮的素材」，
+            // 兩邊必須是同一份，否則濃縮出來的內容會與保底版本對不上
+            const packedThoughts = updatedThoughts.slice(0, THOUGHTS_LIMIT).reverse();
+            const mergedText = packedThoughts
               .map(t => `[${t.createdAt}] ${t.text}`)
               .join('；');
             const newMemory: NpcMemory = {
@@ -452,6 +475,18 @@ export function reduceCommands(
               asyncTasks.push({
                 type: 'merge_npc_memories',
                 payload: { npcId: npc.id, npcName: npc.name, memories: updatedMemories, gameDate },
+              });
+            } else {
+              // 這一批要被融合掉的話就不必先濃縮——融合本身就是一次濃縮，
+              // 先濃縮只是白花一次 API 呼叫，而且融合端讀的是打包當下的快照
+              asyncTasks.push({
+                type: 'condense_npc_thoughts',
+                payload: {
+                  npcId: npc.id,
+                  npcName: npc.name,
+                  memoryId: newMemory.id,
+                  thoughts: packedThoughts,
+                },
               });
             }
             return { ...npc, thoughts: [], memories: updatedMemories };

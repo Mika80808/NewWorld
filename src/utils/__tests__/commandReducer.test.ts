@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { parseCommandsToAST } from '../commandParser';
-import { reduceCommands, CurrentState, isMergeable, MEMORY_MERGE_LIMIT, THOUGHTS_LIMIT } from '../commandReducer';
+import { reduceCommands, CurrentState, isMergeable, MEMORY_MERGE_LIMIT, THOUGHTS_LIMIT, AsyncTask } from '../commandReducer';
 import { Npc, NpcMemory, Quest, ItemEntry, StatusEffect, LorebookEntry } from '../../types';
 
 const npc = (over: Partial<Npc> = {}): Npc => ({
@@ -469,6 +469,12 @@ describe('reduceCommands — NPC 記憶融合門檻', () => {
   const many = (n: number, over: Partial<NpcMemory> = {}) =>
     Array.from({ length: n }, (_, i) => npcMem(`${over.source ?? 'p'}${i}`, over));
 
+  // 打包同時也可能排入「想法濃縮」任務，所以門檻只看融合那一種，
+  // 不能拿 asyncTasks 的總長度當斷言
+  const mergeTasks = (tasks: AsyncTask[]) =>
+    tasks.filter((t): t is Extract<AsyncTask, { type: 'merge_npc_memories' }> =>
+      t.type === 'merge_npc_memories');
+
   // overflow() 本身會打包出一條新的 pre_merge 記憶，所以可融合數 = n + 1。
   // ⚠️ 門檻一律引用 MEMORY_MERGE_LIMIT，不要寫死數字——先前寫死 10，
   // 把門檻調成 5 之後整批紅在「未滿 10 條不觸發」這種與行為無關的地方。
@@ -477,12 +483,12 @@ describe('reduceCommands — NPC 記憶融合門檻', () => {
 
   it('可融合記憶達門檻時排入融合任務', () => {
     const { asyncTasks } = overflow({ memories: many(justAt) });
-    expect(asyncTasks).toHaveLength(1);
-    expect(asyncTasks[0].payload).toMatchObject({ npcName: '芬里爾', gameDate: '4/15' });
+    expect(mergeTasks(asyncTasks)).toHaveLength(1);
+    expect(mergeTasks(asyncTasks)[0].payload).toMatchObject({ npcName: '芬里爾', gameDate: '4/15' });
   });
 
   it('差一條不觸發', () => {
-    expect(overflow({ memories: many(justUnder) }).asyncTasks).toHaveLength(0);
+    expect(mergeTasks(overflow({ memories: many(justUnder) }).asyncTasks)).toHaveLength(0);
   });
 
   it('玩家手寫記憶（含 ★ 核心）不計入門檻', () => {
@@ -491,11 +497,11 @@ describe('reduceCommands — NPC 記憶融合門檻', () => {
       ...many(20, { source: 'manual' }),
       ...many(3, { source: 'manual', importance: 'core' }),
     ];
-    expect(overflow({ memories }).asyncTasks).toHaveLength(0);
+    expect(mergeTasks(overflow({ memories }).asyncTasks)).toHaveLength(0);
   });
 
   it('已封存記憶不計入門檻', () => {
-    expect(overflow({ memories: many(20, { isMerged: true }) }).asyncTasks).toHaveLength(0);
+    expect(mergeTasks(overflow({ memories: many(20, { isMerged: true }) }).asyncTasks)).toHaveLength(0);
   });
 
   /**
@@ -1014,5 +1020,63 @@ describe('reduceCommands — LOCATION_DISCOVER 的 parent', () => {
       state({ lorebookEntries: [town()] }),
     );
     expect(stateChanges.lorebookEntries?.[1].parentLocation).toBeUndefined();
+  });
+});
+
+// 玩家回報：「10 則想法大約 1000 字左右，而且劇情密度意外的高。」
+// 打包是把原文用「；」串起來，那一大塊之後整塊進 [記憶庫]。
+// 現在打包之後多排一個「先濃縮一次」的任務。
+describe('reduceCommands — 想法打包後先濃縮', () => {
+  const condenseTasks = (tasks: AsyncTask[]) =>
+    tasks.filter((t): t is Extract<AsyncTask, { type: 'condense_npc_thoughts' }> =>
+      t.type === 'condense_npc_thoughts');
+
+  it('滿 10 則打包時排入濃縮任務', () => {
+    const { asyncTasks } = overflow();
+    expect(condenseTasks(asyncTasks)).toHaveLength(1);
+  });
+
+  it('沒打包就不排（第 9 則不觸發）', () => {
+    const s = state({ npcs: [npc({ thoughts: thoughts(8) })] });
+    const { asyncTasks } = run('NPC_THOUGHT|npc=芬里爾|text=第九則', s);
+    expect(condenseTasks(asyncTasks)).toHaveLength(0);
+  });
+
+  /**
+   * ⚠️ 記憶必須**同步**先以原文寫進去。等 AI 回來才寫的話，AI 失敗或沒設
+   * API Key 時那 10 則想法已經從 thoughts[] 清空，會直接遺失。
+   * 濃縮任務只負責之後把 text 換掉。
+   */
+  it('原文版記憶同步寫入，不等 AI', () => {
+    const { stateChanges } = overflow();
+    const mem = stateChanges.npcs![0].memories[0];
+    expect(mem.text).toContain('想法9');
+    expect(mem.text).toContain('第十則');
+    expect(stateChanges.npcs![0].thoughts).toEqual([]);
+  });
+
+  it('任務帶著那條記憶的 id，之後才知道要換哪一條', () => {
+    const { stateChanges, asyncTasks } = overflow();
+    const memId = stateChanges.npcs![0].memories[0].id;
+    expect(condenseTasks(asyncTasks)[0].payload).toMatchObject({ memoryId: memId, npcName: '芬里爾' });
+  });
+
+  it('任務帶的原文與寫入的是同一份，由舊到新', () => {
+    const { asyncTasks } = overflow();
+    const payload = condenseTasks(asyncTasks)[0].payload;
+    expect(payload.thoughts).toHaveLength(10);
+    expect(payload.thoughts[0].text).toBe('想法9');       // 最舊
+    expect(payload.thoughts[9].text).toBe('第十則');       // 最新
+  });
+
+  /**
+   * 這一批馬上要被融合掉的話就不必先濃縮——融合本身就是一次濃縮，
+   * 先濃縮只是白花一次 API 呼叫。
+   */
+  it('同一回合會觸發融合時不重複排濃縮', () => {
+    const many = (n: number) => Array.from({ length: n }, (_, i) => npcMem(`p${i}`));
+    const { asyncTasks } = overflow({ memories: many(MEMORY_MERGE_LIMIT - 1) });
+    expect(asyncTasks.filter(t => t.type === 'merge_npc_memories')).toHaveLength(1);
+    expect(condenseTasks(asyncTasks)).toHaveLength(0);
   });
 });
