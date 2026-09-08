@@ -10,6 +10,70 @@
  */
 import { MemoryEntry } from '../types';
 
+/** 軟上限：critical 保留全文，其餘記憶按相關性填入剩餘空間。字元數並非 token 數。 */
+export const PROMPT_MEMORY_LIMIT = 20;
+export const PROMPT_MEMORY_CHAR_BUDGET = 8000;
+
+export function rankPromptMemories(memories: MemoryEntry[], input: string): MemoryEntry[] {
+  const text = input.toLocaleLowerCase();
+  const relevance = (m: MemoryEntry) =>
+    [...(m.tags?.keywords ?? []), ...(m.tags?.npcs ?? []), ...(m.tags?.factions ?? []), ...(m.tags?.locations ?? [])]
+      .some(tag => tag.trim().length > 0 && text.includes(tag.trim().toLocaleLowerCase())) ? 1 : 0;
+  const rank = { critical: 0, normal: 1, flavor: 2 };
+  const created = (m: MemoryEntry) => Number(m.id.split('_')[1]) || 0;
+  return [...memories].sort((a, b) =>
+    rank[a.importance] - rank[b.importance]
+    || relevance(b) - relevance(a)
+    || Number(b.source === 'manual') - Number(a.source === 'manual')
+    || created(b) - created(a));
+}
+
+/** 只去除同層、相同標籤的重複文字；不改寫或刪除存檔。 */
+export function selectPromptMemories(memories: MemoryEntry[], input: string): MemoryEntry[] {
+  const selected: MemoryEntry[] = [];
+  const seen = new Set<string>();
+  let chars = 0;
+  for (const m of rankPromptMemories(memories, input)) {
+    if (!m.isActive || !m.content.trim()) continue;
+    const tags = ['locations', 'npcs', 'factions', 'keywords'] as const;
+    const key = JSON.stringify([m.type, m.content.trim().replace(/\s+/g, ' '),
+      ...tags.map(tag => [...new Set(m.tags?.[tag] ?? [])].sort())]);
+    if (seen.has(key)) continue;
+    const size = m.content.length + JSON.stringify(m.tags).length + 64;
+    if (m.importance !== 'critical'
+      && (selected.length >= PROMPT_MEMORY_LIMIT || chars + size > PROMPT_MEMORY_CHAR_BUDGET)) continue;
+    selected.push(m);
+    seen.add(key);
+    chars += size;
+  }
+  return selected;
+}
+
+/** sticky 包含首次注入的回合；延續注入不續杯，結束後才開始 cooldown。 */
+export function advanceMemoryCounters(
+  memories: MemoryEntry[], triggeredIds: string[],
+  sticky: Record<string, number>, cooldown: Record<string, number>,
+): { sticky: Record<string, number>; cooldown: Record<string, number> } {
+  const nextSticky: Record<string, number> = {};
+  const nextCooldown: Record<string, number> = {};
+  const triggered = new Set(triggeredIds);
+  for (const m of memories) {
+    if (!m.isActive) continue;
+    const remaining = Math.max(0, (sticky[m.id] ?? 0) - 1);
+    const cooling = Math.max(0, (cooldown[m.id] ?? 0) - 1);
+    if (cooling > 0) nextCooldown[m.id] = cooling;
+    if ((sticky[m.id] ?? 0) > 0) {
+      if (remaining > 0) nextSticky[m.id] = remaining;
+      else if (m.trigger?.cooldown > 0) nextCooldown[m.id] = m.trigger.cooldown;
+    } else if (triggered.has(m.id) && !(cooldown[m.id] > 0)) {
+      const duration = Math.max(0, (m.trigger?.sticky ?? 0) - 1);
+      if (duration > 0) nextSticky[m.id] = duration;
+      else if (m.trigger?.cooldown > 0) nextCooldown[m.id] = m.trigger.cooldown;
+    }
+  }
+  return { sticky: nextSticky, cooldown: nextCooldown };
+}
+
 /** 記憶總數上限，超過時觸發 LOD 淘汰 */
 export const MAX_MEMORIES = 300;
 

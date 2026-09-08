@@ -10,6 +10,7 @@ import { resolveNpcProfile, npcIdentityBrief, selectKnownNpcNames, isSameNpcName
 import { isNpcOnStage, resolveOnStageNames } from './npcPresence'
 import { isSameCity, childLocationsOf } from './locationTree'
 import { factionTypeLabel, factionRelationLabel } from './factionLabel'
+import { rankPromptMemories, selectPromptMemories } from './memoryStore'
 import { COMMANDS_VERSION } from './commandParser'
 
 export interface BuildPromptDeps {
@@ -54,13 +55,13 @@ export interface BuildPromptDeps {
   factions: Faction[]
   // 外部函式依賴
   scanKeywords: (keywords: string[], depth?: number) => boolean
-  isMemoryTriggered: (mem: MemoryEntry, userInput: string, location: string) => boolean
+  isMemoryTriggered: (mem: MemoryEntry, userInput: string, location: string, history?: Message[]) => boolean
 }
 
 export interface BuildPromptResult {
   prompt: string
   /**
-   * 本回合實際觸發的記憶 id。
+   * 本回合通過篩選且實際注入 prompt 的記憶 id。
    *
    * `isMemoryTriggered` 內含機率擲骰（`trigger.probability`），呼叫兩次會得到兩組
    * 不同結果。因此觸發判定只在這裡做一次，呼叫端拿這份清單去更新 sticky / cooldown
@@ -295,16 +296,15 @@ export function buildPrompt(
     })
     .sort((a, b) => (a.insertionOrder ?? 100) - (b.insertionOrder ?? 100))
 
-  const triggeredMemories = memories.filter(m => isMemoryTriggered(m, userInput, loc))
+  const triggeredMemories = memories.filter(m => isMemoryTriggered(m, userInput, loc, currentMessages))
 
-  // 依重要度截斷；normal/flavor 按最新優先（id 含時間戳）
-  const sortByNewest = (mems: MemoryEntry[]) =>
-    [...mems].sort((a, b) => parseInt(b.id.split('_')[1] || '0') - parseInt(a.id.split('_')[1] || '0'))
+  // 各層保留原上限，同重要度先選本輪提及與玩家修正的記憶。
+  const sortByRelevance = (mems: MemoryEntry[]) => rankPromptMemories(mems, userInput)
 
   const filterByImportance = (mems: MemoryEntry[], maxNormal: number, maxFlavor: number) => {
     const critical = mems.filter(m => m.importance === 'critical')
-    const normal = sortByNewest(mems.filter(m => m.importance === 'normal')).slice(0, maxNormal)
-    const flavor = sortByNewest(mems.filter(m => m.importance === 'flavor')).slice(0, maxFlavor)
+    const normal = sortByRelevance(mems.filter(m => m.importance === 'normal')).slice(0, maxNormal)
+    const flavor = sortByRelevance(mems.filter(m => m.importance === 'flavor')).slice(0, maxFlavor)
     return [...critical, ...normal, ...flavor]
   }
 
@@ -428,12 +428,10 @@ export function buildPrompt(
   }).filter(m => m.importance === 'critical').slice(0, 2)
   const npcMems = [...appearingNpcMems, ...specialNpcMems]
 
-  // 降級策略：記憶總數超過 20 時，只保留 critical
-  const totalMemCount = worldMems.length + regionMems.length + sceneMems.length + npcMems.length
+  // 超量時漸進挑選，不因第 21 條出現而突然失去全部一般記憶。
+  const injectedMemories = selectPromptMemories([...worldMems, ...regionMems, ...sceneMems, ...npcMems], userInput)
   const [finalWorldMems, finalRegionMems, finalSceneMems, finalNpcMems] =
-    totalMemCount > 20
-      ? [worldMems, regionMems, sceneMems, npcMems].map(arr => arr.filter(m => m.importance === 'critical'))
-      : [worldMems, regionMems, sceneMems, npcMems]
+    (['world', 'region', 'scene', 'npc'] as const).map(type => injectedMemories.filter(m => m.type === type))
 
   const recentMessages = currentMessages.slice(-SLIDING_WINDOW)
 
@@ -927,7 +925,6 @@ NPC_RELATION|npc=NPC名|type=family/ally/rival/enemy/acquaintance/romantic|targe
     'Please respond as the DM.',
   ].filter(Boolean).join('\n\n')
 
-  // 回傳「通過觸發判定」的完整清單（截斷前）。呼叫端據此更新 sticky / cooldown，
-  // 與舊有行為一致；差別只在於擲骰現在全程只做一次。
-  return { prompt, triggeredMemoryIds: triggeredMemories.map(m => m.id) }
+  // 計數器與 LRU 只記錄實際注入的記憶；被預算或 NPC 在場規則排除的不算使用。
+  return { prompt, triggeredMemoryIds: injectedMemories.map(m => m.id) }
 }
