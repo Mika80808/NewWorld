@@ -36,8 +36,8 @@ export const QuestModal: React.FC<QuestModalProps> = ({
   const ordered = [...pendingQuests, ...activeQuests, ...completedQuests, ...failedQuests];
 
   return (
-    <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-[60] flex items-center justify-center p-4" onClick={onClose}>
-      <div className="backdrop-blur-xl w-full max-w-2xl max-h-[85vh] rounded-[8px] shadow-[var(--shadow-modal)] border border-[color:var(--tint-line)] flex flex-col overflow-hidden relative z-[61]" style={{ background: 'color-mix(in srgb, var(--bg-elevated) 95%, transparent)', color: 'var(--text-title)' }} onClick={e => e.stopPropagation()}>
+    <div className="responsive-modal-overlay fixed inset-0 bg-black/70 backdrop-blur-sm z-[60] flex items-center justify-center p-4" onClick={onClose}>
+      <div className="responsive-modal-panel backdrop-blur-xl w-full max-w-2xl max-h-[85vh] rounded-[8px] shadow-[var(--shadow-modal)] border border-[color:var(--tint-line)] flex flex-col overflow-hidden relative z-[61]" style={{ background: 'color-mix(in srgb, var(--bg-elevated) 95%, transparent)', color: 'var(--text-title)' }} onClick={e => e.stopPropagation()}>
 
         {/* Header */}
         {/* 標題列在 390px 寬的手機上原本被壓成「一字一行」：這一列是不換行的

@@ -70,8 +70,9 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(({ isLoadin
     <>
       <textarea
         ref={boxRef}
-        className="w-full bg-transparent pl-2 pr-2 outline-none resize-none max-h-32 disabled:opacity-80"
-        style={{ color: 'var(--text-main)', lineHeight: '20px', paddingTop: '8px', paddingBottom: '8px' }}
+        aria-label="行動或對話"
+        className="min-w-0 flex-1 w-full bg-transparent pl-2 pr-2 outline-none resize-none max-h-32 disabled:opacity-80"
+        style={{ color: 'var(--text-main)', fontSize: '16px', lineHeight: '24px', paddingTop: '8px', paddingBottom: '8px' }}
         placeholder={isLoading ? "..." : "輸入你的行動或對話..."}
         rows={1}
         value={text}
@@ -92,9 +93,10 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(({ isLoadin
         /* 中止按鈕（D7）*/
         <button
           className="px-3 transition"
-          style={{ height: '40px', display: 'flex', alignItems: 'center', color: 'var(--color-rose)', cursor: 'pointer' }}
+          style={{ height: '44px', minWidth: '44px', flexShrink: 0, display: 'flex', alignItems: 'center', color: 'var(--color-rose)', cursor: 'pointer' }}
           onClick={onAbort}
           title="中止請求"
+          aria-label="中止請求"
         >
           <X className="w-5 h-5" />
         </button>
@@ -102,9 +104,10 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(({ isLoadin
         /* 送出按鈕 */
         <button
           className="px-3 transition"
-          style={{ height: '40px', display: 'flex', alignItems: 'center', color: !text.trim() ? 'var(--text-muted)' : 'var(--btn-primary)', cursor: !text.trim() ? 'not-allowed' : 'pointer', opacity: !text.trim() ? 0.4 : 1 }}
+          style={{ height: '44px', minWidth: '44px', flexShrink: 0, display: 'flex', alignItems: 'center', color: !text.trim() ? 'var(--text-muted)' : 'var(--btn-primary)', cursor: !text.trim() ? 'not-allowed' : 'pointer', opacity: !text.trim() ? 0.4 : 1 }}
           onMouseEnter={e => { if (text.trim()) (e.currentTarget as HTMLButtonElement).style.color = 'var(--btn-primary-hover)'; }}
           onMouseLeave={e => { if (text.trim()) (e.currentTarget as HTMLButtonElement).style.color = 'var(--btn-primary)'; }}
+          aria-label="送出行動或對話"
           onClick={handleSend}
           disabled={!text.trim()}
         >

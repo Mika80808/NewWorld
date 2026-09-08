@@ -85,7 +85,7 @@ export default function App() {
   const questPanelRef = useRef<HTMLDivElement>(null);
   const [questPanelPos, setQuestPanelPos] = useState({ top: 0, left: 0 });
   // ── Mobile Layout State ──────────────────────────────────────────
-  const [isMobile, setIsMobile] = useState(() => window.innerWidth <= 640);
+  const [isMobile, setIsMobile] = useState(() => window.innerWidth < 1024);
   const [mobileLeftOpen, setMobileLeftOpen] = useState(false);
   const [mobileRightOpen, setMobileRightOpen] = useState(false);
   // Sub GM 節流：每 3 回合最多觸發一次（不存檔，session 內計數）
@@ -1901,27 +1901,31 @@ ${recentContext}
 
   // ── Mobile: resize 偵測 ──────────────────────────────────────────
   useEffect(() => {
-    const handler = () => setIsMobile(window.innerWidth <= 640);
+    const handler = () => setIsMobile(window.innerWidth < 1024);
     window.addEventListener('resize', handler);
     return () => window.removeEventListener('resize', handler);
   }, []);
 
-  // ── Mobile: 鍵盤頂起（visualViewport）────────────────────────────
+  // 縮小整個閱讀版面，讓鍵盤與多行草稿都不會覆蓋故事。
   useEffect(() => {
     if (!isMobile) return;
     const vv = window.visualViewport;
     if (!vv) return;
     const handler = () => {
+      // 雙指縮放保留瀏覽器原生行為，不在放大時重排版面。
+      if (vv.scale !== 1) return;
       document.documentElement.style.setProperty(
-        '--keyboard-inset',
-        `${window.innerHeight - vv.height}px`
+        '--game-viewport-height',
+        `${vv.height}px`
       );
     };
+    handler();
     vv.addEventListener('resize', handler);
     vv.addEventListener('scroll', handler);
     return () => {
       vv.removeEventListener('resize', handler);
       vv.removeEventListener('scroll', handler);
+      document.documentElement.style.removeProperty('--game-viewport-height');
     };
   }, [isMobile]);
 
@@ -2078,7 +2082,7 @@ ${recentContext}
   }
 
   return (
-    <div className="flex flex-col font-sans overflow-hidden" style={{ color: 'var(--text-title)', height: '100dvh' }}>
+    <div className="game-shell flex flex-col font-sans overflow-hidden" style={{ color: 'var(--text-title)', height: 'var(--game-viewport-height, 100dvh)' }}>
       {/* 氛圍圖層（背景圖 + 天空漸層）。兩者都掛 class 是為了讓主題能關掉它們：
           羊皮紙是「在看電子書」的主題，深色夜空與背景照片會整片蓋過紙面，
           玩家看到的就不是紙而是原本的深色背景（見 index.css 的對應規則）。
@@ -2108,9 +2112,10 @@ ${recentContext}
       {/* ── Mobile Nav Bar（手機專用）── */}
       {isMobile && (
         <div
-          className="relative z-20 flex items-center px-3 shrink-0"
+          className="mobile-nav relative z-20 flex items-center px-3 shrink-0"
           style={{
-            height: '46px',
+            minHeight: 'calc(56px + env(safe-area-inset-top, 0px))',
+            paddingTop: 'env(safe-area-inset-top, 0px)',
             background: 'var(--glass-sidebar-bg)',
             backdropFilter: 'blur(20px)',
             WebkitBackdropFilter: 'blur(20px)',
@@ -2119,6 +2124,8 @@ ${recentContext}
         >
           {/* 左側：☰ 開啟左抽屜 */}
           <button
+            aria-label="開啟選單"
+            aria-expanded={mobileLeftOpen}
             onClick={() => { setMobileLeftOpen(prev => !prev); setMobileRightOpen(false); }}
             className="flex items-center justify-center shrink-0"
             style={{
@@ -2132,6 +2139,7 @@ ${recentContext}
 
           {/* 左側：任務日誌 */}
           <button
+            aria-label="任務日誌"
             onClick={() => { setIsQuestModalOpen(true); setMobileLeftOpen(false); }}
             className="flex items-center justify-center shrink-0 ml-1.5"
             style={{ width: '40px', height: '40px', borderRadius: '8px', background: 'var(--tint-surface)', border: '0.5px solid var(--tint-line)' }}
@@ -2141,6 +2149,7 @@ ${recentContext}
 
           {/* 左側：日記 */}
           <button
+            aria-label="日記與記憶"
             onClick={() => { setIsDiaryModalOpen(true); setHasNewDiary(false); setMobileLeftOpen(false); }}
             className="flex items-center justify-center shrink-0 relative ml-1.5"
             style={{ width: '40px', height: '40px', borderRadius: '8px', background: 'var(--tint-surface)', border: '0.5px solid var(--tint-line)' }}
@@ -2156,6 +2165,7 @@ ${recentContext}
           <div className="flex items-center gap-1.5">
             {/* 地圖 */}
             <button
+              aria-label="世界地圖"
               onClick={() => setIsMapOpen(true)}
               className="flex items-center justify-center shrink-0"
               style={{ width: '40px', height: '40px', borderRadius: '8px', background: 'var(--tint-surface)', border: '0.5px solid var(--tint-line)' }}
@@ -2164,6 +2174,8 @@ ${recentContext}
             </button>
             {/* ⓘ 開啟右抽屜 */}
             <button
+              aria-label="開啟資訊面板"
+              aria-expanded={mobileRightOpen}
               onClick={() => { setMobileRightOpen(prev => !prev); setMobileLeftOpen(false); }}
               className="flex items-center justify-center shrink-0"
               style={{
@@ -2180,7 +2192,7 @@ ${recentContext}
 
 
       {/* Main Content */}
-      <div className="flex flex-1 overflow-hidden relative z-10">
+      <div className="flex flex-1 min-h-0 min-w-0 overflow-hidden relative z-10">
 
         {/* Left Panel（手機改用左抽屜，這裡直接不掛載，避免同時渲染兩套版面）*/}
         {!isMobile && (
@@ -2409,7 +2421,7 @@ ${recentContext}
         )}
 
         {/* Center Panel */}
-        <div className="flex-1 flex flex-col relative">
+        <div className="flex-1 min-w-0 min-h-0 flex flex-col relative">
           {/* Scene Bar（手機的地圖入口在 Mobile Nav Bar，這裡不掛載）*/}
           {!isMobile && (
           <div className="p-3 flex items-start justify-end gap-3 absolute top-0 w-full z-30">
@@ -2438,12 +2450,8 @@ ${recentContext}
           {/* Dialogue Area */}
           <div
             ref={chatScrollRef}
-            // 上緣留白只有桌機需要：桌機的 Scene Bar 是 `absolute top-0`，蓋在這一區
-            // 上面，要留 80px 給它。手機的導航列是 `relative shrink-0` 排在這一區
-            // **之上**，不會蓋到任何東西——先前照抄了一個 pt-36（144px），在 46px 高的
-            // 導航列底下憑空空掉 120px，那是 390×844 手機約 14% 的螢幕，
-            // 而這一區正是讀故事的地方
-            className={`flex-1 overflow-y-auto p-6 pb-40 space-y-6 ${isMobile ? 'pt-6' : 'pt-20'}`}
+            // 桌機上緣預留浮動地圖入口；手機導覽與輸入區都在正常排版流中。
+            className={`story-scroll flex-1 min-h-0 overflow-y-auto space-y-6 ${isMobile ? 'p-3 sm:p-5' : 'p-6 pb-40 pt-20'}`}
             onScroll={(e) => {
               // 量測只在 DEV 進行：正式版不計時、不累積記錄、不觸發 console.warn
               if (import.meta.env.DEV) {
@@ -2493,11 +2501,11 @@ ${recentContext}
           </div>
 
           {/* Input Area */}
-          <div className={`absolute bottom-0 w-full z-30 flex justify-center px-4 pt-2 pb-2${isMobile ? ' mobile-input-safe' : ''}`}>
-            <div className="w-full md:w-4/5 rounded-[8px] px-4 pt-2 pb-1 backdrop-blur-xl border border-[color:var(--tint-line)]" style={{ background: 'var(--glass-sidebar-bg)', boxShadow: 'var(--shadow-float)' }}>
+          <div className={`chat-composer w-full z-30 flex justify-center pt-2 pb-2 ${isMobile ? 'relative shrink-0 px-2 mobile-input-safe' : 'absolute bottom-0 px-4'}`}>
+            <div className="w-full lg:w-4/5 rounded-[8px] px-2 sm:px-4 pt-2 pb-1 backdrop-blur-xl border border-[color:var(--tint-line)]" style={{ background: 'var(--glass-sidebar-bg)', boxShadow: 'var(--shadow-float)' }}>
               {/* ⚡ Quick Options Popup Menu */}
               {showQuickMenu && quickOptions.length > 0 && (
-                <div className="flex flex-col gap-1.5 mb-3 animate-in fade-in slide-in-from-bottom-2 duration-200">
+                <div className="quick-options flex flex-col gap-1.5 mb-3 overflow-y-auto animate-in fade-in slide-in-from-bottom-2 duration-200">
                   {quickOptions.map((option, idx) => (
                     <button
                       key={idx}
@@ -2518,7 +2526,7 @@ ${recentContext}
                 </div>
               )}
 
-              <div className="flex items-end overflow-hidden transition-all" style={{ borderRadius: '8px', border: isPriorityMode ? `1.5px solid var(--color-amber)` : `0.5px solid var(--border-default)`, background: 'var(--bg-dialog-input)' }}>
+              <div className="composer-controls flex items-end overflow-hidden transition-all" style={{ borderRadius: '8px', border: isPriorityMode ? `1.5px solid var(--color-amber)` : `0.5px solid var(--border-default)`, background: 'var(--bg-dialog-input)' }}>
                 {/* 📌 Priority Button */}
                 <button
                   className="pl-3 pr-1 flex-shrink-0 transition-all"
@@ -2589,16 +2597,8 @@ ${recentContext}
               )}
 
               {/* Status Bar */}
-              {/*
-                ⚠️ 這一列在手機上是**四個各自獨立的換行單位**（日期／天氣／時刻／地點）。
-                加校準入口時我把天氣與時刻包進同一個 div，兩者從此黏成一個更寬、
-                不能從中間斷開的單位——狀態列於是多擠出一行，而這一列是浮在故事區
-                底部的，長高多少就多蓋掉多少故事文字。手機上正好就是「中間的字不見了」。
-
-                popover 改掛在**整列**上（下方的 relative），天氣與時刻回到各自獨立的
-                兄弟節點，換行行為與加功能之前完全一樣。
-              */}
-              <div className="relative mt-1 flex items-center justify-between text-xs font-mono gap-2 flex-wrap" style={{ color: 'var(--text-stat-label)' }}>
+              {/* 日期／天氣／時刻可獨立換行；校準卡掛在整列上，不影響排列。 */}
+              <div className="game-status relative mt-1 flex items-center justify-between text-xs font-mono gap-2 flex-wrap" style={{ color: 'var(--text-stat-label)' }}>
                 <div className="flex items-center gap-3 flex-wrap">
                   <span className="flex items-center whitespace-nowrap" title={`${currentMonthData.name}：${currentMonthData.elegant}`}>
                     <Calendar className="w-3 h-3 mr-1" />
@@ -2607,9 +2607,7 @@ ${recentContext}
                   {/* 天氣與時刻是同一個校準入口：兩者都是 timeState，而且會一起歪
                       （AI 講早上、時鐘半夜、天氣永遠晴朗）。點任一個都開同一張卡 */}
                   <button
-                    // py-2 -my-2：把可點範圍撐到 ~32px，但用負 margin 抵銷掉，
-                    // 這一列的高度完全不變。狀態列浮在故事上方，長高多少就蓋掉
-                    // 多少故事——不能為了好點而把它撐胖
+                    // 擴大觸控範圍，同時維持狀態列的閱讀密度。
                     className="flex items-center whitespace-nowrap rounded transition py-2 -my-2"
                     style={{ color: 'inherit' }}
                     title="校準時間與天氣"
@@ -2618,9 +2616,7 @@ ${recentContext}
                     {getWeatherIcon()} {timeState.weather}
                   </button>
                   <button
-                    // py-2 -my-2：把可點範圍撐到 ~32px，但用負 margin 抵銷掉，
-                    // 這一列的高度完全不變。狀態列浮在故事上方，長高多少就蓋掉
-                    // 多少故事——不能為了好點而把它撐胖
+                    // 擴大觸控範圍，同時維持狀態列的閱讀密度。
                     className="flex items-center whitespace-nowrap rounded transition py-2 -my-2"
                     style={{ color: 'inherit' }}
                     title="校準時間與天氣"
@@ -2629,7 +2625,7 @@ ${recentContext}
                     {getCelestialIcon()}
                     {String(timeState.hour).padStart(2, '0')}:{String(timeState.minute).padStart(2, '0')}
                   </button>
-                  <span className="flex items-center whitespace-nowrap"><MapPin className="w-3 h-3 mr-1" /> {currentLocation}</span>
+                  <span className="status-location flex min-w-0 items-center"><MapPin className="w-3 h-3 mr-1 shrink-0" /> {currentLocation}</span>
                 </div>
                 <div className="flex items-center gap-3 flex-wrap">
                   <span className="flex items-center whitespace-nowrap"><Heart className="w-3 h-3 mr-1 fill-current" style={{ color: 'var(--color-rose)' }} /> HP {profile.hp}</span>
@@ -2927,9 +2923,9 @@ ${recentContext}
               animate={{ x: 0 }}
               exit={{ x: '-100%' }}
               transition={{ duration: 0.25, ease: [0.32, 0.72, 0, 1] }}
-              className="fixed top-0 left-0 bottom-0 z-[50] flex flex-col overflow-hidden"
+              className="mobile-drawer fixed top-0 left-0 bottom-0 z-[50] flex flex-col overflow-hidden"
               style={{
-                width: 'min(80vw, 300px)',
+                width: 'min(90vw, 360px)',
                 background: 'var(--bg-glass-left)',
                 backdropFilter: 'blur(28px)',
                 WebkitBackdropFilter: 'blur(28px)',
@@ -2940,7 +2936,7 @@ ${recentContext}
               <div
                 className="flex items-center justify-between px-4 shrink-0"
                 style={{
-                  height: '56px',
+                  minHeight: 'calc(56px + env(safe-area-inset-top, 0px))',
                   paddingTop: 'env(safe-area-inset-top, 0px)',
                   borderBottom: '0.5px solid var(--tint-line)',
                 }}
@@ -2948,6 +2944,7 @@ ${recentContext}
                 <span className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>選單</span>
                 <button
                   onClick={() => setMobileLeftOpen(false)}
+                  aria-label="關閉選單"
                   className="flex items-center justify-center"
                   style={{ width: '28px', height: '28px', borderRadius: '6px', background: 'var(--tint-surface)', border: '0.5px solid var(--tint-line)' }}
                 >
@@ -3100,9 +3097,9 @@ ${recentContext}
               animate={{ x: 0 }}
               exit={{ x: '100%' }}
               transition={{ duration: 0.25, ease: [0.32, 0.72, 0, 1] }}
-              className="fixed top-0 right-0 bottom-0 z-[50] flex flex-col overflow-hidden"
+              className="mobile-drawer fixed top-0 right-0 bottom-0 z-[50] flex flex-col overflow-hidden"
               style={{
-                width: 'min(80vw, 300px)',
+                width: 'min(90vw, 360px)',
                 background: 'var(--bg-glass-right)',
                 backdropFilter: 'blur(28px)',
                 WebkitBackdropFilter: 'blur(28px)',
@@ -3113,7 +3110,7 @@ ${recentContext}
               <div
                 className="flex items-center justify-between px-4 shrink-0"
                 style={{
-                  height: '56px',
+                  minHeight: 'calc(56px + env(safe-area-inset-top, 0px))',
                   paddingTop: 'env(safe-area-inset-top, 0px)',
                   borderBottom: '0.5px solid var(--tint-line)',
                 }}
@@ -3121,6 +3118,7 @@ ${recentContext}
                 <span className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>資訊面板</span>
                 <button
                   onClick={() => setMobileRightOpen(false)}
+                  aria-label="關閉資訊面板"
                   className="flex items-center justify-center"
                   style={{ width: '28px', height: '28px', borderRadius: '6px', background: 'var(--tint-surface)', border: '0.5px solid var(--tint-line)' }}
                 >
@@ -3178,7 +3176,7 @@ ${recentContext}
       {toastMessage && (
         <div
           className="fixed inset-x-0 z-[100] flex justify-center px-4 pointer-events-none"
-          style={{ top: isMobile ? '54px' : '16px' }}
+          style={{ top: isMobile ? 'calc(64px + env(safe-area-inset-top, 0px))' : '16px' }}
         >
           <div
             className="backdrop-blur-md px-5 py-3 rounded-[16px] shadow-[var(--shadow-float)] flex items-start gap-2 pointer-events-auto animate-in fade-in slide-in-from-top-4 duration-300"

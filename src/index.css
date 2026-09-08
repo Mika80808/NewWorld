@@ -211,9 +211,63 @@ body {
 
 /* ── Mobile Safe Area ─────────────────────────────────── */
 .mobile-input-safe {
-  padding-bottom: max(0.25rem, env(safe-area-inset-bottom));
-  transform: translateY(calc(-1 * var(--keyboard-inset, 0px)));
-  transition: transform 0.15s ease;
+  padding-bottom: max(0.5rem, env(safe-area-inset-bottom, 0px));
+}
+
+.story-scroll { overscroll-behavior-y: contain; overflow-wrap: anywhere; }
+.quick-options { max-height: min(30dvh, 15rem); }
+.msg-actions:focus-within { opacity: 1; }
+
+/* 兩側各 260px：小於 1024px 時將空間留給故事，與 App 的斷點一致。 */
+@media (max-width: 1023px) {
+  .game-shell {
+    padding-left: env(safe-area-inset-left, 0px);
+    padding-right: env(safe-area-inset-right, 0px);
+  }
+
+  .mobile-nav button,
+  .mobile-drawer button,
+  .composer-controls button {
+    min-width: 44px;
+    min-height: 44px;
+    flex-shrink: 0;
+  }
+
+  .composer-controls button { justify-content: center; padding-inline: 8px; }
+  .composer-controls textarea { max-height: min(128px, calc(var(--game-viewport-height, 100dvh) * 0.24)); }
+  .mobile-drawer {
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+    padding-left: env(safe-area-inset-left, 0px);
+    padding-right: env(safe-area-inset-right, 0px);
+  }
+  .mobile-drawer > :last-child { min-height: 0; overscroll-behavior-y: contain; }
+  .story-scroll .rpg-message-card { padding: 12px; }
+  .game-status { gap: 4px; line-height: 1.6; }
+  .game-status > div:not(.fixed):not(.absolute) { min-width: 0; gap: 4px 12px; }
+  .status-location { overflow-wrap: anywhere; }
+  .responsive-modal-overlay,
+  .responsive-map-overlay {
+    bottom: auto;
+    height: var(--game-viewport-height, 100dvh);
+    padding: max(8px, env(safe-area-inset-top, 0px))
+      max(8px, env(safe-area-inset-right, 0px))
+      max(8px, env(safe-area-inset-bottom, 0px))
+      max(8px, env(safe-area-inset-left, 0px));
+  }
+  /* 覆蓋既有視窗 inline 的 vh 上限，鍵盤開啟後仍能捲動內容。 */
+  .responsive-modal-panel { max-height: 100% !important; min-width: 0; }
+  .responsive-modal-panel > .overflow-y-auto { min-height: 0; overscroll-behavior-y: contain; }
+  .responsive-modal-panel button { min-height: 44px; }
+  /* iOS 聚焦小字表單會自動放大，讓編輯後仍可維持閱讀比例。 */
+  .game-shell input:not([type='checkbox']):not([type='range']):not([type='radio']),
+  .game-shell select,
+  .game-shell textarea { font-size: max(16px, 1rem); }
+}
+
+@media (max-width: 480px) {
+  .map-header .map-search { order: 1; flex-basis: 100%; }
+  .map-header button { min-width: 44px; min-height: 44px; white-space: nowrap; }
+  .map-header { gap: 8px; }
 }
 
 /* （原本此處有一份與上方完全相同的 640px 字級規則，重複了。已移除。） */
