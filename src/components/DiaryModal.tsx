@@ -109,9 +109,9 @@ export const DiaryModal: React.FC<DiaryModalProps> = ({
   });
 
   return (
-    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[60] flex items-center justify-center p-4" onClick={onClose}>
+    <div className="responsive-modal-overlay fixed inset-0 bg-black/60 backdrop-blur-sm z-[60] flex items-center justify-center p-4" onClick={onClose}>
       <div
-        className="backdrop-blur-xl w-full max-w-2xl rounded-[8px] shadow-[var(--shadow-modal)] flex flex-col overflow-hidden border border-[color:var(--tint-line)] relative z-[61] h-[80vh]"
+        className="responsive-modal-panel backdrop-blur-xl w-full max-w-2xl rounded-[8px] shadow-[var(--shadow-modal)] flex flex-col overflow-hidden border border-[color:var(--tint-line)] relative z-[61] h-[80vh]"
         style={{ background: panelBg, color: 'var(--text-body)' }}
         onClick={e => e.stopPropagation()}
       >

@@ -213,9 +213,9 @@ export const NpcModal: React.FC<NpcModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[60] flex items-center justify-center p-4" onClick={onClose}>
+    <div className="responsive-modal-overlay fixed inset-0 bg-black/60 backdrop-blur-sm z-[60] flex items-center justify-center p-4" onClick={onClose}>
       <div
-        className="backdrop-blur-xl w-full max-w-md rounded-[8px] shadow-[var(--shadow-modal)] flex flex-col overflow-hidden border border-[color:var(--tint-line)] relative z-[61]"
+        className="responsive-modal-panel backdrop-blur-xl w-full max-w-md rounded-[8px] shadow-[var(--shadow-modal)] flex flex-col overflow-hidden border border-[color:var(--tint-line)] relative z-[61]"
         style={{ maxHeight: '90vh', background: 'color-mix(in srgb, var(--bg-elevated) 90%, transparent)', color: 'var(--text-title)' }}
         onClick={e => e.stopPropagation()}
       >

@@ -335,7 +335,7 @@ export const MapModal: React.FC<MapModalProps> = ({
         }
         .map-pin-animate { animation: pinBounce 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) forwards; }
       `}</style>
-      <div className={`fixed inset-0 bg-black/85 backdrop-blur-sm z-[60] flex items-center justify-center${isMobile ? '' : ' p-4'}`}>
+      <div className={`responsive-map-overlay fixed inset-0 bg-black/85 backdrop-blur-sm z-[60] flex items-center justify-center${isMobile ? '' : ' p-4'}`}>
         <div className="flex flex-col overflow-hidden relative z-[61]" style={{
           background: 'var(--bg-elevated)', border: '0.5px solid var(--border-default)',
           borderTop: '1.5px solid #fde68a', borderRadius: isMobile ? '0' : '10px',
@@ -344,11 +344,11 @@ export const MapModal: React.FC<MapModalProps> = ({
           height: isMobile ? '100%' : '87vh',
         }}>
           {/* Header */}
-          <div className="px-5 py-3 flex items-center gap-3 shrink-0" style={{ borderBottom: '0.5px solid var(--border-default)' }}>
+          <div className="map-header px-3 sm:px-5 py-3 flex flex-wrap items-center gap-3 shrink-0" style={{ borderBottom: '0.5px solid var(--border-default)' }}>
             <h2 className="text-base font-bold tracking-widest shrink-0" style={{ color: '#fde68a', fontFamily: "'Noto Sans TC', sans-serif" }}>
               ✦ 世界地圖
             </h2>
-            <div className="flex-1 relative">
+            <div className="map-search flex-1 min-w-0 relative">
               <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5" style={{ color: 'var(--text-muted)' }} />
               <input type="text" placeholder={isMobile ? '搜尋...' : '搜尋地點...'}
                 value={searchQuery} onChange={e => setSearchQuery(e.target.value)}

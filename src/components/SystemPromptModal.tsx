@@ -25,8 +25,8 @@ export const SystemPromptModal: React.FC<SystemPromptModalProps> = ({
   const textareaClass = "w-full backdrop-blur-sm border border-[color:var(--tint-line)] rounded-[8px] p-3 text-sm outline-none transition resize-y min-h-[200px] overflow-y-auto";
 
   return (
-    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[60] flex items-center justify-center p-4" onClick={onClose}>
-      <div className="backdrop-blur-xl w-full max-w-2xl rounded-[8px] shadow-[var(--shadow-modal)] flex flex-col overflow-hidden border border-[color:var(--tint-line)] relative z-[61] h-[80vh]" style={{ background: 'color-mix(in srgb, var(--bg-elevated) 70%, transparent)', color: 'var(--text-title)' }} onClick={e => e.stopPropagation()}>
+    <div className="responsive-modal-overlay fixed inset-0 bg-black/60 backdrop-blur-sm z-[60] flex items-center justify-center p-4" onClick={onClose}>
+      <div className="responsive-modal-panel backdrop-blur-xl w-full max-w-2xl rounded-[8px] shadow-[var(--shadow-modal)] flex flex-col overflow-hidden border border-[color:var(--tint-line)] relative z-[61] h-[80vh]" style={{ background: 'color-mix(in srgb, var(--bg-elevated) 70%, transparent)', color: 'var(--text-title)' }} onClick={e => e.stopPropagation()}>
         <div className="p-4 border-b border-[color:var(--tint-line)] flex justify-between items-center" style={{ background: 'color-mix(in srgb, var(--bg-elevated) 50%, transparent)' }}>
           <div className="flex items-center">
             <h2 className="text-lg font-bold flex items-center" style={{ color: 'var(--text-primary)' }}>

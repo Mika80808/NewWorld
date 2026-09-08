@@ -37,9 +37,10 @@ export const QuickLinksGrid: React.FC<QuickLinksGridProps> = ({
     >
       <div className="grid grid-cols-2 gap-1.5">
         {links.map(item => (
-          <div
+          <button
+            type="button"
             key={item.label}
-            className="p-1.5 rounded-[5px] cursor-pointer transition-all flex items-center justify-center"
+            className="min-h-11 p-1.5 rounded-[5px] cursor-pointer transition-all flex items-center justify-center"
             style={{ background: 'var(--tint-surface)', border: '1px solid var(--tint-line)' }}
             onMouseEnter={e => {
               e.currentTarget.style.background = 'var(--tint-surface-hover)';
@@ -52,7 +53,7 @@ export const QuickLinksGrid: React.FC<QuickLinksGridProps> = ({
             onClick={item.action}
           >
             <span className="flex items-center text-xs" style={{ color: 'var(--text-main)' }}>{item.label}</span>
-          </div>
+          </button>
         ))}
       </div>
     </div>
