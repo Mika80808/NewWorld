@@ -1416,3 +1416,24 @@ describe('buildPrompt 回歸 — 地點座標尺規尊重 isActive', () => {
     expect(prompt).not.toContain('廢棄礦坑(40,30)');
   });
 });
+
+
+describe('buildPrompt — actual injected memory accounting', () => {
+  it('20 條以上候選仍注入一般記憶，且只回報真正出現在 prompt 的 IDs', () => {
+    const memories = Array.from({length: 36}, (_, i) => mem('mem_'+i+'_x', '獨特事件-'+i+'-結束', {type: (['world','scene','region'] as const)[i%3], importance: i < 9 ? 'flavor' : 'normal'}));
+    const result=buildPrompt(deps(memories,()=>true), '', []);
+    expect(result.triggeredMemoryIds).toHaveLength(20);
+    for(const m of memories) expect(result.triggeredMemoryIds.includes(m.id)).toBe(result.prompt.includes(m.content));
+  });
+  it('不在場且非特殊 NPC 的記憶不算成使用過', () => {
+    const result=buildPrompt(deps([mem('absent','不在場的秘密',{type:'npc'})],()=>true),'',[]);
+    expect(result.triggeredMemoryIds).toEqual([]);
+    expect(result.prompt).not.toContain('不在場的秘密');
+  });
+  it('重生成使用指定歷史觸發記憶，不回看被刪掉的未來對話', () => {
+    const history: Message[]=[{id:1,role:'user',text:'回到此刻'}];
+    let received: Message[]|undefined;
+    buildPrompt(deps([mem('m','內容')],(_m,_input,_loc,h)=>{received=h;return true;}),'',history);
+    expect(received).toBe(history);
+  });
+});

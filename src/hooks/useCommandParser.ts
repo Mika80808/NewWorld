@@ -12,7 +12,7 @@ import { parseCommandsToAST } from '../utils/commandParser';
 import { reduceCommands } from '../utils/commandReducer';
 import { applyStateChanges } from '../utils/commandEffects';
 import { touchItemDef } from '../utils/itemCatalog';
-import { touchMemories } from '../utils/memoryStore';
+import { touchMemories, advanceMemoryCounters } from '../utils/memoryStore';
 import { calculateTotalDays, getTotalDaysFromTimeState } from '../utils/timeUtils';
 
 // ─── 型別定義 ──────────────────────────────────────────────────────────────────
@@ -78,7 +78,7 @@ export interface UseCommandParserReturn {
   parseAndExecuteCommands: (fullText: string) => Promise<ParseResult>;
   consumeItem: (itemName: string, qty?: number) => boolean;
   scanKeywords: (keywords: string[], depth?: number) => boolean;
-  isMemoryTriggered: (mem: MemoryEntry, userInput: string, location: string) => boolean;
+  isMemoryTriggered: (mem: MemoryEntry, userInput: string, location: string, history?: Message[]) => boolean;
   tickMemoryCounters: (triggeredIds: string[]) => void;
 }
 
@@ -202,7 +202,7 @@ export function useCommandParser(deps: CommandParserDeps): UseCommandParserRetur
 
   // ─── 工具函數：記憶觸發判斷 ────────────────────────────────────────────────────
 
-  const isMemoryTriggered = (mem: MemoryEntry, userInput: string, location: string): boolean => {
+  const isMemoryTriggered = (mem: MemoryEntry, userInput: string, location: string, history: Message[] = messages): boolean => {
     if (!mem.isActive) return false;
 
     // 過期判斷：支援「年/月/日」與「月/日」兩種格式（月/日視為當前年度）
@@ -236,7 +236,8 @@ export function useCommandParser(deps: CommandParserDeps): UseCommandParserRetur
 
     // 關鍵字比對
     const kwTags = mem.tags?.keywords || [];
-    const scanText = messages.slice(-(mem.trigger?.scanDepth ?? 5)).map(m => m.text).join(' ')
+    const depth = Math.max(0, Math.floor(mem.trigger?.scanDepth ?? 5));
+    const scanText = (depth === 0 ? [] : history.slice(-depth)).map(m => m.text).join(' ')
       + ' ' + userInput + ' ' + location;
     if (kwTags.length > 0 && !kwTags.some(k => scanText.toLowerCase().includes(k.toLowerCase()))) {
       return false;
@@ -257,56 +258,11 @@ export function useCommandParser(deps: CommandParserDeps): UseCommandParserRetur
     // touchMemories 在無實際變更時回傳原 reference，不會每回合白白產生新陣列。
     setMemories(prev => touchMemories(prev, triggeredIds));
 
-    // 不在 updater 內呼叫另一個 setState（updater 必須是純函數）。
-    // 改以區域變數捕捉遞減前的 sticky 值：useGameStore 中 stickyCounters 的
-    // useState 宣告在 cooldownCounters 之前，因此 sticky 的 updater 會先執行，
-    // 捕捉到的值在 cooldown 的 updater 執行時已就緒。
-    let stickyBeforeTick: Record<string, number> = {};
-
-    setStickyCounters(prev => {
-      stickyBeforeTick = prev;
-      const updated = { ...prev };
-      for (const id of triggeredIds) {
-        const mem = memories.find(m => m.id === id);
-        if (mem && mem.trigger?.sticky) {
-          updated[id] = mem.trigger.sticky;
-        }
-      }
-      // 遞減所有 sticky 計數器
-      for (const id in updated) {
-        updated[id] = Math.max(0, updated[id] - 1);
-      }
-      return updated;
-    });
-
-    setCooldownCounters(prevCooldown => {
-      const updated = { ...prevCooldown };
-      for (const id in updated) {
-        updated[id] = Math.max(0, updated[id] - 1);
-      }
-      // 若 sticky 剛歸零（=1 → 0），且未被此回合觸發，進入 cooldown
-      for (const id in stickyBeforeTick) {
-        if (!triggeredIds.includes(id) && stickyBeforeTick[id] === 1) {
-          const mem = memories.find(m => m.id === id);
-          if (mem && mem.trigger?.cooldown) {
-            updated[id] = mem.trigger.cooldown;
-          }
-        }
-      }
-      // sticky = 0 的記憶：觸發完就直接進 cooldown，沒有「持續 N 則」的中間段。
-      //
-      // 先前只有上面那條路，而 stickyCounters 只有 `trigger.sticky` 為真的記憶
-      // 才會被寫進去——於是 `sticky: 0, cooldown: 5`（UI 上完全合法、也是預設
-      // sticky 值）的記憶永遠不會出現在 stickyBeforeTick 裡，cooldown 一次都沒
-      // 生效過。玩家把冷卻設成 10，那條記憶照樣每回合注入，而且沒有任何跡象。
-      for (const id of triggeredIds) {
-        const mem = memories.find(m => m.id === id);
-        if (mem && mem.trigger?.cooldown && !mem.trigger?.sticky) {
-          updated[id] = mem.trigger.cooldown;
-        }
-      }
-      return updated;
-    });
+    // 同一份已提交快照計算兩個結果，不依賴 React updater 的執行先後。
+    const next = advanceMemoryCounters(memories, triggeredIds,
+      depsRef.current.stickyCounters, depsRef.current.cooldownCounters);
+    setStickyCounters(() => next.sticky);
+    setCooldownCounters(() => next.cooldown);
   };
 
   // ─── 工具函數：使用道具 ────────────────────────────────────────────────────────

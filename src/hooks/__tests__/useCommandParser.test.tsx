@@ -164,7 +164,7 @@ describe('useCommandParser — tickMemoryCounters 的 cooldown', () => {
 
     act(() => { result.current.tickMemoryCounters([memory.id]); });
 
-    // sticky 的 updater 必須先跑：cooldown 的分支讀它捕捉到的遞減前快照
+    // 執行順序不影響結果：計數器已從同一份快照計算完畢。
     applyUpdater(setStickyCounters, {});
     expect(applyUpdater(setCooldownCounters, {})[memory.id]).toBe(5);
   });
@@ -183,11 +183,11 @@ describe('useCommandParser — tickMemoryCounters 的 cooldown', () => {
     expect(applyUpdater(setCooldownCounters, {})[memory.id]).toBeUndefined();
   });
 
-  it('sticky > 0 時維持原行為：撐完 sticky 才進 cooldown', () => {
+  it('sticky > 0 時讀取同一份快照，撐完 sticky 才進 cooldown', () => {
     const setStickyCounters = vi.fn();
     const setCooldownCounters = vi.fn();
     const memory = memOf({ trigger: { scanDepth: 5, probability: 100, sticky: 3, cooldown: 5 } });
-    const { result } = renderHook((d: CommandParserDeps) => useCommandParser(d), {
+    const { result, rerender } = renderHook((d: CommandParserDeps) => useCommandParser(d), {
       initialProps: makeDeps({ memories: [memory], setStickyCounters, setCooldownCounters }),
     });
 
@@ -196,9 +196,24 @@ describe('useCommandParser — tickMemoryCounters 的 cooldown', () => {
     applyUpdater(setStickyCounters, {});
     expect(applyUpdater(setCooldownCounters, {})[memory.id]).toBeUndefined();
 
-    // sticky 剩 1 且本回合沒再觸發 → 歸零並進 cooldown
-    act(() => { result.current.tickMemoryCounters([]); });
+    // 最後一回合即使仍注入，也必須歸零並進 cooldown。
+    rerender(makeDeps({ memories: [memory], setStickyCounters, setCooldownCounters, stickyCounters: {[memory.id]: 1} }));
+    act(() => { result.current.tickMemoryCounters([memory.id]); });
     applyUpdater(setStickyCounters, { [memory.id]: 1 });
     expect(applyUpdater(setCooldownCounters, {})[memory.id]).toBe(5);
+  });
+});
+
+
+describe('memory scan history', () => {
+  const memory: MemoryEntry={id:'scan',type:'world',importance:'normal',content:'秘密',isActive:true,source:'manual',createdAt:'4/15',tags:{locations:[],npcs:[],factions:[],keywords:['秘密']},trigger:{scanDepth:0,probability:100,sticky:0,cooldown:0}};
+  it('scanDepth=0 不掃整段歷史，仍掃本次輸入',()=>{
+    const {result}=renderHook(()=>useCommandParser(makeDeps({messages:[{id:1,role:'user',text:'秘密'}]})));
+    expect(result.current.isMemoryTriggered(memory,'你好','月湖鎮')).toBe(false);
+    expect(result.current.isMemoryTriggered(memory,'詢問秘密','月湖鎮')).toBe(true);
+  });
+  it('明確歷史優先於完整對話 state',()=>{
+    const {result}=renderHook(()=>useCommandParser(makeDeps({messages:[{id:1,role:'user',text:'秘密'}]})));
+    expect(result.current.isMemoryTriggered({...memory,trigger:{...memory.trigger,scanDepth:5}},'你好','月湖鎮',[])).toBe(false);
   });
 });

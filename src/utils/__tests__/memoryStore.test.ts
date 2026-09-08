@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { pruneMemories, touchMemories, MAX_MEMORIES, editMemoryContent, isSceneMergeable, selectMergeableMemories, replaceMemoriesWithMerged } from '../memoryStore';
+import { advanceMemoryCounters, selectPromptMemories, PROMPT_MEMORY_CHAR_BUDGET, pruneMemories, touchMemories, MAX_MEMORIES, editMemoryContent, isSceneMergeable, selectMergeableMemories, replaceMemoriesWithMerged } from '../memoryStore';
 import { MemoryEntry } from '../../types';
 
 /** stamp 會嵌進 id，模擬 `mem_${Date.now()}_${random}` 的建檔時間戳 */
@@ -254,4 +254,59 @@ describe('replaceMemoriesWithMerged', () => {
     const list = [m('a'), m('b')];
     expect(replaceMemoriesWithMerged(list, ['x'], m('merged'))).toBe(list);
   });
+});
+
+
+describe('prompt memory selection', () => {
+  it('超過 20 條仍保留 20 條一般記憶，而非整批清空', () => {
+    expect(selectPromptMemories(Array.from({length: 25}, (_, i) => mem(i)), '')).toHaveLength(20);
+  });
+  it('舊但本輪提及的記憶優先於新記憶', () => {
+    const old = mem(1, { tags: { locations: [], npcs: [], factions: [], keywords: ['承諾'] } });
+    const result = selectPromptMemories([old, ...Array.from({length: 25}, (_, i) => mem(i + 2))], '當初的承諾是什麼');
+    expect(result[0]).toBe(old);
+  });
+  it('相同相關性優先保留手寫內容', () => {
+    const manual = mem(1, { source: 'manual' });
+    expect(selectPromptMemories([mem(100), manual], '')[0]).toBe(manual);
+  });
+  it('受字元預算限制時保留完整 critical，略過放不下的一般記憶但繼續選較短內容', () => {
+    const large = mem(2, { content: '字'.repeat(PROMPT_MEMORY_CHAR_BUDGET) });
+    expect(ids(selectPromptMemories([large, mem(1)], ''))).toEqual([mem(1).id]);
+    expect(selectPromptMemories([{...large, importance: 'critical'}, mem(1)], '')).toEqual([{...large, importance: 'critical'}]);
+  });
+  it('相同層與標籤的重複只注入一次，不合併不同地點的事件', () => {
+    const a = mem(1, {content: '已完成承諾'});
+    const b = mem(2, {content: '已完成承諾'});
+    const c = mem(3, {content: '已完成承諾', tags: {...a.tags, locations: ['王城']}});
+    expect(selectPromptMemories([a,b,c], '')).toEqual([c,b]);
+    expect([a,b,c]).toHaveLength(3);
+  });
+});
+
+describe('memory counter lifecycle', () => {
+  it.each([0, 1, 3])('sticky=%s 包含首次注入，期滿後冷卻兩回合', duration => {
+    const m = mem(1, {trigger: {scanDepth:5, probability:100, sticky:duration, cooldown:2}});
+    let state = {sticky: {}, cooldown: {}} as ReturnType<typeof advanceMemoryCounters>;
+    for(let i=0; i<Math.max(1,duration); i++) state=advanceMemoryCounters([m], [m.id], state.sticky, state.cooldown);
+    expect(state.sticky).toEqual({});
+    expect(state.cooldown[m.id]).toBe(2);
+    state=advanceMemoryCounters([m], [], state.sticky, state.cooldown);
+    expect(state.cooldown[m.id]).toBe(1);
+    state=advanceMemoryCounters([m], [], state.sticky, state.cooldown);
+    expect(state.cooldown).toEqual({});
+  });
+  it('未注入也會倒數；已刪除或停用條目的計數器不殘留', () => {
+    const m=mem(1, {trigger: {scanDepth:5, probability:100, sticky:3, cooldown:2}});
+    expect(advanceMemoryCounters([m], [], {[m.id]:1, deleted:5}, {deleted:4})).toEqual({sticky:{},cooldown:{[m.id]:2}});
+    expect(advanceMemoryCounters([{...m,isActive:false}], [], {[m.id]:1}, {[m.id]:2})).toEqual({sticky:{},cooldown:{}});
+  });
+});
+
+
+it('critical 超過 20 條仍完整保留，輸入陣列不被排序改寫', () => {
+  const critical = Array.from({length: 25}, (_, i) => mem(i, {importance:'critical'}));
+  const snapshot = structuredClone(critical);
+  expect(selectPromptMemories(critical, '')).toHaveLength(25);
+  expect(critical).toEqual(snapshot);
 });
