@@ -60,6 +60,34 @@ export const MessageCard: React.FC<MessageCardProps> = React.memo(({
 }) => {
   const isUser = msg.role === 'user';
   const isAssistant = msg.role === 'assistant';
+  const isEditing = editingMessageId === msg.id;
+  const cardRef = useRef<HTMLDivElement>(null);
+  const editorRef = useRef<HTMLTextAreaElement>(null);
+  const [editHeight, setEditHeight] = useState(200);
+  const scrollPositionRef = useRef<{ container: HTMLElement; top: number } | null>(null);
+
+  const rememberPosition = () => {
+    const card = cardRef.current;
+    if (!card) return;
+    for (let parent = card.parentElement; parent; parent = parent.parentElement) {
+      if (['auto', 'scroll'].includes(getComputedStyle(parent).overflowY)) {
+        scrollPositionRef.current = { container: parent, top: card.getBoundingClientRect().top };
+        break;
+      }
+    }
+  };
+
+  useLayoutEffect(() => {
+    const saved = scrollPositionRef.current;
+    const card = cardRef.current;
+    if (saved && card) {
+      // Restore the card's viewport offset after browser scroll anchoring.
+      const offset = card.getBoundingClientRect().top - saved.top;
+      saved.container.scrollTop += offset;
+      scrollPositionRef.current = null;
+    }
+    if (isEditing) editorRef.current?.focus({ preventScroll: true });
+  }, [isEditing]);
 
   // 選單預設往上開；上方放不下時翻向下方。
   // 先前寫死 `bottom-full`，捲到頂端時最上面那則的選單會被捲動容器整個裁掉，
@@ -79,6 +107,7 @@ export const MessageCard: React.FC<MessageCardProps> = React.memo(({
 
   return (
     <motion.div
+      ref={cardRef}
       key={msg.id}
       initial={{ opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
@@ -147,6 +176,8 @@ export const MessageCard: React.FC<MessageCardProps> = React.memo(({
                   style={{ color: 'var(--text-body)' }}
                   onClick={(e) => {
                     e.stopPropagation();
+                    setEditHeight(Math.max(200, (cardRef.current?.getBoundingClientRect().height ?? 200) - 32));
+                    rememberPosition();
                     onEdit(msg.id, msg.text);
                   }}
                 >
@@ -173,15 +204,16 @@ export const MessageCard: React.FC<MessageCardProps> = React.memo(({
         {editingMessageId === msg.id ? (
           <div className="flex flex-col w-full">
             <textarea
+              ref={editorRef}
+              aria-label="編輯訊息"
               value={editMessageText}
               onChange={(e) => onEditChange(e.target.value)}
               className="w-full backdrop-blur-sm p-3 rounded-[10px] border border-[color:var(--tint-line)] outline-none resize-none text-sm min-h-[200px]"
-              style={{ background: 'color-mix(in srgb, var(--bg-elevated) 50%, transparent)', color: 'var(--text-dialog-muted)' }}
-              autoFocus
+              style={{ height: editHeight, background: 'color-mix(in srgb, var(--bg-elevated) 50%, transparent)', color: 'var(--text-dialog-muted)' }}
             />
             <div className="flex justify-end space-x-2 mt-2">
               <button
-                onClick={onEditCancel}
+                onClick={() => { rememberPosition(); onEditCancel(); }}
                 className="text-sm text-[var(--text-muted)] px-2 py-1"
                 onMouseEnter={e => (e.currentTarget as HTMLElement).style.color = 'var(--text-dialog-main)'}
                 onMouseLeave={e => (e.currentTarget as HTMLElement).style.color = ''}
@@ -189,7 +221,7 @@ export const MessageCard: React.FC<MessageCardProps> = React.memo(({
                 取消
               </button>
               <button
-                onClick={() => onEditSave(msg.id, editMessageText)}
+                onClick={() => { rememberPosition(); onEditSave(msg.id, editMessageText); }}
                 className="text-sm backdrop-blur-sm px-3 py-1 rounded-[8px] transition shadow-[var(--shadow)]"
                 style={{ background: 'var(--btn-primary)', color: 'var(--text-main)' }}
                 onMouseEnter={e => e.currentTarget.style.background = 'var(--btn-primary-hover)'}

@@ -40,6 +40,16 @@ const renderCard = (props: Partial<React.ComponentProps<typeof MessageCard>> = {
   );
 
 describe('MessageCard 操作列', () => {
+  it('focuses the editor without scrolling the page', () => {
+    const focus = vi.spyOn(HTMLTextAreaElement.prototype, 'focus');
+    try {
+      renderCard({ editingMessageId: 1, editMessageText: '修改內容' });
+      expect(focus).toHaveBeenCalledWith({ preventScroll: true });
+      expect(screen.getByRole('textbox', { name: '編輯訊息' })).toHaveFocus();
+    } finally {
+      focus.mockRestore();
+    }
+  });
   /**
    * 這條釘住的是一個實際壞掉過的行為：操作列原本寫成
    * `opacity-0 group-hover:opacity-100`，而 Tailwind v4 預設把 `hover:`
