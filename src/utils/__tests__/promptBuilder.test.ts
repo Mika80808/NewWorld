@@ -38,6 +38,16 @@ const deps = (memories: MemoryEntry[], isMemoryTriggered: BuildPromptDeps['isMem
 
 const messages: Message[] = [{ id: 1, role: 'user', text: '你好' }];
 
+it('recalls a queried absent NPC event without implying presence', () => {
+  const event = mem('event', '承諾歸還戒指', { type: 'npc',
+    tags: { locations: [], npcs: ['芬里爾'], factions: [], keywords: [] } });
+  const result = buildPrompt(deps([event], () => true), '芬里爾的承諾呢', messages);
+  expect(result.prompt).toContain('承諾歸還戒指');
+  expect(result.prompt).toContain('[歷史資料，不代表角色在場]');
+  expect(result.triggeredMemoryIds).toContain('event');
+  expect(buildPrompt(deps([event], () => true), '去買東西', messages).triggeredMemoryIds).not.toContain('event');
+});
+
 describe('buildPrompt 記憶觸發判定', () => {
   it('每則記憶只評估一次（isMemoryTriggered 含機率擲骰，不可重複呼叫）', () => {
     const memories = [mem('m1', 'A'), mem('m2', 'B'), mem('m3', 'C')];
@@ -948,23 +958,23 @@ describe('buildPrompt NPC 核心記憶', () => {
     expect(prompt).toContain('[★核心] 的是玩家指定的關鍵記憶');
   });
 
-  // 好感度門檻只擋一般記憶，不擋核心
-  it('好感度低於 60 時一般記憶仍不注入', () => {
+  it('好感度低於 60 時 AI 仍讀取一般記憶', () => {
     const prompt = build({
       npcs: [kael({ affection: 10, memories: [coreMem('關鍵事實'), normalMem('閒聊內容')] })],
       appearingNpcs: ['凱爾'], lorebookEntries: [kaelLore()],
     });
     expect(prompt).toContain('關鍵事實');
-    expect(prompt).not.toContain('閒聊內容');
+    expect(prompt).toContain('閒聊內容');
   });
 
   // [Pinned NPCs]（沒有設定集條目的角色）走另一條路徑，兩邊規則必須一致
   it('[Pinned NPCs] 也在低好感時注入核心記憶並標 ★', () => {
     const prompt = build({
-      npcs: [kael({ affection: 10, isPinned: true, memories: [coreMem('關鍵事實')] })],
+      npcs: [kael({ affection: 10, isPinned: true, memories: [coreMem('關鍵事實'), normalMem('釘選角色往事')] })],
       lorebookEntries: [],
     });
     expect(prompt).toContain('[Pinned NPCs]');
+    expect(prompt).toContain('釘選角色往事');
     expect(prompt).toContain('關鍵事實 [★核心]');
   });
 

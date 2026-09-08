@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { advanceMemoryCounters, selectPromptMemories, PROMPT_MEMORY_CHAR_BUDGET, pruneMemories, touchMemories, MAX_MEMORIES, editMemoryContent, isSceneMergeable, selectMergeableMemories, replaceMemoriesWithMerged } from '../memoryStore';
 import { MemoryEntry } from '../../types';
+import { selectCompatibleMergeGroup, canApplyMemoryMerge } from '../memoryStore';
 
 /** stamp 會嵌進 id，模擬 `mem_${Date.now()}_${random}` 的建檔時間戳 */
 const mem = (stamp: number, over: Partial<MemoryEntry> = {}): MemoryEntry => ({
@@ -17,6 +18,23 @@ const mem = (stamp: number, over: Partial<MemoryEntry> = {}): MemoryEntry => ({
 });
 
 const ids = (mems: MemoryEntry[]) => mems.map(m => m.id);
+
+describe('merge scope and concurrent edits', () => {
+  it('keeps unconditional, keyword and local scopes separate', () => {
+    const plain = [mem(1), mem(2), mem(3)];
+    const keyword = mem(4, { tags: { ...mem(4).tags, keywords: ['fire'] } });
+    const local = mem(5, { tags: { ...mem(5).tags, locations: ['town'] } });
+    expect(selectCompatibleMergeGroup([...plain, keyword, local])).toEqual(plain);
+  });
+  it('rejects edits and deletions but permits usage timestamp changes', () => {
+    const targets = [mem(1), mem(2)];
+    const edited = editMemoryContent(targets, targets[0].id, 'corrected');
+    expect(canApplyMemoryMerge(edited, targets)).toBe(false);
+    expect(canApplyMemoryMerge(targets.slice(1), targets)).toBe(false);
+    expect(canApplyMemoryMerge(touchMemories(targets, [targets[0].id]), targets)).toBe(true);
+    expect(replaceMemoriesWithMerged(edited, ids(targets), mem(3), targets)).toBe(edited);
+  });
+});
 
 describe('pruneMemories — LOD 淘汰', () => {
   it('未超量時回傳原 reference（讓 React 與髒標記能 bail out）', () => {

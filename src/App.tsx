@@ -44,7 +44,7 @@ import { describeItem, registerItemDef, normalizeItemName, selectConsumedItems }
 import { updateNpcFootprints, resolveOnStageNames } from './utils/npcPresence';
 import { findNpcLore } from './utils/npcProfile';
 import { nextVisibleMessageCount } from './utils/visibleMessages';
-import { editMemoryContent, selectMergeableMemories, replaceMemoriesWithMerged, MIN_MERGE_CANDIDATES } from './utils/memoryStore';
+import { editMemoryContent, selectMergeableMemories, selectCompatibleMergeGroup, canApplyMemoryMerge, replaceMemoriesWithMerged, MIN_MERGE_CANDIDATES } from './utils/memoryStore';
 import { SaveSlotsModal } from './components/SaveSlotsModal';
 
 export default function App() {
@@ -1484,15 +1484,18 @@ ${poolText}
     // 全部在 await 之前讀完：async 函數在 await 之後不得讀閉包捕獲的 state
     const loc = currentLocation;
     const gameDate = `${timeState.month}/${timeState.day}`;
-    const targets = selectMergeableMemories(memories, loc, type);
-    if (targets.length < MIN_MERGE_CANDIDATES) return;
+    const targets = selectCompatibleMergeGroup(selectMergeableMemories(memories, loc, type));
+    if (targets.length < MIN_MERGE_CANDIDATES) {
+      showToast('相同觸發條件的記憶不足三條，無法融合');
+      return;
+    }
 
     setMergingMemoryType(type);
     try {
       const prompt = `以下是遊戲中「${loc}」的多條${type === 'scene' ? '場景' : '區域'}記憶，`
         + `請融合成一條簡潔的敘述，保留所有關鍵事實（誰、發生什麼、造成什麼結果），刪去重複與贅詞。\n\n`
-        + targets.map(m => `- ${m.content}`).join('\n')
-        + `\n\n請只回傳融合後的一句話，不要加任何前綴、編號或解釋。`;
+        + targets.map(m => `- (${m.createdAt}) ${m.content}`).join('\n')
+        + `\n\n請以數條精簡事實回傳，保留日期、人名、承諾、秘密與因果。狀態改變須交代先後，傳聞保持不確定語氣，不得補寫。不要加前綴或解釋。`;
 
       const merged = (await callAI(prompt, { role: 'sub' })).trim();
       // callAI 在 API key 未設定時回傳空字串而非 throw。少了這道防護，
@@ -1506,9 +1509,10 @@ ${poolText}
         ...targets[0],
         id: `mem_${Date.now()}_${Math.random().toString(36).slice(2)}`,
         content: merged,
-        importance: 'normal',
+        importance: targets[0].importance,
         source: 'ai_generated',
         createdAt: gameDate,
+        mergeSources: targets,
         // 標籤取聯集：融合後的那一條要能被原本任何一條的條件觸發
         tags: {
           locations: [...new Set(targets.flatMap(m => m.tags?.locations ?? []))],
@@ -1518,7 +1522,11 @@ ${poolText}
         },
       };
       const mergedIds = targets.map(m => m.id);
-      setMemories(prev => replaceMemoriesWithMerged(prev, mergedIds, replacement));
+      if (!canApplyMemoryMerge(buildSaveSnapshotRef.current().memories, targets)) {
+        showToast('記憶已變更，融合結果未套用，請重新操作');
+        return;
+      }
+      setMemories(prev => replaceMemoriesWithMerged(prev, mergedIds, replacement, targets));
       showToast(`✨ 融合了 ${targets.length} 條記憶`);
     } catch (error) {
       console.error('Scene memory merge failed:', error);

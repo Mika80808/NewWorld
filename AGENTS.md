@@ -293,6 +293,8 @@ interface NpcMemory {
 
 ## NPC 兩階段注入架構
 
+好感度 60 僅限制玩家查看記憶庫；AI 讀取已選入角色的一般記憶與摘要不受此門檻限制，核心記憶完整保留。
+
 **Phase 1（buildPrompt 入口）**：依地點篩選候選名單
 - `homeLocation === currentLocation` 或 `roamLocations.includes(currentLocation)` 的 NPC 列入候選
 - 上限：`locationType === 'town'` → 8 人，其他 → 3 人

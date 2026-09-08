@@ -23,6 +23,25 @@ const run = (commandText: string, s: CurrentState = state()) => {
   return reduceCommands(commands, s);
 };
 
+describe('memory state updates', () => {
+  const oldMemory = () => run('MEMORY_ADD|type=scene|content=橋斷了|locations=月湖鎮').stateChanges.memories![0];
+  it('archives the replaced state while preserving the original text', () => {
+    const old = oldMemory();
+    const result = run(`MEMORY_ADD|type=scene|content=橋已修好|locations=月湖鎮|replaces=${old.id}`, state({ memories: [old] }));
+    const stored = result.stateChanges.memories!;
+    expect(stored[0]).toMatchObject({ content: '橋斷了', isActive: false, supersededBy: stored[1].id });
+    expect(stored[1]).toMatchObject({ content: '橋已修好', isActive: true });
+  });
+  it.each(['manual', 'critical', 'other-location'])('preserves %s memories', kind => {
+    const old = oldMemory();
+    if (kind === 'manual') old.source = 'manual';
+    if (kind === 'critical') old.importance = 'critical';
+    if (kind === 'other-location') old.tags.locations = ['森林'];
+    const result = run(`MEMORY_ADD|type=scene|content=橋已修好|locations=月湖鎮|replaces=${old.id}`, state({ memories: [old] }));
+    expect(result.stateChanges.memories![0]).toEqual(old);
+  });
+});
+
 describe('reduceCommands — 數值指令', () => {
   it('HP/MP/GOLD 累加後寫入 stateChanges.profile', () => {
     const { stateChanges } = run('HP:-10\nMP:+5\nGOLD:+100');

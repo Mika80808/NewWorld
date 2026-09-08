@@ -222,8 +222,8 @@ async function triggerNpcMemoryMerge(
   }
 
   // 構建融合提示詞（NpcMemory 用 .text 欄位）
-  const memoryTexts = mergeableMemories.map(m => m.text).join('\n\n');
-  const mergePrompt = `以下是 NPC "${npcName}" 的多條記憶，請將其融合為一條簡潔、通俗易懂的句子，保留關鍵信息：
+  const memoryTexts = mergeableMemories.map(m => `(${m.createdAt}) ${m.text}`).join('\n\n');
+  const mergePrompt = `以下是 NPC "${npcName}" 的多條記憶，請融合為數條精簡事實，保留日期、人名、承諾、秘密與因果；狀態變化要交代先後，傳聞保持不確定語氣，不得補寫：
 
 ${memoryTexts}
 
@@ -253,7 +253,9 @@ ${memoryTexts}
     // 標記原有記憶為已融合，並添加融合後的記憶
     setters.setNpcs(prev =>
       prev.map(npc =>
-        npc.id === npcId
+        npc.id === npcId && mergeableMemories.every(original =>
+          (npc.memories || []).some(current => current.id === original.id
+            && isMergeable(current) && JSON.stringify(current) === JSON.stringify(original)))
           ? {
               ...npc,
               memories: [

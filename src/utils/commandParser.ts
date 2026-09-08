@@ -503,6 +503,7 @@ function parseSingleCommand(line: string): CommandAST | null {
         type: 'MEMORY_ADD', raw: trimmed,
         parsed: {
           memType, importance, content,
+          replaces: kv.replaces || '',
           locations: kv.locations ? kv.locations.split(',').map(s => s.trim()).filter(Boolean) : [],
           npcs: kv.npcs ? kv.npcs.split(',').map(s => s.trim()).filter(Boolean) : [],
           factions: kv.factions ? kv.factions.split(',').map(s => s.trim()).filter(Boolean) : [],

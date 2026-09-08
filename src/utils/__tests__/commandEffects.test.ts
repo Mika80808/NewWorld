@@ -59,6 +59,17 @@ const condenseTask = (over: Partial<AsyncTask & { payload: unknown }> = {}): Asy
 const run = (tasks: AsyncTask[], setters: Setters, callbacks: Callbacks) =>
   applyStateChanges({}, { toasts: [], cmdResults: [] }, tasks, setters, callbacks);
 
+it('does not archive NPC memories edited while merging', async () => {
+  const original = npcMem('m1', 'original');
+  const edited = { ...original, text: 'player correction', source: 'manual' as const };
+  const h = harness([npc({ memories: [edited] })]);
+  const { callbacks } = callbacksWith('stale summary');
+  await run([{ type: 'merge_npc_memories', payload: {
+    npcId: 1, npcName: '芬里爾', memories: [original], gameDate: '4/15',
+  } } as AsyncTask], h.setters, callbacks);
+  expect(h.getState()[0].memories).toEqual([edited]);
+});
+
 // 玩家回報：「10 則想法大約 1000 字左右，而且劇情密度意外的高。」
 // 打包同步寫入原文（保底），這個任務之後把 text 換成濃縮版。
 describe('applyStateChanges — condense_npc_thoughts', () => {

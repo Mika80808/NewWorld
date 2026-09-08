@@ -871,6 +871,17 @@ export function reduceCommands(
           createdAt: `${currentState.timeState.month}/${currentState.timeState.day}`,
         };
         workingMemories = [...workingMemories, newMem];
+        const replaces = cmd.parsed.replaces as string | undefined;
+        if (replaces) {
+          workingMemories = workingMemories.map(m =>
+            m.id === replaces && m.id !== newMem.id && m.type === memType
+              && m.source === 'ai_generated' && m.importance !== 'critical' && m.isActive
+              && (['locations', 'npcs', 'factions'] as const).every(tag =>
+                JSON.stringify([...new Set(m.tags[tag])].sort())
+                  === JSON.stringify([...new Set(newMem.tags[tag])].sort()))
+              ? { ...m, isActive: false, supersededBy: newMem.id }
+              : m);
+        }
         break;
       }
 

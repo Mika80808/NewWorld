@@ -160,6 +160,31 @@ export function touchMemories(
 /** 一次融合最少要有幾條可融合記憶才划算（少於這個數，融合只是把兩句話併成一句） */
 export const MIN_MERGE_CANDIDATES = 3;
 
+/** Merge only identical scopes; a union would narrow unconditional memories. */
+export function selectCompatibleMergeGroup(memories: MemoryEntry[]): MemoryEntry[] {
+  const groups = new Map<string, MemoryEntry[]>();
+  for (const m of memories) {
+    const key = JSON.stringify([m.type, m.importance, m.expiresAt ?? null,
+      m.trigger.scanDepth, m.trigger.probability, m.trigger.sticky, m.trigger.cooldown,
+      ...(['locations', 'npcs', 'factions', 'keywords'] as const)
+        .map(tag => [...new Set(m.tags[tag])].sort())]);
+    const group = groups.get(key) ?? [];
+    group.push(m);
+    groups.set(key, group);
+  }
+  return [...groups.values()].sort((a, b) => b.length - a.length)[0] ?? [];
+}
+
+export function canApplyMemoryMerge(current: MemoryEntry[], expected: MemoryEntry[]): boolean {
+  return expected.length > 0 && expected.every(original => {
+    const latest = current.find(m => m.id === original.id);
+    if (!latest || !isSceneMergeable(latest)) return false;
+    // Usage timestamps may change while the request is running.
+    return JSON.stringify({ ...latest, lastTriggeredAt: undefined })
+      === JSON.stringify({ ...original, lastTriggeredAt: undefined });
+  });
+}
+
 /**
  * 可融合 = AI 產出、非 critical、且還在啟用中。
  *
@@ -209,7 +234,9 @@ export function replaceMemoriesWithMerged(
   memories: MemoryEntry[],
   mergedIds: string[],
   replacement: MemoryEntry,
+  expected?: MemoryEntry[],
 ): MemoryEntry[] {
+  if (expected && !canApplyMemoryMerge(memories, expected)) return memories;
   const ids = new Set(mergedIds);
   const firstIdx = memories.findIndex(m => ids.has(m.id));
   if (firstIdx === -1) return memories;

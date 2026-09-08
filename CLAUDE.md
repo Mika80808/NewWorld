@@ -328,12 +328,14 @@ interface MemoryEntry {
   memories[] 先前對玩家唯讀，而 AI 只會 `MEMORY_ADD` 從不刪，同一個地點待久就是很長一串
   （`pruneMemories` 的 300 條是儲存上限，救不了畫面）。**編輯過的記憶轉成 `source: 'manual'`**，
   之後不再參與融合與淘汰
-- **融合是玩家按才動，不自動觸發**：`MemoryEntry` 沒有 NPC 記憶那種 `isMerged` 封存欄位，
-  融合是**直接取代**原文——自動跑等於在玩家沒看到的時候改寫存檔。
+- **融合是玩家按才動，不自動觸發**：只融合標籤、觸發條件、重要度與期限相同的一組。
+  結果的 `mergeSources` 保留來源原文；提交前檢查來源仍存在且未修改，衝突時不套用。
   `manual` 與 `critical` 一律豁免（同 `pruneMemories` 的 `isProtected`）；
   融合結果插在**第一條被取代者的位置**，接到陣列尾巴會讓它靠新時間戳排到最前面，
   把真正的新記憶擠出注入端的截斷範圍
 - 純函數層在 `src/utils/memoryStore.ts`
+- `MEMORY_ADD` 的可選 `replaces` 指向被取代的舊狀態。只允許相同類型與地點／NPC／勢力標籤的啟用中 AI 一般記憶；舊文保留，設為停用並記錄 `supersededBy`。手寫與 critical 不受自動取代。
+- NPC 事件記憶在本回合被點名時可注入，未在場者加上歷史資料標記，不能據此讓角色出場。
 
 ### lorebookEntries[]（設定集）
 ```typescript
@@ -658,7 +660,7 @@ FACTION_NEW|name=黑牙氏族|type=criminal|desc=盤據東境的盜賊團
 
 9. **`backstory` 解鎖條件是好感度 ≥ 20，永久解鎖**（不因好感度下降而隱藏）
 
-    NPC 記憶庫的注入門檻是好感度 ≥ 60，但 **`importance: 'core'`（★ 核心記憶）不受此限**——
+    好感度 ≥ 60 僅限制玩家在 UI 查看記憶，AI 注入一般記憶與摘要不受好感度限制。**`importance: 'core'`（★ 核心記憶）完整保留**——
     ★ 按鈕的說明寫的是「永遠注入」，而那些是玩家手寫的，數量少、不會撐大 prompt。
     兩條注入路徑（`[Scene Lorebook]` 與 `[Pinned NPCs]`）規則必須一致，標記共用 `memoryTag()`：
     `[★核心]` / `[摘要]`，區段標題另有一句說明告訴模型這兩個標記代表什麼

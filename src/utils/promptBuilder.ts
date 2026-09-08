@@ -426,7 +426,12 @@ export function buildPrompt(
       npcs.some(npc => isSameNpcName(npc.name, n) && (npc.isPinned || npc.affection >= 60))
     )
   }).filter(m => m.importance === 'critical').slice(0, 2)
-  const npcMems = [...appearingNpcMems, ...specialNpcMems]
+  const queriedNpcMems = filterByImportance(triggeredMemories.filter(m =>
+    m.type === 'npc' && !isTaggedOnStage(m)
+    && (m.tags.npcs || []).some(name => name.trim().length > 0
+      && isNpcOnStage(name, [userInput]))), 5, 2)
+  const npcMems = [...new Map([...appearingNpcMems, ...specialNpcMems, ...queriedNpcMems]
+    .map(m => [m.id, m])).values()]
 
   // 超量時漸進挑選，不因第 21 條出現而突然失去全部一般記憶。
   const injectedMemories = selectPromptMemories([...worldMems, ...regionMems, ...sceneMems, ...npcMems], userInput)
@@ -465,7 +470,7 @@ export function buildPrompt(
   const memLines = (mems: MemoryEntry[], tagKey?: 'factions' | 'locations' | 'npcs') =>
     mems.map(m => {
       const tags = tagKey ? m.tags?.[tagKey] : undefined
-      return `- ${m.content}${tags?.length ? ` [${tags.join(',')}]` : ''}`
+      return `- [id=${m.id}] (${m.createdAt}) ${m.content}${tags?.length ? ` [${tags.join(',')}]` : ''}${m.type === 'npc' && !isTaggedOnStage(m) ? ' [歷史資料，不代表角色在場]' : ''}`
     }).join('\n')
 
   // ── 靜態前綴：逐回合幾乎不變的內容，一律排在最前面 ──────────────────────────
@@ -628,17 +633,12 @@ Personality: ${profile.personality}${profile.other ? `\nOther: ${profile.other}`
     let memoriesText = ''
     const activeMemories = (npcData?.memories ?? []).filter(m => !m.isMerged)
     if (activeMemories.length > 0) {
-      // 核心記憶不受好感度門檻限制。★ 按鈕的說明寫的是「永遠注入」，而這裡
-      // 先前整段包在 `affection >= 60` 裡——玩家特地標成核心的關鍵事實，
-      // 在好感度爬到 60 之前一條都送不出去，UI 的承諾與實際行為對不上。
-      // 核心記憶是玩家手寫的，數量本來就少，不會把 prompt 撐大。
+      // 好感度只限制玩家查看；AI 仍需記得互動，核心記憶完整保留。
       const coreMems = activeMemories.filter(m => m.importance === 'core')
-      const restMems = (npcData?.affection ?? 0) >= 60
-        ? [
+      const restMems = [
             ...activeMemories.filter(m => m.importance === 'normal' && m.source !== 'merged').slice(-5),
             ...activeMemories.filter(m => m.source === 'merged').slice(-2),
           ]
-        : []
       const toInject = [...coreMems, ...restMems]
       if (toInject.length > 0) {
         memoriesText = `｜[記憶庫] ${toInject.map(m => `(${m.createdAt})${m.text}${memoryTag(m)}`).join(' / ')}`
@@ -723,23 +723,18 @@ Personality: ${profile.personality}${profile.other ? `\nOther: ${profile.other}`
     const identPinned = `${genderPinned}${jobPinned}`
     const namePinned = identPinned ? `${n.name}（${identPinned}）` : n.name
     const lines: string[] = [`- ${namePinned}${racePinned}${agePinned}對玩家：${relPinned}（好感度 ${n.affection}）${backstoryPinned}${factionPinned}${thoughtsText}`]
-    // 核心記憶無條件注入，其餘記憶好感度 ≥ 60 才注入（同 [Scene Lorebook]）
+    // 好感度只限制玩家查看，AI 注入與 [Scene Lorebook] 一致。
     if (n.memories && n.memories.length > 0) {
       const MAX_NORMAL = 5
       const MAX_MERGED = 2
       const MAX_CHARS = 300
 
       const activeMemories = n.memories.filter(m => !m.isMerged)
-      const unlocked = n.affection >= 60
       const coreMemories = activeMemories.filter(m => m.importance === 'core')
-      let normalMemories = unlocked
-        ? activeMemories
+      let normalMemories = activeMemories
             .filter(m => m.importance === 'normal' && m.source !== 'merged')
             .slice(-MAX_NORMAL)
-        : []
-      const mergedMemories = unlocked
-        ? activeMemories.filter(m => m.source === 'merged').slice(-MAX_MERGED)
-        : []
+      const mergedMemories = activeMemories.filter(m => m.source === 'merged').slice(-MAX_MERGED)
 
       // 超出 300 字時縮減 normal 到 3 則
       const baseText = [...coreMemories, ...normalMemories, ...mergedMemories]
@@ -900,6 +895,8 @@ NPC_RELATION|npc=NPC名|type=family/ally/rival/enemy/acquaintance/romantic|targe
 - NPC_RELATION：NPC 之間或與玩家的私人關係明確確立時。PLAYER 代表玩家。
 
 【MEMORY_ADD 觸發情境（以下情況必須輸出）】
+記憶是帶日期的事件記錄。狀態改變時寫明原狀態與新結果；相同事件不要重複新增。傳聞與猜測須標明來源及不確定性，不能當成已確認事實。讀取歷史記憶時依事件先後判斷目前狀態。角色記憶供 GM 維持一致性，不表示角色願意向玩家透露秘密。
+若已確認同一事件的狀態更新，MEMORY_ADD 可附加 replaces=舊記憶ID，並沿用舊記憶的 type、locations、npcs、factions。新內容須交代原狀態與新結果。只取代本回合已提供的一般 AI 記憶，手寫與 critical 不取代；不確定是否同一事件時不要填 replaces。
 1. world/critical：影響整個世界的重大事件（魔王宣戰、天象異變）
 2. region/normal：特定區域動態（森林大火、城鎮慶典）。回應中出現 [ ] 格式布告欄必定觸發。
 3. scene/normal：當前地點物理或狀態改變（酒館被砸毀、橋樑斷裂）

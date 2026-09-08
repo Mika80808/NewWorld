@@ -213,6 +213,8 @@ export interface DiaryEntry {
 }
 
 export interface MemoryEntry {
+  mergeSources?: MemoryEntry[];
+  supersededBy?: string;
   id: string;
   type: 'world' | 'region' | 'scene' | 'npc';
   importance: 'critical' | 'normal' | 'flavor';
