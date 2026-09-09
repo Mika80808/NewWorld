@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { nextVisibleMessageCount } from '../visibleMessages';
+import { nextVisibleMessageCount, isScrolledToBottom, AT_BOTTOM_THRESHOLD_PX } from '../visibleMessages';
 
 /**
  * 玩家回報：重新整理網頁後，聊天區只看得到最後一句話，前面的歷史整段消失
@@ -41,5 +41,42 @@ describe('nextVisibleMessageCount', () => {
   it('呼叫時機正確時（prev 真的是 0），40 則歷史正確顯示最近 10 則，不會卡在 1', () => {
     expect(nextVisibleMessageCount(0, 40, 10)).toBe(10);
     expect(nextVisibleMessageCount(0, 40, 10)).not.toBe(1);
+  });
+});
+
+describe('isScrolledToBottom', () => {
+  const m = (scrollTop: number, scrollHeight = 2000, clientHeight = 800) =>
+    ({ scrollTop, scrollHeight, clientHeight });
+
+  it('捲到最底＝在底部', () => {
+    expect(isScrolledToBottom(m(1200))).toBe(true);
+  });
+
+  it('往上捲一大段＝不在底部，按鈕該出現', () => {
+    expect(isScrolledToBottom(m(0))).toBe(false);
+    expect(isScrolledToBottom(m(600))).toBe(false);
+  });
+
+  /** 邊界：門檻內算在底部，門檻外算離開 */
+  it('門檻剛好與剛好超過', () => {
+    expect(isScrolledToBottom(m(1200 - AT_BOTTOM_THRESHOLD_PX))).toBe(true);
+    expect(isScrolledToBottom(m(1200 - AT_BOTTOM_THRESHOLD_PX - 1))).toBe(false);
+  });
+
+  /**
+   * 次像素誤差：捲到最底時瀏覽器可能算出差為負數。
+   * 用 `=== 0` 判定會在這裡誤判成「不在底部」，按鈕於是在底部閃爍。
+   */
+  it('差為負數（次像素誤差）仍算在底部', () => {
+    expect(isScrolledToBottom({ scrollTop: 1200.4, scrollHeight: 2000, clientHeight: 800 })).toBe(true);
+  });
+
+  it('內容比容器短時算在底部——不該冒出一顆按不動的按鈕', () => {
+    expect(isScrolledToBottom({ scrollTop: 0, scrollHeight: 300, clientHeight: 800 })).toBe(true);
+  });
+
+  it('門檻可覆寫', () => {
+    expect(isScrolledToBottom(m(1100), 50)).toBe(false);
+    expect(isScrolledToBottom(m(1100), 150)).toBe(true);
   });
 });
