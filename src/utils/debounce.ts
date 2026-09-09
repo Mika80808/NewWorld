@@ -6,18 +6,23 @@
 export function debounce<T extends (...args: any[]) => any>(
   func: T,
   delay: number
-): (...args: Parameters<T>) => void {
+): ((...args: Parameters<T>) => void) & { cancel: () => void } {
   let timeoutId: ReturnType<typeof setTimeout> | null = null;
 
-  return function (...args: Parameters<T>) {
+  const wrapped = (...args: Parameters<T>) => {
     if (timeoutId !== null) {
       clearTimeout(timeoutId);
     }
     timeoutId = setTimeout(() => {
-      func(...args);
       timeoutId = null;
+      func(...args);
     }, delay);
   };
+  wrapped.cancel = () => {
+    if (timeoutId !== null) clearTimeout(timeoutId);
+    timeoutId = null;
+  };
+  return wrapped;
 }
 
 export function throttle<T extends (...args: any[]) => any>(

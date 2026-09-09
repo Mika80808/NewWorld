@@ -47,7 +47,7 @@ const condenseTask = (over: Partial<AsyncTask & { payload: unknown }> = {}): Asy
   payload: {
     npcId: 1,
     npcName: '芬里爾',
-    memoryId: 'm1',
+    memoryId: 'm1', originalText: '原文',
     thoughts: [
       { text: '第一則想法', createdAt: '4/1' },
       { text: '第二則想法', createdAt: '4/3' },
@@ -74,7 +74,7 @@ it('does not archive NPC memories edited while merging', async () => {
 // 打包同步寫入原文（保底），這個任務之後把 text 換成濃縮版。
 describe('applyStateChanges — condense_npc_thoughts', () => {
   it('成功時把那條記憶的 text 換成濃縮結果', async () => {
-    const h = harness([npc({ memories: [npcMem('m1', '原文很長的一大塊')] })]);
+    const h = harness([npc({ memories: [npcMem('m1', '原文')] })]);
     const { callbacks } = callbacksWith('濃縮後的回憶');
     await run([condenseTask()], h.setters, callbacks);
     expect(h.getState()[0].memories[0].text).toBe('濃縮後的回憶');
@@ -93,17 +93,17 @@ describe('applyStateChanges — condense_npc_thoughts', () => {
    * （thoughts[] 在 reducer 那步已經清空）。
    */
   it('AI 回空字串時保留原文，不清空記憶', async () => {
-    const h = harness([npc({ memories: [npcMem('m1', '原文很長的一大塊')] })]);
+    const h = harness([npc({ memories: [npcMem('m1', '原文')] })]);
     const { callbacks } = callbacksWith('   ');
     await run([condenseTask()], h.setters, callbacks);
-    expect(h.getState()[0].memories[0].text).toBe('原文很長的一大塊');
+    expect(h.getState()[0].memories[0].text).toBe('原文');
   });
 
   it('AI 丟錯時保留原文，且不讓整批副作用炸掉', async () => {
-    const h = harness([npc({ memories: [npcMem('m1', '原文很長的一大塊')] })]);
+    const h = harness([npc({ memories: [npcMem('m1', '原文')] })]);
     const { callbacks } = callbacksWith(new Error('network'));
     await expect(run([condenseTask()], h.setters, callbacks)).resolves.toBeUndefined();
-    expect(h.getState()[0].memories[0].text).toBe('原文很長的一大塊');
+    expect(h.getState()[0].memories[0].text).toBe('原文');
   });
 
   it('只動指定的那一條，其他記憶不受影響', async () => {
@@ -116,7 +116,7 @@ describe('applyStateChanges — condense_npc_thoughts', () => {
   it('沒有想法時完全不呼叫 AI', async () => {
     const h = harness([npc({ memories: [npcMem('m1', '原文')] })]);
     const { callbacks, callAI } = callbacksWith('濃縮後');
-    await run([condenseTask({ payload: { npcId: 1, npcName: '芬里爾', memoryId: 'm1', thoughts: [] } })], h.setters, callbacks);
+    await run([condenseTask({ payload: { npcId: 1, npcName: '芬里爾', memoryId: 'm1', originalText: '原文', thoughts: [] } })], h.setters, callbacks);
     expect(callAI).not.toHaveBeenCalled();
   });
 
@@ -151,4 +151,18 @@ describe('applyStateChanges — condense_npc_thoughts', () => {
     await run([condenseTask()], h.setters, callbacks);
     expect(callAI.mock.calls[0][1]).toBe('sub');
   });
+});
+
+
+it.each([
+  {source:'manual' as const, text:'玩家修正'},
+  {source:'pre_merge' as const, text:'新的內容'},
+  {source:'pre_merge' as const, text:'原文', isMerged:true},
+  {source:'pre_merge' as const, text:'原文', importance:'core' as const},
+])('濃縮結果不覆蓋已修改或封存的記憶 %j', async updates => {
+  const current=npcMem('m1','原文',updates);
+  const h=harness([npc({memories:[current]})]);
+  const {callbacks}=callbacksWith('過時的濃縮');
+  await run([condenseTask()],h.setters,callbacks);
+  expect(h.getState()[0].memories).toEqual([current]);
 });

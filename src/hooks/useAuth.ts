@@ -34,7 +34,7 @@ function readOAuthError(): string | null {
   const errDesc =
     hashParams.get('error_description') || queryParams.get('error_description') ||
     hashParams.get('error') || queryParams.get('error')
-  return errDesc ? decodeURIComponent(errDesc.replace(/\+/g, ' ')) : null
+  return errDesc || null // URLSearchParams 已解碼；再次解碼會破壞 + 或含 % 的錯誤訊息
 }
 
 export function useAuth() {
@@ -61,16 +61,25 @@ export function useAuth() {
     // 這裡不必再 setState 一次
     if (!supabase) return
 
-    supabase.auth.getSession().then(({ data }) => {
-      setAuthUser(data.session?.user ?? null)
+    let active = true
+    let sessionChanged = false
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (!active) return
+      sessionChanged = true
+      setAuthUser(session?.user ?? null)
       setAuthLoading(false)
     })
-
-    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
-      setAuthUser(session?.user ?? null)
+    supabase.auth.getSession().then(({ data, error }) => {
+      if (!active || sessionChanged) return
+      if (error) setAuthError(error.message)
+      setAuthUser(data.session?.user ?? null)
+      setAuthLoading(false)
+    }).catch((error: unknown) => {
+      if (!active || sessionChanged) return
+      setAuthError(error instanceof Error ? error.message : '無法讀取登入狀態，請重新登入')
+      setAuthLoading(false)
     })
-
-    return () => listener.subscription.unsubscribe()
+    return () => { active = false; listener.subscription.unsubscribe() }
   }, [])
 
   const handleGoogleLogin = async () => {
@@ -100,6 +109,21 @@ export function useAuth() {
   // 髒標記（dirty flag）：記錄每個存檔槽最後成功上傳內容的雜湊，
   // 快照未變更時跳過整包 JSON 上傳（例如節流自動存檔在無變更回合觸發）
   const lastSavedHashRef = useRef<Record<string, string>>({})
+  const slotOperations = useRef(new Map<string, Promise<boolean>>())
+
+  const queueSlotOperation = (key: string, operation: () => Promise<boolean>): Promise<boolean> => {
+    const previous = slotOperations.current.get(key) ?? Promise.resolve(true)
+    const pending = previous.catch(() => false).then(operation).catch((error: unknown) => {
+      console.error('[cloud save operation]', error)
+      return false
+    })
+    slotOperations.current.set(key, pending)
+    const cleanup = () => {
+      if (slotOperations.current.get(key) === pending) slotOperations.current.delete(key)
+    }
+    void pending.then(cleanup, cleanup)
+    return pending
+  }
 
   const hashSnapshot = (json: string): string => {
     let h = 5381
@@ -118,20 +142,23 @@ export function useAuth() {
     if (!supabase) return false
 
     const key = `${userId}/${slotName}`
-    const hash = hashSnapshot(JSON.stringify(data))
-    if (lastSavedHashRef.current[key] === hash) return true // 未變更，跳過上傳
+    const snapshot = JSON.stringify(data)
+    const hash = hashSnapshot(snapshot)
+    return queueSlotOperation(key, async () => {
+      if (lastSavedHashRef.current[key] === hash) return true // 未變更，跳過上傳
 
-    const { error } = await supabase.from('saves').upsert({
-      user_id: userId,
-      slot_name: slotName,
-      save_data: data,
-      schema_version: CURRENT_SCHEMA,
-      updated_at: new Date().toISOString(),
-    }, { onConflict: 'user_id,slot_name' })
+      const { error } = await supabase!.from('saves').upsert({
+        user_id: userId,
+        slot_name: slotName,
+        save_data: JSON.parse(snapshot),
+        schema_version: CURRENT_SCHEMA,
+        updated_at: new Date().toISOString(),
+      }, { onConflict: 'user_id,slot_name' })
 
-    if (error) console.error('[saveToCloud] ERROR:', JSON.stringify(error))
-    else lastSavedHashRef.current[key] = hash
-    return !error
+      if (error) console.error('[saveToCloud] ERROR:', JSON.stringify(error))
+      else lastSavedHashRef.current[key] = hash
+      return !error
+    })
   }
 
   const loadFromCloud = async (
@@ -174,15 +201,18 @@ export function useAuth() {
     if (DEV_SKIP_AUTH) return true
     if (!supabase) return false
 
-    const { error } = await supabase
-      .from('saves')
-      .delete()
-      .eq('user_id', userId)
-      .eq('slot_name', slotName)
+    const key = `${userId}/${slotName}`
+    return queueSlotOperation(key, async () => {
+      const { error } = await supabase!
+        .from('saves')
+        .delete()
+        .eq('user_id', userId)
+        .eq('slot_name', slotName)
 
-    if (error) console.error('[deleteCloudSave] ERROR:', JSON.stringify(error))
-    else delete lastSavedHashRef.current[`${userId}/${slotName}`]
-    return !error
+      if (error) console.error('[deleteCloudSave] ERROR:', JSON.stringify(error))
+      else delete lastSavedHashRef.current[`${userId}/${slotName}`]
+      return !error
+    })
   }
 
   return {

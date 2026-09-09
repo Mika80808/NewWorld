@@ -153,12 +153,13 @@ async function triggerThoughtCondense(
     npcId: number;
     npcName: string;
     memoryId: string;
+    originalText: string;
     thoughts: { text: string; createdAt: string }[];
   },
   setters: Setters,
   callbacks: Callbacks
 ): Promise<void> {
-  const { npcId, npcName, memoryId, thoughts } = payload;
+  const { npcId, npcName, memoryId, originalText, thoughts } = payload;
   if (thoughts.length === 0) return;
 
   const span = thoughts.length > 1
@@ -191,7 +192,8 @@ ${thoughts.map((t, i) => `${i + 1}. [${t.createdAt}] ${t.text}`).join('\n')}`;
         ? {
             ...npc,
             memories: (npc.memories || []).map(m =>
-              m.id === memoryId ? { ...m, text: condensed } : m
+              m.id === memoryId && m.source === 'pre_merge' && !m.isMerged && m.importance !== 'core' && m.text === originalText
+                ? { ...m, text: condensed } : m
             ),
           }
         : npc

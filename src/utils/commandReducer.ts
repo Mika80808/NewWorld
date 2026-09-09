@@ -67,6 +67,7 @@ export type AsyncTask =
         npcId: number;
         npcName: string;
         memoryId: string;
+        originalText: string;
         /** 原文（由舊到新），交給助理 GM 濃縮 */
         thoughts: { text: string; createdAt: string }[];
       };
@@ -508,6 +509,7 @@ export function reduceCommands(
                   npcId: npc.id,
                   npcName: npc.name,
                   memoryId: newMemory.id,
+                  originalText: newMemory.text,
                   thoughts: packedThoughts,
                 },
               });
