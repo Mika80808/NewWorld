@@ -165,10 +165,15 @@
   background: transparent;
 }
 
-/* ── @theme：只保留字體，移除所有顏色覆寫 ──────────────── */
+/* ── @theme：只保留字體，移除所有顏色覆寫 ────────────────
+ * ⚠️ 這裡只能列**真的載得到**的字體。原本第一順位寫的是 "Inter" 與
+ * "JetBrains Mono"，但 index.html 只載入 Noto Sans TC / Noto Serif TC /
+ * Yuji Syuku 三種——那兩個名字在任何裝置上都不會命中，等於白寫一層，
+ * 而且會讓人以為版面是照 Inter 排的。
+ * `font-sans` 對齊 .font-game-sans（正文都是中文），`font-mono` 用系統等寬。 */
 @theme {
-  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
-  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+  --font-sans: "Noto Sans TC", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
 }
 
 

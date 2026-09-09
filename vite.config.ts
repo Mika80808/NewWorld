@@ -1,6 +1,5 @@
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
-import path from 'path';
 // defineConfig 取自 vitest/config（而非 vite）：它是 vite 版的再匯出，額外帶上
 // `test` 欄位的型別，否則 `tsc --noEmit` 會說 vite 的 UserConfig 沒有 test
 import {defineConfig} from 'vitest/config';
@@ -28,11 +27,6 @@ export default defineConfig(() => {
             return 'vendor';
           },
         },
-      },
-    },
-    resolve: {
-      alias: {
-        '@': path.resolve(__dirname, '.'),
       },
     },
     test: {
