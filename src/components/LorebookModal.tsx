@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useMemo } from 'react';
 import { BookOpen, Plus, Search, CheckSquare, Square, Trash2, Heart, MoreHorizontal, Upload, Download, FileJson } from 'lucide-react';
+import { LorebookEntryCard } from './panels/LorebookEntryCard';
 import { LorebookEntry, Npc, Faction, FactionRelation } from '../types';
 import { debounce } from '../utils/debounce';
 import { NPC_IMPORT_TEMPLATE, buildNpcExport } from '../utils/npcImport';
@@ -77,7 +78,14 @@ export const LorebookModal: React.FC<LorebookModalProps> = ({
     Record<number, { targetId: string; type: FactionRelation['type']; note: string }>
   >({});
 
-  // ─── Phase 3: Debounced search (300ms delay) ─────────────────────────────────
+  // ─── 搜尋（300ms debounce）───────────────────────────────────────────────────
+  //
+  // `lorebookSearch` 是輸入框的即時值（給 input 的 value 用），
+  // `debouncedSearch` 才是**過濾用**的值——三個 Grid 一律讀後者。
+  //
+  // ⚠️ 先前只有「通用 Grid」讀 debounced，地點與 NPC 兩個 Grid 讀的是即時值，
+  // 於是 debounce 蓋了一半：切到那兩個分頁時每打一個字就整份重篩重繪，
+  // 而設定集動輒上百條。同一個搜尋框在不同分頁有兩種反應速度也說不通。
   const debouncedSetSearch = useMemo(
     () => debounce((query: string) => {
       setDebouncedSearch(query);
@@ -307,11 +315,6 @@ export const LorebookModal: React.FC<LorebookModalProps> = ({
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         {filtered.map(entry => {
           const isEditing = editingLorebookId === entry.id;
-          const allKeywords = [
-            ...(entry.keywords || []),
-            ...(entry.selective ? (entry.secondaryKeys || []) : []),
-          ];
-
           // ── 編輯模式（展開佔兩欄） ──────────────────────────────────────
           if (isEditing) {
             return (
@@ -380,81 +383,12 @@ export const LorebookModal: React.FC<LorebookModalProps> = ({
 
           // ── 檢視模式卡片 ─────────────────────────────────────────────────
           return (
-            <div
+            <LorebookEntryCard
               key={entry.id}
-              onClick={() => setEditingLorebookId(entry.id)}
-              className="backdrop-blur-sm rounded-[8px] p-3 cursor-pointer transition-colors border relative"
-              style={{
-                background: 'color-mix(in srgb, var(--bg-elevated) 50%, transparent)',
-                borderColor: 'var(--border-default)',
-              }}
-              onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--border-accent)'; }}
-              onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border-default)'; }}
-            >
-              {/* 左側內容：標題 + 關鍵字 + 敍述（預留右邊空間給勾選框） */}
-              <div className="pr-8">
-                {/* 標題（20px） */}
-                <span className="text-lg font-bold leading-snug" style={{ color: 'var(--text-title)' }}>
-                  {entry.title || '未命名'}
-                </span>
-
-                {/* 關鍵字膠囊（12px，有才顯示） */}
-                {allKeywords.length > 0 && (
-                  <div className="flex flex-wrap gap-1 mt-1 mb-1.5">
-                    {(entry.keywords || []).map(kw => (
-                      <span
-                        key={kw}
-                        className="px-1.5 py-0.5 rounded-full border"
-                        style={{
-                          fontSize: '12px',
-                          background: 'color-mix(in srgb, var(--bg-sys-tag) 30%, transparent)',
-                          borderColor: 'color-mix(in srgb, var(--bg-sys-tag) 50%, transparent)',
-                          color: 'var(--text-body)',
-                        }}
-                      >
-                        {kw}
-                      </span>
-                    ))}
-                    {entry.selective && (entry.secondaryKeys || []).map(kw => (
-                      <span
-                        key={kw}
-                        className="px-1.5 py-0.5 rounded-full border"
-                        style={{
-                          fontSize: '12px',
-                          background: 'color-mix(in srgb, var(--bg-sys-tag) 30%, transparent)',
-                          borderColor: 'color-mix(in srgb, var(--bg-sys-tag) 50%, transparent)',
-                          color: 'var(--text-body)',
-                        }}
-                      >
-                        +{kw}
-                      </span>
-                    ))}
-                  </div>
-                )}
-
-                {/* 描述文字（16px） */}
-                <p className="leading-relaxed line-clamp-2 text-base" style={{ color: 'var(--text-body)' }}>
-                  {entry.content || (
-                    <span className="italic" style={{ color: 'var(--text-muted)' }}>點擊以新增簡介...</span>
-                  )}
-                </p>
-              </div>
-
-              {/* 右上角：勾選框（絕對定位） */}
-              <button
-                onClick={e => {
-                  e.stopPropagation();
-                  onUpdateLorebook(entry.id, { isActive: !entry.isActive });
-                }}
-                className="absolute top-3 right-3 shrink-0 transition"
-                style={{ color: entry.isActive ? 'var(--text-primary)' : 'var(--text-muted)' }}
-                title={entry.isActive ? 'AI 將讀取此設定' : 'AI 不讀取此設定'}
-              >
-                {entry.isActive
-                  ? <CheckSquare className="w-4 h-4" />
-                  : <Square className="w-4 h-4" />}
-              </button>
-            </div>
+              entry={entry}
+              onEdit={setEditingLorebookId}
+              onToggleActive={(id, isActive) => onUpdateLorebook(id, { isActive })}
+            />
           );
         })}
       </div>
@@ -466,8 +400,8 @@ export const LorebookModal: React.FC<LorebookModalProps> = ({
     const filtered = lorebookEntries
       .filter(e => e.category === '地點')
       .filter(e => {
-        if (!lorebookSearch.trim()) return true;
-        const s = lorebookSearch.toLowerCase();
+        if (!debouncedSearch.trim()) return true;
+        const s = debouncedSearch.toLowerCase();
         return (
           (e.title   && e.title.toLowerCase().includes(s)) ||
           (e.content && e.content.toLowerCase().includes(s))
@@ -486,11 +420,6 @@ export const LorebookModal: React.FC<LorebookModalProps> = ({
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         {filtered.map(entry => {
           const isEditing = editingLorebookId === entry.id;
-          const allKeywords = [
-            ...(entry.keywords || []),
-            ...(entry.selective ? (entry.secondaryKeys || []) : []),
-          ];
-
           if (isEditing) {
             return (
               <div
@@ -590,67 +519,12 @@ export const LorebookModal: React.FC<LorebookModalProps> = ({
 
           // 檢視卡片
           return (
-            <div
+            <LorebookEntryCard
               key={entry.id}
-              onClick={() => setEditingLorebookId(entry.id)}
-              className="backdrop-blur-sm rounded-[8px] p-3 cursor-pointer transition-colors border relative"
-              style={{
-                background: 'color-mix(in srgb, var(--bg-elevated) 50%, transparent)',
-                borderColor: 'var(--border-default)',
-              }}
-              onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--border-accent)'; }}
-              onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border-default)'; }}
-            >
-              {/* 左側內容：標題 + 關鍵字 + 敍述（預留右邊空間給勾選框） */}
-              <div className="pr-8">
-                {/* 標題 */}
-                <span className="font-bold leading-snug text-lg" style={{ color: 'var(--text-title)' }}>
-                  {entry.title || '未命名'}
-                </span>
-
-                {/* 關鍵字（有才顯示） */}
-                {allKeywords.length > 0 && (
-                  <div className="flex flex-wrap gap-1 mt-1 mb-1.5">
-                    {allKeywords.map(kw => (
-                      <span
-                        key={kw}
-                        className="px-1.5 py-0.5 rounded-full border"
-                        style={{
-                          fontSize: '12px',
-                          background: 'color-mix(in srgb, var(--bg-sys-tag) 30%, transparent)',
-                          borderColor: 'color-mix(in srgb, var(--bg-sys-tag) 50%, transparent)',
-                          color: 'var(--text-body)',
-                        }}
-                      >
-                        {kw}
-                      </span>
-                    ))}
-                  </div>
-                )}
-
-                {/* 描述 */}
-                <p className="leading-relaxed line-clamp-2 text-base" style={{ color: 'var(--text-body)' }}>
-                  {entry.content || (
-                    <span className="italic" style={{ color: 'var(--text-muted)' }}>點擊以新增簡介...</span>
-                  )}
-                </p>
-              </div>
-
-              {/* 右上角：勾選框（絕對定位） */}
-              <button
-                onClick={e => {
-                  e.stopPropagation();
-                  onUpdateLorebook(entry.id, { isActive: !entry.isActive });
-                }}
-                className="absolute top-3 right-3 shrink-0 transition"
-                style={{ color: entry.isActive ? 'var(--text-primary)' : 'var(--text-muted)' }}
-                title={entry.isActive ? 'AI 將讀取此設定' : 'AI 不讀取此設定'}
-              >
-                {entry.isActive
-                  ? <CheckSquare className="w-4 h-4" />
-                  : <Square className="w-4 h-4" />}
-              </button>
-            </div>
+              entry={entry}
+              onEdit={setEditingLorebookId}
+              onToggleActive={(id, isActive) => onUpdateLorebook(id, { isActive })}
+            />
           );
         })}
       </div>
@@ -662,8 +536,8 @@ export const LorebookModal: React.FC<LorebookModalProps> = ({
     const filtered = lorebookEntries
       .filter(e => e.category === 'NPC')
       .filter(e => {
-        if (!lorebookSearch.trim()) return true;
-        const s = lorebookSearch.toLowerCase();
+        if (!debouncedSearch.trim()) return true;
+        const s = debouncedSearch.toLowerCase();
         return (
           (e.title       && e.title.toLowerCase().includes(s))       ||
           (e.job         && e.job.toLowerCase().includes(s))          ||
