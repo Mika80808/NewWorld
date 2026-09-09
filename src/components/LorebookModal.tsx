@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import { BookOpen, Plus, Search, CheckSquare, Square, Trash2, Heart, MoreHorizontal, Upload, Download, FileJson } from 'lucide-react';
 import { LorebookEntry, Npc, Faction, FactionRelation } from '../types';
 import { debounce } from '../utils/debounce';
@@ -84,6 +84,8 @@ export const LorebookModal: React.FC<LorebookModalProps> = ({
     }, 300),
     []
   );
+
+  useEffect(() => () => debouncedSetSearch.cancel(), [debouncedSetSearch]);
 
   const handleSearchChange = (query: string) => {
     setLorebookSearch(query);

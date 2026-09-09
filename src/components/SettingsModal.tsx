@@ -125,6 +125,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [showMainKey, setShowMainKey] = useState(false);
   const [showSubKey, setShowSubKey] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   const [draftMain, setDraftMain] = useState<GMConfig>(mainGMConfig);
   const [draftSub, setDraftSub] = useState<SubGMConfig>(subGMConfig);
@@ -135,8 +136,14 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     const now = new Date().toISOString();
     const savedMain = { ...draftMain, lastSaved: now };
     const savedSub = { ...draftSub, lastSaved: now };
-    localStorage.setItem('mainGM_config', JSON.stringify(savedMain));
-    localStorage.setItem('subGM_config', JSON.stringify(savedSub));
+    try {
+      localStorage.setItem('mainGM_config', JSON.stringify(savedMain));
+      localStorage.setItem('subGM_config', JSON.stringify(savedSub));
+    } catch {
+      setSaveError('設定未完整儲存，請允許瀏覽器儲存資料後重試。草稿仍保留在這裡。');
+      return;
+    }
+    setSaveError(null);
     setMainGMConfig(savedMain);
     setSubGMConfig(savedSub);
     // draft 與已儲存設定同步，否則 lastSaved 的差異會讓下方一直判定為未儲存
@@ -164,6 +171,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   return (
     <div className="responsive-modal-overlay fixed inset-0 bg-black/60 backdrop-blur-sm z-[60] flex items-center justify-center p-4" onClick={() => { if (!hasUnsavedChanges) onClose(); }}>
       <div className="responsive-modal-panel backdrop-blur-xl w-full max-w-sm rounded-[8px] shadow-[var(--shadow-modal)] flex flex-col overflow-hidden border rounded-[8px] relative z-[61]" style={{ background: 'color-mix(in srgb, var(--bg-elevated) 90%, transparent)', color: 'var(--text-title)', borderColor: 'color-mix(in srgb, var(--border-default) 60%, transparent)' }} onClick={e => e.stopPropagation()}>
+        {saveError && <p role="alert" className="px-4 py-3 text-sm shrink-0" style={{ color: 'var(--text-danger)' }}>{saveError}</p>}
 
         {/* 標題列 */}
         <div className="p-4 flex justify-between items-center" style={{ borderBottom: `1px solid color-mix(in srgb, var(--border-default) 40%, transparent)` }}>

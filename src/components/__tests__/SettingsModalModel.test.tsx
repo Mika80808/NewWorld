@@ -140,3 +140,15 @@ describe('SettingsModal 模型選擇 — 自訂型號', () => {
     expect((mainSelect() as HTMLSelectElement).value).toBe('gemini-2.5-flash');
   });
 });
+
+
+it('瀏覽器無法儲存時保留草稿並提示，不假裝已儲存', async () => {
+  const setMain=vi.fn();
+  renderModal({setMain});
+  const failure=vi.spyOn(Storage.prototype,'setItem').mockImplementation(()=>{throw new DOMException('Blocked','SecurityError');});
+  try {
+    await userEvent.click(screen.getByRole('button',{name:'儲存設定'}));
+    expect(screen.getByRole('alert')).toHaveTextContent('設定未完整儲存');
+    expect(setMain).not.toHaveBeenCalled();
+  } finally { failure.mockRestore(); }
+});

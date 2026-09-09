@@ -21,11 +21,13 @@ export function rankPromptMemories(memories: MemoryEntry[], input: string): Memo
       .some(tag => tag.trim().length > 0 && text.includes(tag.trim().toLocaleLowerCase())) ? 1 : 0;
   const rank = { critical: 0, normal: 1, flavor: 2 };
   const created = (m: MemoryEntry) => Number(m.id.split('_')[1]) || 0;
-  return [...memories].sort((a, b) =>
-    rank[a.importance] - rank[b.importance]
-    || relevance(b) - relevance(a)
-    || Number(b.source === 'manual') - Number(a.source === 'manual')
-    || created(b) - created(a));
+  // 標籤掃描與時間戳解析每條只做一次，不在排序比較器裡反覆計算。
+  return memories.map(memory => ({ memory, relevance: relevance(memory), created: created(memory) }))
+    .sort((a, b) => rank[a.memory.importance] - rank[b.memory.importance]
+      || b.relevance - a.relevance
+      || Number(b.memory.source === 'manual') - Number(a.memory.source === 'manual')
+      || b.created - a.created)
+    .map(entry => entry.memory);
 }
 
 /** 只去除同層、相同標籤的重複文字；不改寫或刪除存檔。 */

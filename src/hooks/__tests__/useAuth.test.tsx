@@ -88,3 +88,10 @@ describe('useAuth — authError 在第一次 render 就到位', () => {
     expect(window.location.search).toBe('');
   });
 });
+
+
+it.each(['100% failed','a+b','bad %ZZ escape'])('OAuth 錯誤只解碼一次：%s', message => {
+  setUrl('?error_description='+encodeURIComponent(message));
+  const {result}=renderHook(()=>useAuth());
+  expect(result.current.authError).toBe(message);
+});

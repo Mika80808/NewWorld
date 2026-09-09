@@ -293,8 +293,11 @@ ${newPool.map((s, i) => `${i + 1}. ${s}`).join('\n')}`;
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [lastSavedAt, setLastSavedAt] = useState<Date | null>(() => {
-    const saved = localStorage.getItem('rpworld_last_saved');
-    return saved ? new Date(saved) : null;
+    try {
+      const saved = localStorage.getItem('rpworld_last_saved');
+      const date = saved ? new Date(saved) : null;
+      return date && Number.isFinite(date.getTime()) ? date : null;
+    } catch { return null; }
   });
   const [activeMenuId, setActiveMenuId] = useState<number | null>(null);
   const [editingMessageId, setEditingMessageId] = useState<number | null>(null);
@@ -324,19 +327,19 @@ ${newPool.map((s, i) => `${i + 1}. ${s}`).join('\n')}`;
 
   // ─── API 設定（不屬於遊戲存檔，獨立存於 localStorage）───────────────────────
   const [mainGMConfig, setMainGMConfig] = useState<GMConfig>(() => {
-    // 一次性 migrate：舊 gemini_api_key → mainGM_config
-    const oldKey = localStorage.getItem('gemini_api_key');
-    if (oldKey && !localStorage.getItem('mainGM_config')) {
-      const cfg: GMConfig = {
-        provider: 'gemini', apiKey: oldKey, model: 'gemini-2.5-flash',
-        maxTokens: 2048, lastSaved: new Date().toISOString(),
-      };
-      localStorage.setItem('mainGM_config', JSON.stringify(cfg));
-      localStorage.removeItem('gemini_api_key');
-      localStorage.removeItem('gemini_max_tokens');
-      return cfg;
-    }
     try {
+      // 一次性 migrate：舊 gemini_api_key → mainGM_config
+      const oldKey = localStorage.getItem('gemini_api_key');
+      if (oldKey && !localStorage.getItem('mainGM_config')) {
+        const cfg: GMConfig = {
+          provider: 'gemini', apiKey: oldKey, model: 'gemini-2.5-flash',
+          maxTokens: 2048, lastSaved: new Date().toISOString(),
+        };
+        localStorage.setItem('mainGM_config', JSON.stringify(cfg));
+        localStorage.removeItem('gemini_api_key');
+        localStorage.removeItem('gemini_max_tokens');
+        return cfg;
+      }
       const raw = localStorage.getItem('mainGM_config');
       if (raw) {
         const parsed = JSON.parse(raw);
@@ -479,6 +482,7 @@ ${newPool.map((s, i) => `${i + 1}. ${s}`).join('\n')}`;
     }, 150),
     [hiddenMessageCount, messages.length]
   );
+  useEffect(() => () => handleLoadMore.cancel(), [handleLoadMore]);
 
   // 只在「訊息數量」變動時捲動。串流期間 messages 不再逐 chunk 更新，
   // 串流中的跟隨捲動由 StreamingBubble 自行以 rAF + behavior:'auto' 處理，
@@ -1263,7 +1267,7 @@ ${poolText}
       .then(ok => {
         if (ok) {
           const now = new Date();
-          localStorage.setItem('rpworld_last_saved', now.toISOString());
+          try { localStorage.setItem('rpworld_last_saved', now.toISOString()); } catch { /* 雲端已成功，本機時間戳可省略 */ }
           setLastSavedAt(now);
           showToast('✅ 已儲存');
         } else {
@@ -1286,7 +1290,7 @@ ${poolText}
         .then(ok => {
           if (ok) {
             const now = new Date();
-            localStorage.setItem('rpworld_last_saved', now.toISOString());
+            try { localStorage.setItem('rpworld_last_saved', now.toISOString()); } catch { /* 雲端已成功，本機時間戳可省略 */ }
             setLastSavedAt(now);
           } else {
             showToast('☁️ 雲端存檔失敗，請檢查網路連線');
@@ -1373,7 +1377,7 @@ ${poolText}
         setIsCloudSaving(false);
         if (ok) {
           const now = new Date();
-          localStorage.setItem('rpworld_last_saved', now.toISOString());
+          try { localStorage.setItem('rpworld_last_saved', now.toISOString()); } catch { /* 雲端已成功，本機時間戳可省略 */ }
           setLastSavedAt(now);
           showToast('遊戲已重置');
         } else {
