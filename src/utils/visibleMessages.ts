@@ -29,3 +29,32 @@ export function nextVisibleMessageCount(
   if (prev >= messagesLength - 1) return messagesLength;
   return prev;
 }
+
+/**
+ * 距離底部多少 px 之內算「已經在最新訊息」。
+ *
+ * 不是 0：捲到最底時各家瀏覽器的 `scrollHeight` / `clientHeight` 會有次像素誤差
+ * （縮放、字體大小、捲軸都會影響），用 0 判定會讓「回到最新訊息」按鈕在底部閃爍。
+ * 120px 大約是一則短訊息的高度——玩家只是往上瞄一行的時候也不該跳出按鈕。
+ */
+export const AT_BOTTOM_THRESHOLD_PX = 120;
+
+/** `isScrolledToBottom` 需要的量測值，等同 HTMLElement 的同名欄位 */
+export interface ScrollMetrics {
+  scrollTop: number;
+  scrollHeight: number;
+  clientHeight: number;
+}
+
+/**
+ * 是否已經捲到（接近）底部。決定「回到最新訊息」按鈕要不要出現。
+ *
+ * 內容比容器短時三個值會讓差為 0（甚至因為誤差為負），一樣算在底部——
+ * 訊息還不夠一頁的時候不該冒出一顆按不動的按鈕。
+ */
+export function isScrolledToBottom(
+  m: ScrollMetrics,
+  threshold: number = AT_BOTTOM_THRESHOLD_PX,
+): boolean {
+  return m.scrollHeight - m.scrollTop - m.clientHeight <= threshold;
+}

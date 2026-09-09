@@ -10,6 +10,7 @@ import { SystemPromptModal } from './components/SystemPromptModal';
 import { MessageCard } from './components/MessageCard';
 import { StreamingBubble, StreamingBubbleHandle } from './components/StreamingBubble';
 import { ChatInput, ChatInputHandle } from './components/ChatInput';
+import { ScrollToBottomButton } from './components/ScrollToBottomButton';
 import { ConfirmDialog, DialogRequest } from './components/ConfirmDialog';
 import { TimeWeatherPopover } from './components/TimeWeatherPopover';
 // 桌面欄位與手機抽屜共用的面板組件（原本兩邊各有一份幾乎相同的 JSX）
@@ -45,7 +46,7 @@ import { ThemeId, loadTheme, saveTheme, applyTheme } from './utils/theme';
 import { describeItem, registerItemDef, normalizeItemName, selectConsumedItems } from './utils/itemCatalog';
 import { updateNpcFootprints, resolveOnStageNames } from './utils/npcPresence';
 import { findNpcLore } from './utils/npcProfile';
-import { nextVisibleMessageCount } from './utils/visibleMessages';
+import { nextVisibleMessageCount, isScrolledToBottom } from './utils/visibleMessages';
 import { editMemoryContent, selectMergeableMemories, selectCompatibleMergeGroup, canApplyMemoryMerge, replaceMemoriesWithMerged, MIN_MERGE_CANDIDATES } from './utils/memoryStore';
 import { SaveSlotsModal } from './components/SaveSlotsModal';
 
@@ -463,6 +464,7 @@ ${newPool.map((s, i) => `${i + 1}. ${s}`).join('\n')}`;
   const [visibleMessageCount, setVisibleMessageCount] = useState<number>(0);
   const chatScrollRef = useRef<HTMLDivElement>(null);
   const isAutoLoadingRef = useRef(false);
+  const [isAtBottom, setIsAtBottom] = useState(true);
   // 串流泡泡的命令式介面：onChunk 直接推文字進去，不經過 messages state
   const streamingBubbleRef = useRef<StreamingBubbleHandle>(null);
   // 道具使用改成寫進草稿而非直接送出，需要一支把手往輸入框塞文字
@@ -485,6 +487,18 @@ ${newPool.map((s, i) => `${i + 1}. ${s}`).join('\n')}`;
     [hiddenMessageCount, messages.length]
   );
   useEffect(() => () => handleLoadMore.cancel(), [handleLoadMore]);
+
+  /**
+   * 回到最新訊息。走 `messagesEndRef` 而不是直接設 scrollTop，
+   * 與訊息進來時的自動捲動用同一條路，行為（含 smooth）才會一致。
+   *
+   * 立刻把 `isAtBottom` 設回 true 是為了讓按鈕馬上消失——smooth 捲動途中
+   * 還會持續發 scroll 事件，等它自己更新的話按鈕會在動畫期間殘留。
+   */
+  const handleScrollToBottom = useCallback(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    setIsAtBottom(true);
+  }, []);
 
   // 只在「訊息數量」變動時捲動。串流期間 messages 不再逐 chunk 更新，
   // 串流中的跟隨捲動由 StreamingBubble 自行以 rAF + behavior:'auto' 處理，
@@ -2480,14 +2494,21 @@ ${recentContext}
             // 桌機上緣預留浮動地圖入口；手機導覽與輸入區都在正常排版流中。
             className={`story-scroll flex-1 min-h-0 overflow-y-auto space-y-6 ${isMobile ? 'p-3 sm:p-5' : 'p-6 pb-40 pt-20'}`}
             onScroll={(e) => {
+              const el = e.currentTarget;
+              // 兩件事都在這裡做，DEV 與正式版共用同一份——先前 load-more 在兩個分支
+              // 各寫一次，再加一件事就會變成兩邊各漏改一半
+              const onScrollTick = () => {
+                if (el.scrollTop <= 4) handleLoadMore();
+                setIsAtBottom(isScrolledToBottom(el));
+              };
               // 量測只在 DEV 進行：正式版不計時、不累積記錄、不觸發 console.warn
               if (import.meta.env.DEV) {
                 const startTime = performance.now();
-                if (e.currentTarget.scrollTop <= 4) handleLoadMore();
+                onScrollTick();
                 performanceMonitor.recordScrollEvent(performance.now() - startTime, messages.length);
                 return;
               }
-              if (e.currentTarget.scrollTop <= 4) handleLoadMore();
+              onScrollTick();
             }}
           >
             {visibleMessages.map(msg => (
@@ -2529,7 +2550,10 @@ ${recentContext}
 
           {/* Input Area */}
           <div className={`chat-composer w-full z-30 flex justify-center pt-2 pb-2 ${isMobile ? 'relative shrink-0 px-2 mobile-input-safe' : 'absolute bottom-0 px-4'}`}>
-            <div className="w-full lg:w-4/5 rounded-[8px] px-2 sm:px-4 pt-2 pb-1 backdrop-blur-xl border border-[color:var(--tint-line)]" style={{ background: 'var(--glass-sidebar-bg)', boxShadow: 'var(--shadow-float)' }}>
+            <div className="relative w-full lg:w-4/5 rounded-[8px] px-2 sm:px-4 pt-2 pb-1 backdrop-blur-xl border border-[color:var(--tint-line)]" style={{ background: 'var(--glass-sidebar-bg)', boxShadow: 'var(--shadow-float)' }}>
+              {/* 回到最新訊息：貼在輸入框右上角外側，只在捲離底部時出現 */}
+              <ScrollToBottomButton visible={!isAtBottom} onClick={handleScrollToBottom} />
+
               {/* ⚡ Quick Options Popup Menu */}
               {showQuickMenu && quickOptions.length > 0 && (
                 <div className="quick-options flex flex-col gap-1.5 mb-3 overflow-y-auto animate-in fade-in slide-in-from-bottom-2 duration-200">
