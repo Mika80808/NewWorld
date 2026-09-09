@@ -95,7 +95,7 @@ LLM 擔任 GM 的開放式世界文字冒險 RPG，玩家以自由文字輸入�
 > 一度有 13 個值與實際不符（例如 `--text-title` 記成亮桃紅，實際是霧卡其），
 > 反而誤導。要知道確切顏色請直接看 `index.css`；寫程式時你只需要變數名。
 >
-> 共 87 個變數（`:root` 內，不含 `@theme` 的兩個字體）。若在下列找不到需要的語意，**先回 `index.css` 確認**，
+> 共 72 個變數（`:root` 內，不含 `@theme` 的兩個字體）。若在下列找不到需要的語意，**先回 `index.css` 確認**，
 > 不要因為表上沒有就硬編碼色碼（那會違反上方的顏色系統強制規則）。
 
 ### 背景層次
@@ -141,13 +141,13 @@ Tailwind class 需要用到時走 arbitrary value：`border-[color:var(--tint-li
 | `--text-body` | 地點介紹、一般段落 |
 | `--text-main` | 輸入文字 |
 | `--text-muted` | 提示文字、時間戳、placeholder |
-| `--text-stat-label` / `--text-stat-value` | 狀態標籤／數值（HP、MP、金幣） |
+| `--text-stat-label` | 狀態標籤與數值（HP、MP、金幣） |
 | `--text-danger` | 危險動作文字（刪除、重置） |
 
 ### 分頁 / 按鈕 / 表單
 - 分頁：`--tab-active`、`--tab-inactive`
-- Primary 按鈕：`--btn-primary`、`--btn-primary-hover`、`--btn-primary-active`、`--btn--text`
-- Secondary 按鈕（取消）：`--btn-secondary`、`--btn-secondary-hover`、`--btn-secondary-active`
+- Primary 按鈕：`--btn-primary`、`--btn-primary-hover`、`--btn--text`
+- Secondary 按鈕（取消）：`--btn-secondary`、`--btn-secondary-hover`
 - 表單：`--bg-sys-field`（輸入框底）、`--bg-sys-tag`（關鍵字膠囊底）
 - 陰影：`--shadow`
 
@@ -155,7 +155,8 @@ Tailwind class 需要用到時走 arbitrary value：`border-[color:var(--tint-li
 `--bg-bubble-self`、`--bg-bubble-npc`、`--bg-dialog-input`、`--text-dialog-main`（台詞）、`--text-dialog-muted`（敘述描寫）
 
 ### 毛玻璃效果
-`--glass-sidebar-bg`、`--glass-sidebar-blur`、`--glass-border`、`--glass-bubble-self`、`--glass-bubble-npc`、`--glass-bubble-blur`
+`--glass-sidebar-bg`（左右欄半透明底）。模糊度與泡泡那組變數曾經存在但從沒被引用過，已移除；
+對話泡泡的底色走 `--bg-bubble-*`。
 
 ### RPG 視覺特效（`--fx-*`）
 `--fx-vignette`、`--fx-orb-amber`、`--fx-orb-violet`、`--fx-orb-sky`、`--fx-message-shadow`
@@ -190,22 +191,25 @@ Tailwind class 需要用到時走 arbitrary value：`border-[color:var(--tint-li
 ### 任務卡片
 `--bg-quest-active` / `--border-quest-active`、`--bg-quest-pending` / `--border-quest-pending`、`--bg-quest-failed` / `--border-quest-failed`
 
-### Z-Index 層級（數值即語意，故列出）
-| 變數 | 值 | 用途 |
-|---|---|---|
-| `--z-bg` | 0 | 背景圖層（遊戲背景、天空梯度） |
-| `--z-base` | 10 | 基礎層（欄位標籤、右欄 Lorebook） |
-| `--z-hud` | 20 | 頂部 HUD / 導航欄 |
-| `--z-menu` | 30 | 局部菜單（右鍵選單、下拉） |
-| `--z-drawer-bg` | 40 | 手機 Drawer 遮罩 |
-| `--z-drawer` | 50 | 手機 Drawer 本體 |
-| `--z-modal-bg` | 60 | Modal 暗色背景 |
-| `--z-modal` | 61 | Modal 本體 |
-| `--z-modal-high` | 62 | Modal 內部高層（選單、彈窗） |
-| `--z-toast` | 100 | 通知 Toast |
-| `--z-popover` | 110 | 浮動菜單（Inventory、Consumables） |
+### Z-Index 層級（`constants.ts` 的 `Z_INDEX`，數值即語意）
 
-`constants.ts` 的 `Z_INDEX` 物件與此對應，JS 端請用它而非硬寫數字。
+| 常數 | 值 | 用途 |
+|---|---|---|
+| `Z_INDEX.BG` | 0 | 背景圖層（遊戲背景、天空梯度） |
+| `Z_INDEX.BASE` | 10 | 基礎層（欄位標籤、右欄 Lorebook） |
+| `Z_INDEX.HUD` | 20 | 頂部 HUD / 導航欄 |
+| `Z_INDEX.MENU` | 30 | 局部菜單（右鍵選單、下拉） |
+| `Z_INDEX.DRAWER_BG` | 40 | 手機 Drawer 遮罩 |
+| `Z_INDEX.DRAWER` | 50 | 手機 Drawer 本體 |
+| `Z_INDEX.MODAL_BG` | 60 | Modal 暗色背景 |
+| `Z_INDEX.MODAL` | 61 | Modal 本體 |
+| `Z_INDEX.MODAL_HIGH` | 62 | Modal 內部高層（選單、彈窗） |
+| `Z_INDEX.TOAST` | 100 | 通知 Toast |
+| `Z_INDEX.POPOVER` | 110 | 浮動菜單（Inventory、Consumables） |
+
+⚠️ 唯一準據就是這個物件，`index.css` **沒有**對應的 `--z-*` 變數。
+先前兩邊各存一份，而實際上只有一個組件讀 CSS 那份，其餘十個從沒被引用過——
+數值要改的時候沒有人會記得改兩個地方。
 
 ### 字體（`@theme` 區塊，只有這兩個，不得在此加顏色）
 `--font-sans`、`--font-mono`
@@ -329,12 +333,13 @@ interface MemoryEntry {
   （`pruneMemories` 的 300 條是儲存上限，救不了畫面）。**編輯過的記憶轉成 `source: 'manual'`**，
   之後不再參與融合與淘汰
 - **融合是玩家按才動，不自動觸發**：只融合標籤、觸發條件、重要度與期限相同的一組。
-  結果的 `mergeSources` 保留來源原文；提交前檢查來源仍存在且未修改，衝突時不套用。
+  提交前檢查來源仍存在且未修改，衝突時不套用（結果不另存來源原文——`mergeSources`
+  存的是整份來源物件，融合一次原文就多存一份，而沒有任何讀取端，schema v11 移除）。
   `manual` 與 `critical` 一律豁免（同 `pruneMemories` 的 `isProtected`）；
   融合結果插在**第一條被取代者的位置**，接到陣列尾巴會讓它靠新時間戳排到最前面，
   把真正的新記憶擠出注入端的截斷範圍
 - 純函數層在 `src/utils/memoryStore.ts`
-- `MEMORY_ADD` 的可選 `replaces` 指向被取代的舊狀態。只允許相同類型與地點／NPC／勢力標籤的啟用中 AI 一般記憶；舊文保留，設為停用並記錄 `supersededBy`。手寫與 critical 不受自動取代。
+- `MEMORY_ADD` 的可選 `replaces` 指向被取代的舊狀態。只允許相同類型與地點／NPC／勢力標籤的啟用中 AI 一般記憶；舊文保留並設為停用。手寫與 critical 不受自動取代。
 - NPC 事件記憶在本回合被點名時可注入，未在場者加上歷史資料標記，不能據此讓角色出場。
 
 ### lorebookEntries[]（設定集）
@@ -359,7 +364,7 @@ interface LorebookEntry {
   mapY?: number
   mapStatus?: 'heard' | 'known'
   cartFare?: number                   // 由 AI 指令寫入，玩家 UI 不顯示
-  adjacentTo?: string[]
+  parentLocation?: string             // 母地點名稱，見下方「地點的母子關係」
   locationType?: 'town' | 'wilderness' | 'building'
   // 觸發控制（共用）
   keywords: string[]
@@ -368,6 +373,11 @@ interface LorebookEntry {
   insertionOrder: number              // 預設 100
 }
 ```
+
+⚠️ 曾經有兩個欄位是**有讀取端、沒有寫入端**的，schema v11 一併移除，不要加回來：
+`adjacentTo`（promptBuilder 讀三處決定相鄰地點要不要注入）與 `aliases`
+（`isMemoryTriggered` 的地點別名比對）。沒有任何指令、UI 或匯入會寫它們，
+所以那些判斷永遠走同一邊。真的要做相鄰地點或別名，得連寫入端一起補。
 
 ### Npc[]（NPC 執行狀態）
 
@@ -392,6 +402,7 @@ interface Npc {
   lastSeenDate?: string
   thoughts?: { text: string; createdAt: string }[]  // 最多 10 則，滿了寫入 memories
   isPinned?: boolean
+  isCompanion?: boolean
   memories: NpcMemory[]
   factionIds?: number[]
 }
@@ -403,10 +414,15 @@ interface NpcMemory {
   source: 'manual' | 'pre_merge' | 'merged'
   importance: 'core' | 'normal'
   isMerged?: boolean
-  mergedFrom?: string[]
   isNew?: boolean
 }
 ```
+
+⚠️ schema v11 再拔掉三個只寫不讀的欄位，不要加回來：
+`Npc.category`（四個建檔入口一律寫死 `'NPC'`，被讀的是 `LorebookEntry.category`）、
+`Npc.isActive`（一律寫 `true`；角色卡上的「AI 是否讀取」讀的是設定集條目那份）、
+`Npc.relations` 與寫它的 `NPC_RELATION` 指令（prompt、UI、匯出三邊都沒有讀）。
+`NpcMemory.mergedFrom` 同理（同名的 `DiaryEntry.mergedFrom` 有讀，兩者不同）。
 
 ---
 
