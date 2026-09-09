@@ -1,5 +1,5 @@
 ﻿import React, { useState, useRef, useEffect, useCallback, useMemo, lazy, Suspense } from 'react';
-import { RefreshCw, MoreVertical, Book, BookOpen, Package, Beaker, Heart, MapPin, Zap, Coins, Calendar, Shield, CheckSquare, ChevronDown, ChevronRight, Map as MapIcon, Cloud, Sun, CloudRain, Snowflake, Moon, Wind, Brain, X, Pin } from 'lucide-react';
+import { RefreshCw, MoreVertical, Book, BookOpen, Package, Beaker, Heart, MapPin, Zap, Coins, Calendar, Shield, CheckSquare, ChevronRight, Map as MapIcon, Cloud, Sun, CloudRain, Snowflake, Moon, Wind, Brain, X, Pin } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useAIRequest } from './hooks/useAIRequest';
 import { Npc, LorebookEntry, Message, NpcMemory, MemoryEntry, EquipmentItem, ItemEntry, GMConfig, SubGMConfig, FactionRelation, Quest } from './types';
@@ -17,6 +17,7 @@ import { GoalsPanel } from './components/panels/GoalsPanel';
 import { WorldMemoryWidget } from './components/panels/WorldMemoryWidget';
 import { SceneNpcsWidget } from './components/panels/SceneNpcsWidget';
 import { SceneMemoryWidget } from './components/panels/SceneMemoryWidget';
+import { SidebarWidgetButton } from './components/panels/SidebarWidgetButton';
 import { PinnedNpcsWidget } from './components/panels/PinnedNpcsWidget';
 import { QuickLinksGrid } from './components/panels/QuickLinksGrid';
 import { EquipmentList } from './components/panels/EquipmentList';
@@ -1254,13 +1255,21 @@ ${poolText}
   const [persistToken, setPersistToken] = useState(0);
   const requestPersist = useCallback(() => setPersistToken(t => t + 1), []);
 
-  useEffect(() => {
-    if (persistToken === 0 || !authUser) return;
-    const snapshot = buildSaveSnapshotRef.current();
-    // 這不是規則想抓的 cascading render：setState 只是把「上傳中」旗標打開，
-    // 目的就是讓 UI 立刻顯示存檔指示器，之後由 .finally 關掉。
-    // 它不會再導出別的 setState，不構成連鎖重繪。
-    // eslint-disable-next-line react-hooks/set-state-in-effect
+  /**
+   * 雲端上傳的共用出口（手動儲存與自動存檔共用）。
+   *
+   * 兩個呼叫端先前各寫一份完全相同的 20 行：打開上傳旗標 → 上傳 →
+   * 成功寫 localStorage 時間戳並更新「上次儲存」→ 失敗 toast → finally 關旗標。
+   * 只差在成功時要不要提示、以及失敗訊息的措辭，抽成參數即可。
+   *
+   * ⚠️ 「上次儲存」時間只在雲端寫入成功後更新，失敗時 toast 提醒——
+   * 不要改成無論成敗都更新，那會讓玩家誤以為已經存好了。
+   */
+  const uploadSnapshot = useCallback((
+    snapshot: ReturnType<typeof buildSaveSnapshot>,
+    opts: { successToast?: string; failToast: string },
+  ) => {
+    if (!authUser) return;
     setIsCloudSaving(true);
     saveToCloud(authUser.id, currentSlotName, snapshot)
       .then(ok => {
@@ -1268,34 +1277,32 @@ ${poolText}
           const now = new Date();
           try { localStorage.setItem('rpworld_last_saved', now.toISOString()); } catch { /* 雲端已成功，本機時間戳可省略 */ }
           setLastSavedAt(now);
-          showToast('✅ 已儲存');
+          if (opts.successToast) showToast(opts.successToast);
         } else {
-          showToast('☁️ 儲存失敗，請檢查網路連線');
+          showToast(opts.failToast);
         }
       })
       .finally(() => setIsCloudSaving(false));
+  }, [authUser, currentSlotName]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (persistToken === 0 || !authUser) return;
+    uploadSnapshot(buildSaveSnapshotRef.current(), {
+      successToast: '✅ 已儲存',
+      failToast: '☁️ 儲存失敗，請檢查網路連線',
+    });
   }, [persistToken]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ─── 每次 AI 回應結束後自動存檔 ─────────────────────────────────────────────
-  // 「上次儲存」時間只在雲端寫入成功後更新，失敗時 toast 提醒，避免玩家誤以為已存檔
+  // 自動存檔不報成功（每回合都跳一次「已儲存」是噪音），只在失敗時提醒
   useEffect(() => {
     if (!isLoading && !isUpdatingLog && messages.length > 0 && messages[messages.length - 1]?.role === 'assistant') {
-      if (!authUser) return;
-      const snapshot = buildSaveSnapshot();
-      // 同上：非連鎖重繪，只是打開「上傳中」旗標
+      // uploadSnapshot 內的 setState 只是把「上傳中」旗標打開，讓 UI 立刻顯示
+      // 存檔指示器，之後由 .finally 關掉；它不會再導出別的 setState，不構成連鎖重繪
       // eslint-disable-next-line react-hooks/set-state-in-effect
-      setIsCloudSaving(true);
-      saveToCloud(authUser.id, currentSlotName, snapshot)
-        .then(ok => {
-          if (ok) {
-            const now = new Date();
-            try { localStorage.setItem('rpworld_last_saved', now.toISOString()); } catch { /* 雲端已成功，本機時間戳可省略 */ }
-            setLastSavedAt(now);
-          } else {
-            showToast('☁️ 雲端存檔失敗，請檢查網路連線');
-          }
-        })
-        .finally(() => setIsCloudSaving(false));
+      uploadSnapshot(buildSaveSnapshot(), {
+        failToast: '☁️ 雲端存檔失敗，請檢查網路連線',
+      });
     }
   }, [isLoading, isUpdatingLog]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -2091,6 +2098,64 @@ ${recentContext}
     );
   }
 
+  /**
+   * 裝備／消耗品清單。桌機是貼在按鈕旁的浮動面板、手機是就地展開，
+   * 外框不同但**裡面是同一份**——先前兩處各抄一次 props。
+   */
+  const equipmentListEl = (
+    <EquipmentList
+      itemCatalog={itemCatalog}
+      equipment={equipment}
+      selectedId={selectedInventoryItem}
+      onSelect={setSelectedInventoryItem}
+      onEquip={handleEquipItem}
+      onUnequip={handleUnequipItem}
+      onDrop={handleDropEquipment}
+    />
+  );
+
+  const consumableListEl = (
+    <ConsumableList
+      itemCatalog={itemCatalog}
+      items={items}
+      selectedId={selectedConsumableItem}
+      onSelect={setSelectedConsumableItem}
+      onUse={handleUseConsumable}
+      onDrop={handleDropConsumable}
+    />
+  );
+
+  /**
+   * 右欄的三個 Widget。桌機側欄與手機右抽屜是**同一份內容**，
+   * 先前兩處各貼一份完全相同的 JSX——改一個 prop 得記得改兩個地方。
+   * 外層容器（寬度、padding）仍由各自的版面決定，這裡只給內容。
+   */
+  const rightPanelWidgets = (
+    <>
+      <WorldMemoryWidget
+        memories={memories}
+        monthElegant={currentMonthData.elegant}
+        monthDesc={currentMonthData.desc}
+      />
+
+      <SceneNpcsWidget
+        npcs={npcs}
+        appearingNpcs={appearingNpcs}
+        lorebookEntries={lorebookEntries}
+        onSelectNpc={setSelectedNpc}
+      />
+
+      <SceneMemoryWidget
+        memories={memories}
+        currentLocation={currentLocation}
+        onUpdateMemory={handleUpdateMemory}
+        onDeleteMemory={handleDeleteMemory}
+        onMergeMemories={handleMergeMemories}
+        mergingType={mergingMemoryType}
+      />
+    </>
+  );
+
   return (
     <div className="game-shell flex flex-col font-sans overflow-hidden" style={{ color: 'var(--text-title)', height: 'var(--game-viewport-height, 100dvh)' }}>
       {/* 氛圍圖層（背景圖 + 天空漸層）。兩者都掛 class 是為了讓主題能關掉它們：
@@ -2256,8 +2321,12 @@ ${recentContext}
           </div>
 
           {/* ── Widget: 裝備 ── */}
-          <button
+          <SidebarWidgetButton
             ref={inventoryBtnRef}
+            icon={<Package className="w-4 h-4" style={{ color: 'var(--text-primary)' }} />}
+            label="裝備"
+            count={equipment.length}
+            isOpen={isInventoryOpen}
             onClick={() => {
               if (!isInventoryOpen && inventoryBtnRef.current) {
                 const rect = inventoryBtnRef.current.getBoundingClientRect();
@@ -2266,30 +2335,15 @@ ${recentContext}
               setIsInventoryOpen(!isInventoryOpen);
               if (isConsumablesOpen) setIsConsumablesOpen(false);
             }}
-            className="w-full rounded-[8px] px-4 py-3 shadow-xl flex items-center gap-3 transition-all"
-            style={{
-              background: isInventoryOpen ? 'color-mix(in srgb, var(--bg-elevated) 95%, transparent)' : 'color-mix(in srgb, var(--bg-elevated) 80%, transparent)',
-              border: `1px solid ${isInventoryOpen ? 'var(--border-accent)' : 'color-mix(in srgb, var(--border-default) 60%, transparent)'}`,
-              backdropFilter: 'blur(24px) saturate(160%)',
-              WebkitBackdropFilter: 'blur(24px) saturate(160%)',
-            }}
-            onMouseEnter={e => (e.currentTarget as HTMLButtonElement).style.background = 'color-mix(in srgb, var(--bg-elevated) 95%, transparent)'}
-            onMouseLeave={e => (e.currentTarget as HTMLButtonElement).style.background = isInventoryOpen ? 'color-mix(in srgb, var(--bg-elevated) 95%, transparent)' : 'color-mix(in srgb, var(--bg-elevated) 80%, transparent)'}
-          >
-            <div className="relative shrink-0">
-              <Package className="w-4 h-4" style={{ color: 'var(--text-primary)' }} />
-              {equipment.length > 0 && (
-                <span className="absolute -top-1.5 -right-2 text-[0.625rem] font-bold px-1 min-w-[16px] text-center rounded-full" style={{ background: 'var(--tab-active)', color: 'var(--btn--text)', lineHeight: '16px' }}>
-                  {equipment.length}
-                </span>
-              )}
-            </div>
-            <span className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>裝備</span>
-          </button>
+          />
 
           {/* ── Widget: 消耗品 ── */}
-          <button
+          <SidebarWidgetButton
             ref={consumablesBtnRef}
+            icon={<Beaker className="w-4 h-4" style={{ color: 'var(--text-primary)' }} />}
+            label="消耗品"
+            count={totalItemCount}
+            isOpen={isConsumablesOpen}
             onClick={() => {
               if (!isConsumablesOpen && consumablesBtnRef.current) {
                 const rect = consumablesBtnRef.current.getBoundingClientRect();
@@ -2298,26 +2352,7 @@ ${recentContext}
               setIsConsumablesOpen(!isConsumablesOpen);
               if (isInventoryOpen) setIsInventoryOpen(false);
             }}
-            className="w-full rounded-[8px] px-4 py-3 shadow-xl flex items-center gap-3 transition-all"
-            style={{
-              background: isConsumablesOpen ? 'color-mix(in srgb, var(--bg-elevated) 95%, transparent)' : 'color-mix(in srgb, var(--bg-elevated) 80%, transparent)',
-              border: `1px solid ${isConsumablesOpen ? 'var(--border-accent)' : 'color-mix(in srgb, var(--border-default) 60%, transparent)'}`,
-              backdropFilter: 'blur(24px) saturate(160%)',
-              WebkitBackdropFilter: 'blur(24px) saturate(160%)',
-            }}
-            onMouseEnter={e => (e.currentTarget as HTMLButtonElement).style.background = 'color-mix(in srgb, var(--bg-elevated) 95%, transparent)'}
-            onMouseLeave={e => (e.currentTarget as HTMLButtonElement).style.background = isConsumablesOpen ? 'color-mix(in srgb, var(--bg-elevated) 95%, transparent)' : 'color-mix(in srgb, var(--bg-elevated) 80%, transparent)'}
-          >
-            <div className="relative shrink-0">
-              <Beaker className="w-4 h-4" style={{ color: 'var(--text-primary)' }} />
-              {totalItemCount > 0 && (
-                <span className="absolute -top-1.5 -right-2 text-[0.625rem] font-bold px-1 min-w-[16px] text-center rounded-full" style={{ background: 'var(--tab-active)', color: 'var(--btn--text)', lineHeight: '16px' }}>
-                  {totalItemCount}
-                </span>
-              )}
-            </div>
-            <span className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>消耗品</span>
-          </button>
+          />
 
           {/* ── Widget: 日記 ── */}
           <button
@@ -2360,15 +2395,7 @@ ${recentContext}
                   </button>
                 </div>
                 <div className="p-3 space-y-2 overflow-y-auto custom-scrollbar flex-1">
-                  <EquipmentList
-                  itemCatalog={itemCatalog}
-                    equipment={equipment}
-                    selectedId={selectedInventoryItem}
-                    onSelect={setSelectedInventoryItem}
-                    onEquip={handleEquipItem}
-                    onUnequip={handleUnequipItem}
-                    onDrop={handleDropEquipment}
-                  />
+                  {equipmentListEl}
                 </div>
               </motion.div>
             )}
@@ -2393,14 +2420,7 @@ ${recentContext}
                   </button>
                 </div>
                 <div className="p-3 space-y-2 overflow-y-auto custom-scrollbar flex-1">
-                  <ConsumableList
-                  itemCatalog={itemCatalog}
-                    items={items}
-                    selectedId={selectedConsumableItem}
-                    onSelect={setSelectedConsumableItem}
-                    onUse={handleUseConsumable}
-                    onDrop={handleDropConsumable}
-                  />
+                  {consumableListEl}
                 </div>
               </motion.div>
             )}
@@ -2667,29 +2687,7 @@ ${recentContext}
         {/* Right Panel — 3 Independent Widgets（手機改用右抽屜，不掛載）*/}
         {!isMobile && (
         <div className="w-[260px] shrink-0 flex flex-col p-3 gap-3 overflow-y-auto z-10">
-
-          <WorldMemoryWidget
-            memories={memories}
-            monthElegant={currentMonthData.elegant}
-            monthDesc={currentMonthData.desc}
-          />
-
-          <SceneNpcsWidget
-            npcs={npcs}
-            appearingNpcs={appearingNpcs}
-            lorebookEntries={lorebookEntries}
-            onSelectNpc={setSelectedNpc}
-          />
-
-          <SceneMemoryWidget
-            memories={memories}
-            currentLocation={currentLocation}
-            onUpdateMemory={handleUpdateMemory}
-            onDeleteMemory={handleDeleteMemory}
-            onMergeMemories={handleMergeMemories}
-            mergingType={mergingMemoryType}
-          />
-
+          {rightPanelWidgets}
         </div>
         )}
       </div>
@@ -2975,27 +2973,14 @@ ${recentContext}
 
                 {/* ── Widget: 裝備（inline expand）── */}
                 <div>
-                  <button
+                  <SidebarWidgetButton
+                    icon={<Package className="w-4 h-4" style={{ color: 'var(--text-primary)' }} />}
+                    label="裝備"
+                    count={equipment.length}
+                    isOpen={isInventoryOpen}
+                    showChevron
                     onClick={() => { setIsInventoryOpen(prev => !prev); if (isConsumablesOpen) setIsConsumablesOpen(false); }}
-                    className="w-full rounded-[8px] px-4 py-3 shadow-xl flex items-center gap-3 transition-all"
-                    style={{
-                      background: isInventoryOpen ? 'color-mix(in srgb, var(--bg-elevated) 95%, transparent)' : 'color-mix(in srgb, var(--bg-elevated) 80%, transparent)',
-                      border: `1px solid ${isInventoryOpen ? 'var(--border-accent)' : 'color-mix(in srgb, var(--border-default) 60%, transparent)'}`,
-                      backdropFilter: 'blur(24px) saturate(160%)',
-                      WebkitBackdropFilter: 'blur(24px) saturate(160%)',
-                    }}
-                  >
-                    <div className="relative shrink-0">
-                      <Package className="w-4 h-4" style={{ color: 'var(--text-primary)' }} />
-                      {equipment.length > 0 && (
-                        <span className="absolute -top-1.5 -right-2 text-[0.625rem] font-bold px-1 min-w-[16px] text-center rounded-full" style={{ background: 'var(--tab-active)', color: 'var(--btn--text)', lineHeight: '16px' }}>
-                          {equipment.length}
-                        </span>
-                      )}
-                    </div>
-                    <span className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>裝備</span>
-                    <ChevronDown className="w-3.5 h-3.5 ml-auto" style={{ color: 'var(--text-muted)', transform: isInventoryOpen ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }} />
-                  </button>
+                  />
                   <AnimatePresence>
                     {isInventoryOpen && (
                       <motion.div
@@ -3006,15 +2991,7 @@ ${recentContext}
                         className="overflow-hidden"
                       >
                         <div className="mt-1 rounded-[8px] border p-2 space-y-2" style={{ borderColor: 'var(--border-default)', background: 'color-mix(in srgb, var(--bg-elevated) 80%, transparent)' }}>
-                          <EquipmentList
-                  itemCatalog={itemCatalog}
-                            equipment={equipment}
-                            selectedId={selectedInventoryItem}
-                            onSelect={setSelectedInventoryItem}
-                            onEquip={handleEquipItem}
-                            onUnequip={handleUnequipItem}
-                            onDrop={handleDropEquipment}
-                          />
+                          {equipmentListEl}
                         </div>
                       </motion.div>
                     )}
@@ -3023,27 +3000,14 @@ ${recentContext}
 
                 {/* ── Widget: 消耗品（inline expand）── */}
                 <div>
-                  <button
+                  <SidebarWidgetButton
+                    icon={<Beaker className="w-4 h-4" style={{ color: 'var(--text-primary)' }} />}
+                    label="消耗品"
+                    count={totalItemCount}
+                    isOpen={isConsumablesOpen}
+                    showChevron
                     onClick={() => { setIsConsumablesOpen(prev => !prev); if (isInventoryOpen) setIsInventoryOpen(false); }}
-                    className="w-full rounded-[8px] px-4 py-3 shadow-xl flex items-center gap-3 transition-all"
-                    style={{
-                      background: isConsumablesOpen ? 'color-mix(in srgb, var(--bg-elevated) 95%, transparent)' : 'color-mix(in srgb, var(--bg-elevated) 80%, transparent)',
-                      border: `1px solid ${isConsumablesOpen ? 'var(--border-accent)' : 'color-mix(in srgb, var(--border-default) 60%, transparent)'}`,
-                      backdropFilter: 'blur(24px) saturate(160%)',
-                      WebkitBackdropFilter: 'blur(24px) saturate(160%)',
-                    }}
-                  >
-                    <div className="relative shrink-0">
-                      <Beaker className="w-4 h-4" style={{ color: 'var(--text-primary)' }} />
-                      {totalItemCount > 0 && (
-                        <span className="absolute -top-1.5 -right-2 text-[0.625rem] font-bold px-1 min-w-[16px] text-center rounded-full" style={{ background: 'var(--tab-active)', color: 'var(--btn--text)', lineHeight: '16px' }}>
-                          {totalItemCount}
-                        </span>
-                      )}
-                    </div>
-                    <span className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>消耗品</span>
-                    <ChevronDown className="w-3.5 h-3.5 ml-auto" style={{ color: 'var(--text-muted)', transform: isConsumablesOpen ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }} />
-                  </button>
+                  />
                   <AnimatePresence>
                     {isConsumablesOpen && (
                       <motion.div
@@ -3054,14 +3018,7 @@ ${recentContext}
                         className="overflow-hidden"
                       >
                         <div className="mt-1 rounded-[8px] border p-2 space-y-2" style={{ borderColor: 'var(--border-default)', background: 'color-mix(in srgb, var(--bg-elevated) 80%, transparent)' }}>
-                          <ConsumableList
-                  itemCatalog={itemCatalog}
-                            items={items}
-                            selectedId={selectedConsumableItem}
-                            onSelect={setSelectedConsumableItem}
-                            onUse={handleUseConsumable}
-                            onDrop={handleDropConsumable}
-                          />
+                          {consumableListEl}
                         </div>
                       </motion.div>
                     )}
@@ -3134,31 +3091,9 @@ ${recentContext}
                 </button>
               </div>
 
-              {/* Drawer Body — 桌面右欄內容 */}
+              {/* Drawer Body — 與桌機右欄同一份內容 */}
               <div className="flex-1 overflow-y-auto p-3 flex flex-col gap-3">
-
-                <WorldMemoryWidget
-                  memories={memories}
-                  monthElegant={currentMonthData.elegant}
-                  monthDesc={currentMonthData.desc}
-                />
-
-                <SceneNpcsWidget
-                  npcs={npcs}
-                  appearingNpcs={appearingNpcs}
-                  lorebookEntries={lorebookEntries}
-                  onSelectNpc={setSelectedNpc}
-                />
-
-                <SceneMemoryWidget
-            memories={memories}
-            currentLocation={currentLocation}
-            onUpdateMemory={handleUpdateMemory}
-            onDeleteMemory={handleDeleteMemory}
-            onMergeMemories={handleMergeMemories}
-            mergingType={mergingMemoryType}
-          />
-
+                {rightPanelWidgets}
               </div>
             </motion.div>
           </>
