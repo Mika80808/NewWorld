@@ -48,12 +48,6 @@ export const INITIAL_MESSAGES: Message[] = [
   },
 ];
 
-export const TOKEN_OPTIONS = [
-  { label: '16K', value: 16384 },
-  { label: '32K', value: 32768 },
-  { label: '64K', value: 65536 },
-];
-
 /**
  * Z-Index 層級系統
  * 用於整個應用的堆疊順序控制，確保 Modal、Drawer、菜單的正確堆疊

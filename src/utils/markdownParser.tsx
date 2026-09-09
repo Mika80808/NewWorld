@@ -1,7 +1,7 @@
 import React from 'react'
 import { COMMAND_NAMES } from './commandParser'
 
-export const FONT_CLASS_MAP: Record<string, string> = {
+const FONT_CLASS_MAP: Record<string, string> = {
   sans:  'font-game-sans',
   serif: 'font-game-serif',
   spell: 'font-game-spell',

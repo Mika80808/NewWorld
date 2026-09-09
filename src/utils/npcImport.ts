@@ -53,7 +53,7 @@ export interface ImportedNpc {
  * 同樣不存 id：`homeId`（設定集地點 id）與 `relations[].targetFactionId` 都是
  * 各存檔自己編的流水號，跨檔必然對不上，一律改存名稱。
  */
-export interface ImportedFactionRelation {
+interface ImportedFactionRelation {
   /** 對象勢力的**名稱** */
   target: string;
   type: FactionRelation['type'];
@@ -78,7 +78,7 @@ export interface ParseResult {
   errors: string[];
 }
 
-export interface FactionMergeResult {
+interface FactionMergeResult {
   factions: Faction[];
   /** 這次新建立的勢力名稱 */
   addedNames: string[];
@@ -88,7 +88,7 @@ export interface FactionMergeResult {
   unresolvedRelations: string[];
 }
 
-export interface MergeResult {
+interface MergeResult {
   npcs: Npc[];
   lorebookEntries: LorebookEntry[];
   addedNames: string[];

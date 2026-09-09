@@ -13,7 +13,7 @@ import { Quest } from '../types';
  * 兩邊一律走這裡。`compact` 只調整密度，**不減少欄位**。
  */
 
-export type QuestVisual = 'pending' | 'active' | 'completed' | 'failed';
+type QuestVisual = 'pending' | 'active' | 'completed' | 'failed';
 
 interface QuestCardProps {
   quest: Quest;

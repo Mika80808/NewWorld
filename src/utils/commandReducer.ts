@@ -73,7 +73,7 @@ export type AsyncTask =
       };
     };
 
-export interface ReduceResult {
+interface ReduceResult {
   stateChanges: StateChanges;
   feedback: Feedback;
   asyncTasks: AsyncTask[];

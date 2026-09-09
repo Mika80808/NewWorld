@@ -555,7 +555,6 @@ ${newPool.map((s, i) => `${i + 1}. ${s}`).join('\n')}`;
     if (!import.meta.env.DEV) return;
     (window as any).__performanceMonitor = {
       getScrollMetrics: () => performanceMonitor.getScrollMetrics(),
-      getRenderMetrics: () => performanceMonitor.getRenderMetrics(),
       getReport: () => console.log(performanceMonitor.generateReport()),
       clear: () => performanceMonitor.clear(),
     };
@@ -2820,11 +2819,9 @@ ${recentContext}
         onClose={() => setIsSaveSlotsModalOpen(false)}
         cloudSaves={cloudSaves}
         currentSlotName={currentSlotName}
-        authUser={authUser}
         onLoadSlot={handleLoadSlot}
         onDeleteSlot={handleDeleteSlot}
         onCreateSlot={handleCreateSlot}
-        showToast={showToast}
       />
 
       {/* Map Modal */}

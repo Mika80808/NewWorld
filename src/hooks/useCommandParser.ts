@@ -74,7 +74,7 @@ export interface ParseResult {
   date: string;
 }
 
-export interface UseCommandParserReturn {
+interface UseCommandParserReturn {
   parseAndExecuteCommands: (fullText: string) => Promise<ParseResult>;
   consumeItem: (itemName: string, qty?: number) => boolean;
   scanKeywords: (keywords: string[], depth?: number) => boolean;

@@ -80,7 +80,7 @@ export function advanceTimeByMinutes(
  * 校準到某個時刻時，落後多少分鐘以內視為「已經到了」而不推進。
  * 見 `setClockForward` 的說明。
  */
-export const CLOCK_SET_TOLERANCE_MINUTES = 60;
+const CLOCK_SET_TOLERANCE_MINUTES = 60;
 
 /**
  * 把時鐘**往前**轉到指定時刻（絕對時刻校準）。
@@ -168,7 +168,7 @@ export function getQuestRemainingDays(
  * @param quests 任務列表
  * @returns { updatedQuests, failedQuestTitles }
  */
-export function checkAndFailExpiredQuests(
+function checkAndFailExpiredQuests(
   timeState: TimeState,
   quests: Quest[]
 ): { updatedQuests: Quest[]; failedQuestTitles: string[] } {

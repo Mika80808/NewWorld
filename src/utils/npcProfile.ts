@@ -11,7 +11,7 @@ import { LorebookEntry } from '../types';
  * 角色卡上看到「女」，AI 拿到的卻是空字串，於是自己編一個性別。
  * 當時先統一成這支入口（雙來源、lore 優先），現在連資料本身也收成一份。
  */
-export interface NpcProfile {
+interface NpcProfile {
   gender: string;
   race: string;
   age: string;
@@ -104,7 +104,7 @@ export function npcIdentityBrief(lore?: LorebookEntry | null): string {
 }
 
 /** `[其他已知角色]` 名冊一次最多列幾個（同 itemCatalog 的 KNOWN_ITEMS_PROMPT_LIMIT） */
-export const KNOWN_NPCS_PROMPT_LIMIT = 40;
+const KNOWN_NPCS_PROMPT_LIMIT = 40;
 
 /**
  * 「這個世界已經有誰」的名冊，供 prompt 引導 AI **沿用既有角色**而非另造一個。
