@@ -8,7 +8,7 @@ const npcMem = (id: string, text: string, over: Partial<NpcMemory> = {}): NpcMem
 });
 
 const npc = (over: Partial<Npc> = {}): Npc => ({
-  id: 1, name: '芬里爾', affection: 10, category: 'NPC', isActive: true,
+  id: 1, name: '芬里爾', affection: 10,
   memories: [], ...over,
 });
 

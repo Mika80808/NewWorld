@@ -388,8 +388,6 @@ export function mergeImportedNpcs(
       location: src.homeLocation || undefined,
       isPinned: src.isPinned,
       isCompanion: src.isCompanion,
-      category: '登場人物',
-      isActive: true,
       memories,
       factionIds: factionIds.length > 0 ? factionIds : undefined,
     });

@@ -10,8 +10,6 @@ const makeNpc = (overrides: Partial<Npc> = {}): Npc => ({
   id: 1,
   name: '芬里爾',
   affection: 70,
-  category: 'NPC',
-  isActive: true,
   memories: [],
   ...overrides,
 });

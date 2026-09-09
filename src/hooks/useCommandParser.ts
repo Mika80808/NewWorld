@@ -88,7 +88,7 @@ export function useCommandParser(deps: CommandParserDeps): UseCommandParserRetur
   // 這幾支（isMemoryTriggered / scanKeywords / consumeItem）都是在事件當下**同步**
   // 呼叫的，讀當次 render 的閉包即可；await 之後才跑的那兩支見下方 depsRef
   const {
-    timeState, items, lorebookEntries,
+    timeState, items,
     stickyCounters, cooldownCounters, messages,
     setItems, setItemCatalog,
     showToast,
@@ -226,10 +226,7 @@ export function useCommandParser(deps: CommandParserDeps): UseCommandParserRetur
     // 地點比對
     const locTags = mem.tags?.locations || [];
     if (locTags.length > 0 && mem.type !== 'world') {
-      const locationEntry = lorebookEntries.find(e => e.category === '地點' && e.title === location);
-      const locationAliases = (locationEntry as any)?.aliases || [];
-      const allNames = [location, ...locationAliases];
-      if (!locTags.some(l => allNames.includes(l))) {
+      if (!locTags.includes(location)) {
         return false;
       }
     }

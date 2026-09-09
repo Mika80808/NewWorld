@@ -9,8 +9,6 @@ const npc = (name: string, over: Partial<Npc> = {}): Npc => ({
   id: Math.floor(Math.random() * 1e6),
   name,
   affection: 30,
-  category: 'NPC',
-  isActive: true,
   memories: [],
   ...over,
 });

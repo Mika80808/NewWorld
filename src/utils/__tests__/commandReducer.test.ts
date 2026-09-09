@@ -5,7 +5,7 @@ import { Npc, NpcMemory, Quest, ItemEntry, StatusEffect, LorebookEntry } from '.
 
 const npc = (over: Partial<Npc> = {}): Npc => ({
   id: 1, name: '芬里爾', affection: 10,
-  category: 'NPC', isActive: true, memories: [],
+  memories: [],
   ...over,
 });
 

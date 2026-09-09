@@ -11,7 +11,6 @@ const faction = (over: Partial<Faction> = {}): Faction => ({
 
 const existingNpc = (over: Partial<Npc> = {}): Npc => ({
   id: 1, name: '芬里爾', affection: 75,
-  category: '登場人物', isActive: true,
   memories: [{ id: 'm1', text: '一起打過狼', createdAt: '4/1', source: 'manual', importance: 'normal' }],
   ...over,
 });
@@ -119,7 +118,7 @@ describe('mergeImportedNpcs — 同時建立兩份資料', () => {
     expect(r.npcs).toHaveLength(1);
     expect(r.lorebookEntries).toHaveLength(1);
     // Npc 只有執行狀態；職業等身分欄位寫進設定集條目（schema v10）
-    expect(r.npcs[0]).toMatchObject({ name: '萊尼', category: '登場人物', isActive: true });
+    expect(r.npcs[0]).toMatchObject({ name: '萊尼' });
     expect(r.npcs[0]).not.toHaveProperty('job');
     expect(r.lorebookEntries[0]).toMatchObject({
       title: '萊尼', category: 'NPC', isActive: true, job: '酒館老闆娘',

@@ -701,8 +701,6 @@ export const LorebookModal: React.FC<LorebookModalProps> = ({
               isPinned: false,
               memories: [],
               thoughts: [],
-              category: 'NPC',
-              isActive: true,
             };
             onSelectNpc(npcData ?? fallbackNpc);
           };
