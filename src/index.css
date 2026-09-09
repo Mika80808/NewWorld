@@ -229,10 +229,28 @@ body {
   .game-status { gap: 4px; line-height: 1.6; }
   .game-status > div:not(.fixed):not(.absolute) { min-width: 0; gap: 4px 12px; }
   .status-location { overflow-wrap: anywhere; }
+  /* ── fixed 覆蓋層要貼著「視覺視窗」，不是版面視窗 ──────────────────
+   * iOS 鍵盤彈出時會把視覺視窗在版面視窗裡往下推，好讓聚焦的欄位露出來
+   * （`visualViewport.offsetTop > 0`）。而 `position: fixed` 是貼著**版面視窗**
+   * 定位的——版面視窗沒有動，所以 `top: 0` 的覆蓋層留在原地，使用者看到的
+   * 畫面卻已經往下挪了，於是覆蓋層的上半截被推出畫面外。
+   *
+   * 症狀就是玩家回報的「修改欄位時整個視窗跑到上面去」：只剩中間一條，
+   * 底下露出後面的頁面。
+   *
+   * `top` 與 `height` 必須成對——只給高度位置還是錯的，只給位置底部會被鍵盤蓋住。
+   * 兩個變數由 utils/viewportVars.ts 寫入。 */
   .responsive-modal-overlay,
-  .responsive-map-overlay {
+  .responsive-map-overlay,
+  .mobile-drawer,
+  .confirm-dialog-overlay {
+    top: var(--game-viewport-offset-top, 0px);
     bottom: auto;
     height: var(--game-viewport-height, 100dvh);
+  }
+
+  .responsive-modal-overlay,
+  .responsive-map-overlay {
     padding: max(8px, env(safe-area-inset-top, 0px))
       max(8px, env(safe-area-inset-right, 0px))
       max(8px, env(safe-area-inset-bottom, 0px))

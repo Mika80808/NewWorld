@@ -44,7 +44,7 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({ request, onClose }
 
   return (
     <div
-      className="fixed inset-0 flex items-center justify-center px-6"
+      className="confirm-dialog-overlay fixed inset-0 flex items-center justify-center px-6"
       style={{ zIndex: Z_INDEX.MODAL_HIGH, background: 'var(--bg-overlay)' }}
       onClick={onClose}
     >

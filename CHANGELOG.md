@@ -5,6 +5,39 @@
 
 ---
 
+### Bug 修正｜手機編輯欄位時整個視窗被推出畫面上緣 2026-09-09 [Claude Code]
+
+玩家回報：在手機上點開角色卡改「外貌」，鍵盤一彈出來，整個視窗就跑到畫面上面去，
+只剩中間一條，底下露出後面的頁面。
+
+**原因**：iOS 鍵盤彈出時會做兩件事，先前只處理了一件。
+
+1. 視覺視窗**變矮**（鍵盤佔掉下半部）→ 已處理，`--game-viewport-height`
+2. 視覺視窗在版面視窗裡**往下位移**，好讓聚焦的欄位露出來 → **沒處理**
+
+而 `position: fixed` 是貼著**版面視窗**定位的，不是視覺視窗。版面視窗沒有動，
+所以 `top: 0` 的覆蓋層留在原地，使用者看到的畫面卻已經往下挪了 `offsetTop`，
+於是覆蓋層的上半截被推出畫面外。高度同步得再準也救不了——高度對了位置還是錯的。
+
+**修法**：把 `visualViewport.offsetTop` 也寫成 CSS 變數
+（`--game-viewport-offset-top`），所有 fixed 覆蓋層改以它定位。
+
+- 量測與寫入抽到 `utils/viewportVars.ts`（`applyViewportVars` / `clearViewportVars`），
+  純函數層可測試；雙指縮放時不寫的原有行為保留
+- CSS 端 `top` 與 `height` **必須成對**：只給高度位置還是錯的，
+  只給位置底部會被鍵盤蓋住
+- 套用範圍不只出問題的角色卡：`.responsive-modal-overlay`（八個 Modal 共用）、
+  `.responsive-map-overlay`、`.mobile-drawer`（左右抽屜，裡面的場景記憶與目標
+  都可以就地編輯）、`.confirm-dialog-overlay`（ConfirmDialog 有輸入框版本）
+  ——同一個成因，只修回報的那一個等著再被回報一次
+
+⚠️ Tailwind 的 `.inset-0` / `.top-0` 在 `@layer utilities` 裡，這裡的規則是
+unlayered，所以蓋得過（同一份檔案裡既有的 `bottom: auto` 早就是靠這條在生效）。
+
+新增 5 個 `viewportVars` 測試。
+
+---
+
 ### 清理｜重複程式碼盤點與抽出（第二輪） 2026-09-09 [Claude Code]
 
 第一輪把「無用」清完之後，再掃一次「多餘」。用滑動視窗比對全庫連續 8 行以上
