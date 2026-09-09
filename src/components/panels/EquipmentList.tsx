@@ -1,7 +1,7 @@
 import React from 'react';
-import { motion, AnimatePresence } from 'motion/react';
 import { EquipmentItem, ItemCatalog } from '../../types';
 import { describeItem } from '../../utils/itemCatalog';
+import { ItemCard, ItemActionButton } from './ItemCard';
 
 interface EquipmentListProps {
   /** 道具說明的唯一來源（實例上不再有 description，見 types.ts） */
@@ -14,7 +14,6 @@ interface EquipmentListProps {
   onDrop: (item: EquipmentItem) => void;
 }
 
-const actionBtn = 'flex-1 text-sm py-1.5 rounded-[8px] transition font-medium';
 const neutralBg = 'color-mix(in srgb, var(--bg-elevated) 30%, transparent)';
 const neutralBgHover = 'color-mix(in srgb, var(--bg-elevated) 60%, transparent)';
 const dangerBg = 'color-mix(in srgb, var(--color-rose) 10%, transparent)';
@@ -23,6 +22,7 @@ const dangerBgHover = 'color-mix(in srgb, var(--color-rose) 20%, transparent)';
 /**
  * 裝備清單內容（不含外框）。
  * 桌面浮動面板與手機 inline 展開共用——兩邊只有外層容器不同。
+ * 卡片外殼與按鈕走 ItemCard，與消耗品清單同一份。
  */
 export const EquipmentList: React.FC<EquipmentListProps> = ({
   itemCatalog,
@@ -40,56 +40,29 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({
   return (
     <>
       {equipment.map(item => (
-        <div
+        <ItemCard
           key={item.id}
-          className="p-2.5 rounded-[8px] border cursor-pointer transition-all"
-          style={{ borderColor: 'color-mix(in srgb, var(--bg-elevated) 50%, transparent)' }}
-          onClick={() => onSelect(selectedId === item.id ? null : item.id)}
+          name={item.name}
+          description={describeItem(itemCatalog, item.name)}
+          isSelected={selectedId === item.id}
+          onToggle={() => onSelect(selectedId === item.id ? null : item.id)}
         >
-          <div className="flex justify-between items-center mb-1">
-            <span className="text-sm font-medium" style={{ color: 'var(--text-title)' }}>{item.name}</span>
-          </div>
-          <div className="text-sm leading-relaxed" style={{ color: 'color-mix(in srgb, var(--text-body) 80%, transparent)' }}>{describeItem(itemCatalog, item.name)}</div>
-          <AnimatePresence>
-            {selectedId === item.id && (
-              <motion.div
-                initial={{ height: 0, opacity: 0 }}
-                animate={{ height: 'auto', opacity: 1 }}
-                exit={{ height: 0, opacity: 0 }}
-                className="flex space-x-2 mt-2.5 pt-2.5 overflow-hidden"
-                style={{ borderTop: '1px solid color-mix(in srgb, var(--bg-elevated) 50%, transparent)' }}
-              >
-                <button
-                  className={actionBtn}
-                  style={{ background: neutralBg, color: 'var(--text-title)' }}
-                  onMouseEnter={e => e.currentTarget.style.background = neutralBgHover}
-                  onMouseLeave={e => e.currentTarget.style.background = neutralBg}
-                  onClick={e => { e.stopPropagation(); onEquip(item); onSelect(null); }}
-                >
-                  裝備
-                </button>
-                <button
-                  className={actionBtn}
-                  style={{ background: neutralBg, color: 'var(--text-title)' }}
-                  onMouseEnter={e => e.currentTarget.style.background = neutralBgHover}
-                  onMouseLeave={e => e.currentTarget.style.background = neutralBg}
-                  onClick={e => { e.stopPropagation(); onUnequip(item); onSelect(null); }}
-                >
-                  卸下
-                </button>
-                <button
-                  className={`border ${actionBtn}`}
-                  style={{ background: dangerBg, color: 'var(--text-danger)', borderColor: dangerBgHover }}
-                  onMouseEnter={e => e.currentTarget.style.background = dangerBgHover}
-                  onMouseLeave={e => e.currentTarget.style.background = dangerBg}
-                  onClick={e => { e.stopPropagation(); onDrop(item); onSelect(null); }}
-                >
-                  丟棄
-                </button>
-              </motion.div>
-            )}
-          </AnimatePresence>
-        </div>
+          <ItemActionButton
+            label="裝備"
+            bg={neutralBg} bgHover={neutralBgHover} color="var(--text-title)"
+            onClick={e => { e.stopPropagation(); onEquip(item); onSelect(null); }}
+          />
+          <ItemActionButton
+            label="卸下"
+            bg={neutralBg} bgHover={neutralBgHover} color="var(--text-title)"
+            onClick={e => { e.stopPropagation(); onUnequip(item); onSelect(null); }}
+          />
+          <ItemActionButton
+            label="丟棄" bordered
+            bg={dangerBg} bgHover={dangerBgHover} color="var(--text-danger)"
+            onClick={e => { e.stopPropagation(); onDrop(item); onSelect(null); }}
+          />
+        </ItemCard>
       ))}
     </>
   );
