@@ -41,6 +41,37 @@ function getDiaryBody(entry: DiaryEntry): string {
   return entry.text || '';
 }
 
+/**
+ * 日記的關鍵字膠囊。命中本回合掃描範圍時提亮，讓玩家看得出「這條現在會注入」。
+ *
+ * 摺疊與展開兩種版面先前各貼一份完全相同的 14 行——連 scanKeywords 的
+ * 三元運算式都一字不差，改配色得記得改兩個地方。
+ */
+const DiaryKeywordChips: React.FC<{
+  keywords: string[];
+  scanKeywords: (kws: string[]) => boolean;
+  className?: string;
+}> = ({ keywords, scanKeywords, className = '' }) => {
+  if (keywords.length === 0) return null;
+  return (
+    <div className={`flex flex-wrap gap-1 ${className}`}>
+      {keywords.map(kw => (
+        <span
+          key={kw}
+          className="text-xs px-1.5 py-0.5 rounded-full border flex-shrink-0"
+          style={
+            scanKeywords([kw])
+              ? { background: 'color-mix(in srgb, var(--bg-sys-tag) 60%, transparent)', borderColor: 'color-mix(in srgb, var(--text-primary) 50%, transparent)', color: 'var(--text-body)' }
+              : { background: 'color-mix(in srgb, var(--bg-elevated) 60%, transparent)', borderColor: 'color-mix(in srgb, var(--border-default) 40%, transparent)', color: 'var(--text-muted)' }
+          }
+        >
+          {kw}
+        </span>
+      ))}
+    </div>
+  );
+};
+
 export const DiaryModal: React.FC<DiaryModalProps> = ({
   isOpen,
   onClose,
@@ -433,45 +464,22 @@ export const DiaryModal: React.FC<DiaryModalProps> = ({
                       )}
 
                       {/* 關鍵字標籤（摺疊時也顯示） */}
-                      {(entry.keywords || []).length > 0 && !isExpanded && (
-                        <div className="px-4 pb-3 flex flex-wrap gap-1">
-                          {(entry.keywords || []).map((kw: string) => (
-                            <span
-                              key={kw}
-                              className="text-xs px-1.5 py-0.5 rounded-full border flex-shrink-0"
-                              style={
-                                scanKeywords([kw])
-                                  ? { background: 'color-mix(in srgb, var(--bg-sys-tag) 60%, transparent)', borderColor: 'color-mix(in srgb, var(--text-primary) 50%, transparent)', color: 'var(--text-body)' }
-                                  : { background: 'color-mix(in srgb, var(--bg-elevated) 60%, transparent)', borderColor: 'color-mix(in srgb, var(--border-default) 40%, transparent)', color: 'var(--text-muted)' }
-                              }
-                            >
-                              {kw}
-                            </span>
-                          ))}
-                        </div>
+                      {!isExpanded && (
+                        <DiaryKeywordChips
+                          keywords={entry.keywords || []}
+                          scanKeywords={scanKeywords}
+                          className="px-4 pb-3"
+                        />
                       )}
 
                       {/* 展開後完整內容 */}
                       {isExpanded && (
                         <div className="px-4 pb-4 flex flex-col gap-3">
                           {/* 關鍵字 */}
-                          {(entry.keywords || []).length > 0 && (
-                            <div className="flex flex-wrap gap-1">
-                              {(entry.keywords || []).map((kw: string) => (
-                                <span
-                                  key={kw}
-                                  className="text-xs px-1.5 py-0.5 rounded-full border flex-shrink-0"
-                                  style={
-                                    scanKeywords([kw])
-                                      ? { background: 'color-mix(in srgb, var(--bg-sys-tag) 60%, transparent)', borderColor: 'color-mix(in srgb, var(--text-primary) 50%, transparent)', color: 'var(--text-body)' }
-                                      : { background: 'color-mix(in srgb, var(--bg-elevated) 60%, transparent)', borderColor: 'color-mix(in srgb, var(--border-default) 40%, transparent)', color: 'var(--text-muted)' }
-                                  }
-                                >
-                                  {kw}
-                                </span>
-                              ))}
-                            </div>
-                          )}
+                          <DiaryKeywordChips
+                            keywords={entry.keywords || []}
+                            scanKeywords={scanKeywords}
+                          />
 
                           {/* 完整內文 */}
                           <div className="text-sm whitespace-pre-wrap leading-relaxed" style={{ color: 'var(--text-body)' }}>
