@@ -35,6 +35,7 @@ import { useCommandParser } from './hooks/useCommandParser';
 import { useAuth } from './hooks/useAuth';
 import { SaveSlot } from './lib/supabase';
 import { performanceMonitor } from './utils/performanceMonitor';
+import { applyViewportVars, clearViewportVars } from './utils/viewportVars';
 import { debounce } from './utils/debounce';
 import { renderMarkdown, cleanNarrative, APPEAR_TAG_PATTERN, APPEAR_TAG_CAPTURE_PATTERN } from './utils/markdownParser';
 import { buildPrompt, BuildPromptDeps, BuildPromptResult } from './utils/promptBuilder';
@@ -1924,25 +1925,21 @@ ${recentContext}
   }, []);
 
   // 縮小整個閱讀版面，讓鍵盤與多行草稿都不會覆蓋故事。
+  //
+  // ⚠️ 高度與位移**兩個**都要同步，理由見 utils/viewportVars.ts：
+  // 只同步高度的話，鍵盤一開所有 fixed 覆蓋層會被推出畫面上緣。
   useEffect(() => {
     if (!isMobile) return;
     const vv = window.visualViewport;
     if (!vv) return;
-    const handler = () => {
-      // 雙指縮放保留瀏覽器原生行為，不在放大時重排版面。
-      if (vv.scale !== 1) return;
-      document.documentElement.style.setProperty(
-        '--game-viewport-height',
-        `${vv.height}px`
-      );
-    };
+    const handler = () => applyViewportVars(document.documentElement, vv);
     handler();
     vv.addEventListener('resize', handler);
     vv.addEventListener('scroll', handler);
     return () => {
       vv.removeEventListener('resize', handler);
       vv.removeEventListener('scroll', handler);
-      document.documentElement.style.removeProperty('--game-viewport-height');
+      clearViewportVars(document.documentElement);
     };
   }, [isMobile]);
 
