@@ -12,7 +12,7 @@ function loadGenAI() {
   return genaiModulePromise;
 }
 
-export type AIRequestStatus = 'idle' | 'loading' | 'aborted' | 'timeout' | 'error';
+type AIRequestStatus = 'idle' | 'loading' | 'aborted' | 'timeout' | 'error';
 const TIMEOUT_MS = { main: 90_000, sub: 30_000 };
 const MAX_RETRIES = { main: 2, sub: 1 };
 const abortError = () => new DOMException('Aborted', 'AbortError');

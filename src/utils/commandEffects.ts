@@ -249,7 +249,6 @@ ${memoryTexts}
       source: 'merged',
       createdAt: gameDate,
       isMerged: false,
-      mergedFrom: mergeableMemories.map(m => m.id),
     };
 
     // 標記原有記憶為已融合，並添加融合後的記憶

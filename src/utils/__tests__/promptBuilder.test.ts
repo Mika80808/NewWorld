@@ -310,7 +310,7 @@ describe('buildPrompt — {{user}} 佔位符替換', () => {
 describe('buildPrompt — NPC 對玩家的態度', () => {
   const npc = (over: Partial<Npc> = {}): Npc => ({
     id: 1, name: '芬里爾', affection: 90,
-    category: 'NPC', isActive: true, memories: [],
+    memories: [],
     ...over,
   });
 
@@ -365,7 +365,7 @@ describe('buildPrompt — NPC 對玩家的態度', () => {
 describe('buildPrompt NPC 性別注入', () => {
   const npc = (over: Partial<Npc> = {}): Npc => ({
     id: 1, name: '凱爾', affection: 10,
-    category: 'NPC', isActive: true, memories: [], ...over,
+    memories: [], ...over,
   });
   // 職業從 Npc 搬到這裡：身分欄位的唯一來源是設定集條目（schema v10）
   const loreNpc = (over: Partial<LorebookEntry> = {}): LorebookEntry => ({
@@ -456,7 +456,7 @@ describe('buildPrompt NPC 性別注入', () => {
 describe('buildPrompt NPC 候選名單的來源', () => {
   const npc = (over: Partial<Npc> = {}): Npc => ({
     id: 1, name: '凱爾', affection: 10,
-    category: 'NPC', isActive: true, memories: [], ...over,
+    memories: [], ...over,
   });
   const loreNpc = (over: Partial<LorebookEntry> = {}): LorebookEntry => ({
     id: 1, title: '凱爾', content: '', category: 'NPC', isActive: true, ...over,
@@ -570,7 +570,7 @@ describe('buildPrompt 助理 GM 設定集提示（loreHints）', () => {
 describe('buildPrompt 提及不在場的角色', () => {
   const npc = (over: Partial<Npc> = {}): Npc => ({
     id: 1, name: '凱爾', affection: 30,
-    category: 'NPC', isActive: true, memories: [], ...over,
+    memories: [], ...over,
   });
   const loreNpc = (over: Partial<LorebookEntry> = {}): LorebookEntry => ({
     id: 1, title: '凱爾', content: '', category: 'NPC', isActive: true,
@@ -716,7 +716,7 @@ describe('buildPrompt 勢力與關係鏈', () => {
   });
   const npc = (over: Partial<Npc> = {}): Npc => ({
     id: 1, name: '芬里爾', affection: 10,
-    category: 'NPC', isActive: true, memories: [], ...over,
+    memories: [], ...over,
   });
   const build = (input: string, over: Partial<BuildPromptDeps>) =>
     buildPrompt({ ...deps([], () => false), ...over }, input, messages).prompt;
@@ -801,7 +801,7 @@ describe('buildPrompt 勢力與關係鏈', () => {
 describe('buildPrompt 隨行同伴', () => {
   const guide = (over: Partial<Npc> = {}): Npc => ({
     id: 1, name: '引路者', affection: 40,
-    category: 'NPC', isActive: true, memories: [], isCompanion: true, ...over,
+    memories: [], isCompanion: true, ...over,
   });
   // 主場刻意不是當前地點（月湖鎮），關鍵字刻意不命中本回合的輸入
   const guideLore = (over: Partial<LorebookEntry> = {}): LorebookEntry => ({
@@ -911,7 +911,7 @@ describe('buildPrompt NPC 核心記憶', () => {
   });
   const kael = (over: Partial<Npc> = {}): Npc => ({
     id: 1, name: '凱爾', affection: 10,
-    category: 'NPC', isActive: true, memories: [], ...over,
+    memories: [], ...over,
   });
   const kaelLore = (over: Partial<LorebookEntry> = {}): LorebookEntry => ({
     id: 1, title: '凱爾', content: '', category: 'NPC', isActive: true,
@@ -1038,7 +1038,7 @@ describe('buildPrompt 其他已知角色名冊', () => {
 
   it('不重複列出在場角色', () => {
     const prompt = build({
-      npcs: [{ id: 1, name: '芬里爾', affection: 10, category: 'NPC', isActive: true, memories: [] }],
+      npcs: [{ id: 1, name: '芬里爾', affection: 10, memories: [] }],
       appearingNpcs: ['芬里爾'],
       lorebookEntries: [loreNpc('芬里爾', { homeLocation: '迷霧森林' })],
     });
@@ -1198,7 +1198,7 @@ describe('buildPrompt 回歸 — 日記空關鍵字', () => {
 
 describe('buildPrompt 回歸 — 高好感完整注入只限「就在當前地點」', () => {
   const npcOf = (over: Partial<Npc> = {}): Npc => ({
-    id: 1, name: '萊尼', affection: 80, category: 'NPC', isActive: true, memories: [], ...over,
+    id: 1, name: '萊尼', affection: 80, memories: [], ...over,
   });
   const loreOf = (over: Partial<LorebookEntry> = {}): LorebookEntry => ({
     id: 1, title: '萊尼', content: '', category: 'NPC', isActive: true,
@@ -1277,7 +1277,7 @@ describe('buildPrompt 回歸 — Npc 與設定集條目的名稱比對', () => {
    */
   it('名字差一個空白時，對玩家欄位仍然注入得到', () => {
     const prompt = build({
-      npcs: [{ id: 1, name: '凱爾 ', affection: 90, category: 'NPC', isActive: true, memories: [] }],
+      npcs: [{ id: 1, name: '凱爾 ', affection: 90, memories: [] }],
       appearingNpcs: ['凱爾'],
       lorebookEntries: [{
         id: 1, title: '凱爾', content: '', category: 'NPC', isActive: true,

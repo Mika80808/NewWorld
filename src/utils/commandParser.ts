@@ -37,7 +37,7 @@ export const COMMAND_NAMES = [
   'ITEM_ADD', 'ITEM_REMOVE', 'ITEM_USE',
   'QUEST_ADD', 'QUEST_GOAL_MET', 'QUEST_COMPLETE',
   'NPC_NEW', 'NPC_HOME', 'NPC_LOCATION', 'NPC_THOUGHT',
-  'NPC_RELATIONSHIP', 'NPC_RELATION',
+  'NPC_RELATIONSHIP',
   'LOCATION_DISCOVER', 'MEMORY_ADD',
   'STATUS_ADD', 'STATUS_REMOVE', 'STATUS_CLEAR',
   'FACTION_NEW', 'FACTION_JOIN', 'FACTION_RELATION',
@@ -451,7 +451,7 @@ function parseSingleCommand(line: string): CommandAST | null {
       return { type: 'NPC_HOME', raw: trimmed, parsed: { npcName: name, location: loc } };
     }
 
-    // NPC_RELATIONSHIP|npc=角色名|rel=關係描述（與玩家的關係文字，不同於 NPC_RELATION 的結構化關係）
+    // NPC_RELATIONSHIP|npc=角色名|rel=關係描述（NPC 對玩家的關係文字）
     case 'NPC_RELATIONSHIP': {
       const npcName = kv.npc || kv.name || '';
       const rel = kv.rel || kv.relationship || '';
@@ -575,18 +575,6 @@ function parseSingleCommand(line: string): CommandAST | null {
       };
     }
 
-    // NPC_RELATION|npc=NPC名|type=family|target=目標名|note=備註
-    case 'NPC_RELATION': {
-      const npc = kv.npc || kv.name || '';
-      const relType = kv.type || kv.rel || '';
-      const target = kv.target || '';
-      if (!npc || !relType || !target) return null;
-      return {
-        type: 'NPC_RELATION', raw: trimmed,
-        parsed: { npcName: npc, relationType: relType.toLowerCase(), targetName: target, note: kv.note || '' },
-      };
-    }
-
     // ── Legacy fallback（舊格式相容）────────────────────────────────────────────
 
     default: {
@@ -644,14 +632,6 @@ function parseSingleCommand(line: string): CommandAST | null {
         return {
           type: 'FACTION_RELATION', raw: trimmed,
           parsed: { factionA: factionRelMatch[1].trim(), relationType: factionRelMatch[2].toLowerCase(), factionB: factionRelMatch[3].trim(), note: factionRelMatch[4]?.trim() || '' },
-        };
-      }
-      // NPC_RELATION:NPC名:type:目標[:備註]
-      const npcRelMatch = trimmed.match(/^NPC_RELATION:([^:]+):(family|ally|rival|enemy|acquaintance|romantic):([^:]+)(?::(.*))?$/i);
-      if (npcRelMatch) {
-        return {
-          type: 'NPC_RELATION', raw: trimmed,
-          parsed: { npcName: npcRelMatch[1].trim(), relationType: npcRelMatch[2].toLowerCase(), targetName: npcRelMatch[3].trim(), note: npcRelMatch[4]?.trim() || '' },
         };
       }
       return { type: 'UNKNOWN', raw: trimmed, parsed: { text: trimmed } };

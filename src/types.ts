@@ -24,8 +24,6 @@ export interface Profile {
   hp: number;
   mp: number;
   gold: number;
-  maxHp?: number;
-  maxMp?: number;
   // 註：舊的 status 欄位已移除。狀態異常改存在頂層的 statusEffects state，
   // 而這個欄位在最後一次搬遷之後就沒有任何讀寫了——留著只會讓人以為它還有效，
   // 然後往裡面寫一份永遠不會被顯示、也不會進 prompt 的資料。
@@ -79,12 +77,6 @@ export interface Faction {
   relations?: FactionRelation[];
 }
 
-export interface NpcRelation {
-  targetId: number | 'player';
-  type: 'family' | 'ally' | 'rival' | 'enemy' | 'acquaintance' | 'romantic';
-  note?: string;
-}
-
 // ─── NPC 記憶庫條目 ───────────────────────────────────────────────────────────
 export interface NpcMemory {
   id: string;
@@ -93,7 +85,6 @@ export interface NpcMemory {
   source: 'manual' | 'pre_merge' | 'merged';
   importance: 'core' | 'normal';
   isMerged?: boolean;
-  mergedFrom?: string[];
   isNew?: boolean;
 }
 
@@ -118,8 +109,6 @@ export interface Npc {
   lastSeenLocation?: string;
   lastSeenDate?: string;
   thoughts?: { text: string; createdAt: string }[];
-  category: string;
-  isActive: boolean;
   isPinned?: boolean;
   /**
    * 隨行同伴：這個角色**常駐在玩家身邊**，不綁定地點。
@@ -140,7 +129,6 @@ export interface Npc {
   isCompanion?: boolean;
   memories: NpcMemory[];
   factionIds?: number[];    // 可屬於多個勢力；空陣列或 undefined = 無歸屬
-  relations?: NpcRelation[];
 }
 
 export interface LorebookEntry {
@@ -178,7 +166,6 @@ export interface LorebookEntry {
   mapY?: number;
   cartFare?: number;
   mapStatus?: 'heard' | 'known';
-  adjacentTo?: string[];
   /**
    * 母地點（地點類專用）：這個地點座落在哪一座城／聚落裡。
    * 例：「醉醺醺酒館」的 `parentLocation` 是「月湖鎮」。
@@ -192,7 +179,6 @@ export interface LorebookEntry {
    */
   parentLocation?: string;
   locationType?: 'town' | 'wilderness' | 'building';
-  aliases?: string[];
 }
 
 export interface SystemPrompt {
@@ -213,8 +199,6 @@ export interface DiaryEntry {
 }
 
 export interface MemoryEntry {
-  mergeSources?: MemoryEntry[];
-  supersededBy?: string;
   id: string;
   type: 'world' | 'region' | 'scene' | 'npc';
   importance: 'critical' | 'normal' | 'flavor';
@@ -273,9 +257,6 @@ export interface ItemDef {
 }
 
 export type ItemCatalog = Record<string, ItemDef>;
-
-export type InventoryItem = EquipmentItem;
-export type ConsumableItem = ItemEntry;
 
 export interface Message {
   id: number;

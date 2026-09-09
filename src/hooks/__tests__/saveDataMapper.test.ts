@@ -489,3 +489,75 @@ describe('migrateV9toV10 — NPC 身分設定收斂到設定集', () => {
     expect(() => run([])).not.toThrow();
   });
 });
+
+describe('migrateV10toV11 — 移除只寫不讀的欄位', () => {
+  const run = (data: Record<string, unknown>) =>
+    saveDataMapper({ schemaVersion: 10, ...data });
+
+  it('拔掉 Npc 上的 relations / category / isActive', () => {
+    const d = run({
+      npcs: [{
+        id: 1, name: '芬里爾', affection: 60, memories: [],
+        category: 'NPC', isActive: true,
+        relations: [{ targetId: 'player', type: 'ally', note: '共同經歷森林大火' }],
+      }],
+    });
+    const npc = d.npcs[0] as unknown as Record<string, unknown>;
+    expect(npc).not.toHaveProperty('relations');
+    expect(npc).not.toHaveProperty('category');
+    expect(npc).not.toHaveProperty('isActive');
+    // 執行狀態要原封不動留著
+    expect(d.npcs[0]).toMatchObject({ id: 1, name: '芬里爾', affection: 60 });
+  });
+
+  it('拔掉 NpcMemory.mergedFrom，但不動記憶本身', () => {
+    const d = run({
+      npcs: [{
+        id: 1, name: '芬里爾', affection: 0,
+        memories: [{
+          id: 'nm1', text: '一起打過狼', createdAt: '4/1',
+          source: 'merged', importance: 'normal', mergedFrom: ['a', 'b'],
+        }],
+      }],
+    });
+    const mem = d.npcs[0].memories[0] as unknown as Record<string, unknown>;
+    expect(mem).not.toHaveProperty('mergedFrom');
+    expect(mem).toMatchObject({ id: 'nm1', text: '一起打過狼', source: 'merged' });
+  });
+
+  it('很舊的存檔裡 memories 還是字串，不能被展開成 { 0: 字, 1: 字 }', () => {
+    const d = run({
+      npcs: [{ id: 1, name: '芬里爾', affection: 0, memories: ['救過玩家一命'] }],
+    });
+    // normalizeNpc 之後應是正常的 NpcMemory 物件，而不是逐字拆開的殘骸
+    expect(d.npcs[0].memories[0]).toMatchObject({ text: '救過玩家一命' });
+  });
+
+  it('拔掉 MemoryEntry 的 mergeSources / supersededBy', () => {
+    const d = run({
+      memories: [{
+        id: 'mem1', type: 'scene', importance: 'normal', content: '酒館失火',
+        tags: { locations: [], npcs: [], factions: [], keywords: [] },
+        trigger: { scanDepth: 5, probability: 100, sticky: 0, cooldown: 0 },
+        isActive: true, source: 'ai_generated', createdAt: '4/1',
+        mergeSources: [{ id: 'old1' }], supersededBy: 'mem9',
+      }],
+    });
+    const mem = d.memories[0] as unknown as Record<string, unknown>;
+    expect(mem).not.toHaveProperty('mergeSources');
+    expect(mem).not.toHaveProperty('supersededBy');
+    expect(d.memories[0]).toMatchObject({ id: 'mem1', content: '酒館失火' });
+  });
+
+  it('拔掉 Profile 的 maxHp / maxMp', () => {
+    const d = run({ profile: { name: '旅人', hp: 50, mp: 10, gold: 0, maxHp: 100, maxMp: 30 } });
+    const p = d.profile as unknown as Record<string, unknown>;
+    expect(p).not.toHaveProperty('maxHp');
+    expect(p).not.toHaveProperty('maxMp');
+    expect(d.profile).toMatchObject({ name: '旅人', hp: 50, mp: 10 });
+  });
+
+  it('升到最新版本', () => {
+    expect(run({}).schemaVersion).toBe(CURRENT_SCHEMA);
+  });
+});

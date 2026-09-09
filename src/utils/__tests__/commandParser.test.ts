@@ -150,16 +150,6 @@ describe('parseCommandsToAST — MEMORY_ADD / 勢力指令 v1 pipe 格式', () =
     });
     expect(commands[1].parsed).toMatchObject({ factionName: '黑牙氏族', npcName: '芬里爾' });
   });
-
-  it('NPC_RELATION pipe 格式含備註', () => {
-    const { commands } = parseCommandsToAST(
-      '<<COMMANDS>>\nNPC_RELATION|npc=芬里爾|type=ally|target=PLAYER|note=共同經歷森林大火\n<</COMMANDS>>'
-    );
-    expect(commands[0].parsed).toMatchObject({
-      npcName: '芬里爾', relationType: 'ally', targetName: 'PLAYER',
-      note: '共同經歷森林大火',
-    });
-  });
 });
 
 describe('parseCommandsToAST — 無區塊時的 bare command fallback', () => {

@@ -11,7 +11,7 @@
 import { ItemCatalog, ItemDef } from '../types';
 
 /** 圖鑑條目上限，超過時觸發 LRU 淘汰 */
-export const MAX_CATALOG_SIZE = 300;
+const MAX_CATALOG_SIZE = 300;
 
 /** 注入 prompt 的已知物品名稱上限（只注入名稱，不含描述） */
 export const KNOWN_ITEMS_PROMPT_LIMIT = 30;

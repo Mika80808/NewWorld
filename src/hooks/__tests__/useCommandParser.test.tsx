@@ -17,7 +17,7 @@ import { Npc, ItemEntry, LorebookEntry, MemoryEntry } from '../../types';
  */
 
 const npc = (over: Partial<Npc> = {}): Npc => ({
-  id: 1, name: '芬里爾', affection: 10, category: 'NPC', isActive: true, memories: [], ...over,
+  id: 1, name: '芬里爾', affection: 10, memories: [], ...over,
 });
 
 const loc = (over: Partial<LorebookEntry> = {}): LorebookEntry => ({

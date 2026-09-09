@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { Z_INDEX } from '../constants';
 
 export interface DialogRequest {
   title: string;
@@ -44,7 +45,7 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({ request, onClose }
   return (
     <div
       className="fixed inset-0 flex items-center justify-center px-6"
-      style={{ zIndex: 'var(--z-modal-high)', background: 'var(--bg-overlay)' }}
+      style={{ zIndex: Z_INDEX.MODAL_HIGH, background: 'var(--bg-overlay)' }}
       onClick={onClose}
     >
       <div

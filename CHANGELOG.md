@@ -5,6 +5,73 @@
 
 ---
 
+### 清理｜死碼全面盤點與移除（schema v11） 2026-09-09 [Claude Code]
+
+`npm run lint` 與 `npm test` 本來就是乾淨的，所以這次找的全是靜態檢查看不到的東西：
+有寫入端沒讀取端的欄位、有讀取端沒寫入端的欄位、零引用的函數與 CSS 變數。
+
+**1. 只寫不讀的存檔欄位（schema v10 → v11）**
+
+這批欄位都有人寫、沒有人讀，寫進 Supabase 存檔之後就再也沒被碰過：
+
+| 欄位 | 誰寫的 | 為什麼是死的 |
+|---|---|---|
+| `Npc.relations` | `NPC_RELATION` 指令 | prompt、UI、`buildNpcExport` 三邊都沒讀 |
+| `Npc.category` | 四個建檔入口 | 一律寫死 `'NPC'`；被讀的是 `LorebookEntry.category` |
+| `Npc.isActive` | 四個建檔入口 | 一律寫 `true`；角色卡的「AI 是否讀取」讀設定集那份 |
+| `NpcMemory.mergedFrom` | 記憶融合 | 沒有讀取端（`DiaryEntry.mergedFrom` 有讀，兩者不同） |
+| `MemoryEntry.mergeSources` | 玩家手動融合 | 存整份來源物件，融合一次原文多存一份，沒有讀取端 |
+| `MemoryEntry.supersededBy` | `MEMORY_ADD\|replaces=` | 沒有讀取端 |
+| `Profile.maxHp` / `maxMp` | 沒有人寫 | 只在快照裡原樣搬運。HP／MP 本來就無上限 |
+
+`NPC_RELATION` 整條鏈一併移除：prompt 規格兩段、`commandParser` 的 pipe 與 legacy
+兩套解析、reducer 約 35 行含雙向對稱寫入。理由同 v9 → v10 拔掉 `Npc` 身分欄位——
+留著只會讓人以為它還是有效資料，然後再往裡面寫一份永遠不會被讀的東西。
+
+⚠️ `migrateV10toV11` 有一個坑：這一步跑在 `saveDataMapper` 的 `normalizeNpc`
+**之前**，很舊的存檔裡 `memories[]` 還是一串字串，對字串展開 `{ ...m }` 會把它
+拆成 `{ 0: '救', 1: '過' }` 而再也還原不回來。已加測試釘住。
+
+**2. 死讀取：有讀取端、沒有寫入端**
+
+- `LorebookEntry.adjacentTo`：`promptBuilder` 讀三處決定相鄰地點要不要注入
+- `LorebookEntry.aliases`：`isMemoryTriggered` 的地點別名比對（還是 `as any` 讀的）
+
+兩者都沒有任何指令、UI 或匯入會寫，那些判斷永遠走同一邊。移除後行為完全不變。
+
+**3. 零引用的程式碼**
+
+`TOKEN_OPTIONS`（SettingsModal 的 maxTokens 是自由輸入框）、`throttle()`、
+`InventoryItem` / `ConsumableItem` 兩個型別別名、`SaveSlotsModal` 的 `authUser`
+與 `showToast` 兩個 props（型別有宣告、App.tsx 有傳、組件內從沒用過）。
+
+`performanceMonitor` 砍掉渲染量測那半：`recordRender()` 從沒被呼叫，
+所以 `renderEvents` 永遠是空的、`getRenderMetrics()` 永遠回傳零、報告裡那段
+永遠印不出東西。186 行降到 104 行，滾動量測行為不變。
+
+另有 19 個符號只在自己檔案裡用得到，`export` 讓公開介面看起來比實際大，改為區域宣告。
+
+**4. CSS 死變數與死 class**
+
+`:root` 從 87 個變數降到 72 個。移除的有：Z-Index 十一個 `--z-*`
+（JS 端唯一準據是 `constants.ts` 的 `Z_INDEX`，CSS 這份是重複的第二份真相，
+唯一還在讀它的 `ConfirmDialog` 改用 `Z_INDEX.MODAL_HIGH`）、毛玻璃五個、
+按鈕按下態兩個、`--text-stat-value`、擬物 token 七個，以及 class `.tactile-float`。
+
+**5. 專案層級殘留**
+
+`start-dev.bat`（寫死 `F:\New world`）、`sync.ps1`（AI Studio 的 ZIP 同步腳本）、
+`metadata.json`（AI Studio 描述檔）三個檔案；tsconfig 與 vite.config 兩邊都設但
+零使用的 `@/*` 別名；tsconfig 四個沒作用的選項。
+
+`@theme` 的字體第一順位原本是 `Inter` 與 `JetBrains Mono`，但 index.html 只載入
+Noto Sans TC / Noto Serif TC / Yuji Syuku——那兩個名字在任何裝置上都不會命中，
+等於白寫一層還讓人以為版面是照 Inter 排的。改成實際載得到的字體與系統等寬堆疊。
+
+lint、tsc、893 個測試與 `vite build` 全通過。
+
+---
+
 ### Bug 修正｜注入給 GM 的資料鏈路盤點（6 個靜默失效） 2026-09-06 [Claude Code]
 
 全面檢查「哪些資料會被送進主 GM 的 prompt」這條鏈路。六個問題的共同形狀都一樣：

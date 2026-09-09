@@ -213,9 +213,6 @@ export function buildPrompt(
     })
     .slice(0, candidateLimit)
 
-  // 相鄰地點清單（讓 AI 知道玩家可以去哪裡）
-  const adjacentLocTitles = new Set(currentLocEntry?.adjacentTo ?? [])
-
   // 助理 GM 的挑選結果。設上限避免它一次把整本設定集倒進來把 prompt 撐爆；
   // 超出的部分丟棄，規則命中的條目不受影響（下方是聯集）
   const MAX_LORE_HINTS = 10
@@ -287,8 +284,6 @@ export function buildPrompt(
       if (e.category === '地點') {
         // 當前地點：強制注入（不受關鍵字限制，AI 必須知道所在位置的完整資料）
         if (e.title === loc) return true
-        // 相鄰地點：強制注入（讓 AI 知道玩家可以前往哪裡）
-        if (adjacentLocTitles.has(e.title)) return true
         // 其他地點：不注入（避免 prompt 膨脹）
         return false
       }
@@ -340,7 +335,7 @@ export function buildPrompt(
     // 不是「這個人／這個地方就在眼前」，所以一律收在這段（標題已寫明不在場）
     if (!titleMentioned(e) && !hintedLoreIds.has(e.id)) return false
     if (relevantLorebookIds.has(e.id)) return false
-    if (e.category === '地點') return e.title !== loc && !adjacentLocTitles.has(e.title)
+    if (e.category === '地點') return e.title !== loc
     return !relevantLorebookNpcTitles.has(e.title)
       && !isCompanionName(e.title)
       && !npcs.some(n => n.isPinned && isSameNpcName(n.name, e.title))
@@ -821,7 +816,6 @@ STATUS_CLEAR
 FACTION_NEW|name=勢力名|type=race/guild/nation/religion/criminal/other|desc=描述
 FACTION_JOIN|faction=勢力名|npc=NPC名
 FACTION_RELATION|a=勢力A|type=ally/enemy/neutral/vassal/rival|b=勢力B|note=備註(選填)
-NPC_RELATION|npc=NPC名|type=family/ally/rival/enemy/acquaintance/romantic|target=目標名或PLAYER|note=備註(選填)
 <</COMMANDS>>
 
 敘事開頭輸出出場標記（非 COMMANDS 區塊，每回應必須）：
@@ -892,7 +886,6 @@ NPC_RELATION|npc=NPC名|type=family/ally/rival/enemy/acquaintance/romantic|targe
 - FACTION_NEW：故事中首次明確提及某組織/種族群體時。
 - FACTION_JOIN：NPC 被確認為某勢力成員時。
 - FACTION_RELATION：兩勢力的關係首次確立或發生重大轉變時。
-- NPC_RELATION：NPC 之間或與玩家的私人關係明確確立時。PLAYER 代表玩家。
 
 【MEMORY_ADD 觸發情境（以下情況必須輸出）】
 記憶是帶日期的事件記錄。狀態改變時寫明原狀態與新結果；相同事件不要重複新增。傳聞與猜測須標明來源及不確定性，不能當成已確認事實。讀取歷史記憶時依事件先後判斷目前狀態。角色記憶供 GM 維持一致性，不表示角色願意向玩家透露秘密。

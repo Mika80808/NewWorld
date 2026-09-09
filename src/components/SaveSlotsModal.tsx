@@ -1,7 +1,6 @@
 import React from 'react'
 import { motion, AnimatePresence } from 'motion/react'
 import { X } from 'lucide-react'
-import { User } from '@supabase/supabase-js'
 import { SaveSlot } from '../lib/supabase'
 
 interface SaveSlotsModalProps {
@@ -9,11 +8,9 @@ interface SaveSlotsModalProps {
   onClose: () => void
   cloudSaves: SaveSlot[]
   currentSlotName: string
-  authUser: User | null
   onLoadSlot: (slotName: string) => Promise<void>
   onDeleteSlot: (slotName: string) => void
   onCreateSlot: () => void
-  showToast: (msg: string) => void
 }
 
 export function SaveSlotsModal({

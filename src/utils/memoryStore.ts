@@ -11,7 +11,7 @@
 import { MemoryEntry } from '../types';
 
 /** 軟上限：critical 保留全文，其餘記憶按相關性填入剩餘空間。字元數並非 token 數。 */
-export const PROMPT_MEMORY_LIMIT = 20;
+const PROMPT_MEMORY_LIMIT = 20;
 export const PROMPT_MEMORY_CHAR_BUDGET = 8000;
 
 export function rankPromptMemories(memories: MemoryEntry[], input: string): MemoryEntry[] {

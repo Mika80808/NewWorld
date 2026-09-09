@@ -21,7 +21,7 @@ import {
 } from '../constants';
 
 // ─── Schema 版本 ──────────────────────────────────────────────────────────────
-export const CURRENT_SCHEMA = 10;
+export const CURRENT_SCHEMA = 11;
 
 // ─── 型別：儲存快照 ───────────────────────────────────────────────────────────
 export interface GameSaveData {
@@ -380,6 +380,69 @@ export function migrateV9toV10(data: Record<string, unknown>): Record<string, un
   return out;
 }
 
+/**
+ * v10 → v11：移除只寫不讀的欄位。
+ *
+ * 這批欄位都有寫入端、沒有任何讀取端——寫進存檔之後就再也沒有人碰過：
+ *
+ * | 欄位 | 誰寫的 | 誰讀？ |
+ * |---|---|---|
+ * | `Npc.relations` | `NPC_RELATION` 指令（本次一併移除） | 無。prompt、UI、匯出三邊都沒有 |
+ * | `Npc.category` | 四個建檔入口一律寫 `'NPC'` | 無。被讀的是 `LorebookEntry.category` |
+ * | `Npc.isActive` | 一律寫 `true` | 無。角色卡的「AI 是否讀取」讀的是設定集條目那份 |
+ * | `NpcMemory.mergedFrom` | 記憶融合 | 無（同名的 `DiaryEntry.mergedFrom` 有讀，別搞混） |
+ * | `MemoryEntry.mergeSources` | 玩家手動融合場景記憶 | 無。而且它存的是整份來源物件，融合一次原文就多一份 |
+ * | `MemoryEntry.supersededBy` | `MEMORY_ADD\|replaces=` | 無 |
+ * | `Profile.maxHp` / `maxMp` | 沒有人寫，只在快照裡原樣搬運 | 無。HP／MP 本來就無上限 |
+ *
+ * 與 v9→v10 拔掉 `Npc` 身分欄位同一個理由：留著只會讓人以為它還是有效資料，
+ * 然後再往裡面寫一份永遠不會被讀的東西。舊存檔照樣載得進來，只是這些鍵被丟掉。
+ */
+export function migrateV10toV11(data: Record<string, unknown>): Record<string, unknown> {
+  const out = { ...data };
+
+  const npcs = Array.isArray(out.npcs) ? (out.npcs as Record<string, unknown>[]) : [];
+  if (npcs.length > 0) {
+    out.npcs = npcs.map(npc => {
+      const rest = { ...npc };
+      delete rest.relations;
+      delete rest.category;
+      delete rest.isActive;
+      // ⚠️ 這一步跑在 saveDataMapper 的 normalizeNpc **之前**，很舊的存檔裡
+      // memories[] 還是一串字串。對字串展開 `{ ...m }` 會把它拆成
+      // `{ 0: '救', 1: '過', … }`，之後就再也還原不回來了
+      if (Array.isArray(rest.memories)) {
+        rest.memories = (rest.memories as unknown[]).map(m => {
+          if (typeof m !== 'object' || m === null) return m;
+          const mm = { ...(m as Record<string, unknown>) };
+          delete mm.mergedFrom;
+          return mm;
+        });
+      }
+      return rest;
+    });
+  }
+
+  const memories = Array.isArray(out.memories) ? (out.memories as Record<string, unknown>[]) : [];
+  if (memories.length > 0) {
+    out.memories = memories.map(m => {
+      const rest = { ...m };
+      delete rest.mergeSources;
+      delete rest.supersededBy;
+      return rest;
+    });
+  }
+
+  if (out.profile && typeof out.profile === 'object') {
+    const p = { ...(out.profile as Record<string, unknown>) };
+    delete p.maxHp;
+    delete p.maxMp;
+    out.profile = p;
+  }
+
+  return out;
+}
+
 const MIGRATIONS: Record<number, (d: Record<string, unknown>) => Record<string, unknown>> = {
   0: migrateV0toV1,
   1: migrateV1toV2,
@@ -391,6 +454,7 @@ const MIGRATIONS: Record<number, (d: Record<string, unknown>) => Record<string, 
   7: migrateV7toV8,
   8: migrateV8toV9,
   9: migrateV9toV10,
+  10: migrateV10toV11,
 };
 
 function runMigrations(raw: Record<string, unknown>): Record<string, unknown> {
@@ -446,8 +510,6 @@ export function saveDataMapper(raw: Record<string, unknown>): GameSaveData {
       hp:          p.hp          ?? 50,
       mp:          p.mp          ?? 0,
       gold:        p.gold        ?? 0,
-      ...(p.maxHp != null ? { maxHp: p.maxHp } : {}),
-      ...(p.maxMp != null ? { maxMp: p.maxMp } : {}),
     },
     systemPrompt:    (d.systemPrompt    as SystemPrompt)    || INITIAL_SYSTEM_PROMPT,
     diaryEntries:    Array.isArray(d.diaryEntries)    ? d.diaryEntries    as DiaryEntry[]    : [],

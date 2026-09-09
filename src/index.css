@@ -36,7 +36,6 @@
   --text-main:       #e8e8e9;   /* 輸入文字 */
   --text-muted:      #acacac;   /* 提示文字、時間戳、placeholder */
   --text-stat-label: #bdb394;   /* 狀態名稱（HP、MP、金幣等標籤） */
-  --text-stat-value: #fafafa;   /* 狀態數值（HP、MP、金幣等數字） */
   --text-danger:     #ff5757;   /* 危險動作文字（刪除、重置） */
 
   /* ── 分頁 ───────────────────────────────────────────────── */
@@ -47,12 +46,10 @@
   --btn--text:           #ffffff;   /* 預設 */
   --btn-primary:         #00598a;   /* 預設 */
   --btn-primary-hover:   #006aa3;   /* 懸停 */
-  --btn-primary-active:  #007dbe;   /* 按下 */
 
   /* ── 按鈕：Secondary（取消）────────────────────────────── */
   --btn-secondary:         #a0a0a1;   /* 預設 */
   --btn-secondary-hover:   #7d8694;   /* 懸停 */
-  --btn-secondary-active:  #a1a1a1;   /* 按下 */
 
   /* ── 陰影 ───────────────────────────────────────────────── */
   --shadow:          0 4px 12px rgba(16, 68, 171, 0.2);
@@ -105,11 +102,6 @@
 
   /* ── 毛玻璃效果 ──────────────────────────────────────── */
   --glass-sidebar-bg:    rgba(12, 13, 13, 0.75);    /* 左右欄半透明底 */
-  --glass-sidebar-blur:  blur(16px);                /* 毛玻璃模糊度 */
-  --glass-border:        rgba(255, 255, 255, 0.08); /* 玻璃邊框 */
-  --glass-bubble-self:   rgba(20, 20, 20, 0.6);     /* 玩家對話泡泡 */
-  --glass-bubble-npc:    rgba(40, 40, 40, 0.7);     /* NPC 對話泡泡 */
-  --glass-bubble-blur:   blur(8px);                 /* 對話泡泡模糊度 */
 
   /* ── 任務卡片背景 ─────────────────────────────────────── */
   --bg-quest-active:      rgba(22, 101, 52, 0.12);
@@ -134,19 +126,6 @@
    * 原本寫死中灰 rgba(160,160,160,...)，淺色主題下是一條突兀的灰條。 */
   --scrollbar-thumb:       rgba(255, 255, 255, 0.22);
   --scrollbar-thumb-hover: rgba(255, 255, 255, 0.42);
-
-  /* ── Z-Index 層級系統（由低至高）─────────────────────── */
-  --z-bg:           0;      /* 背景圖層（遊戲背景、天空梯度） */
-  --z-base:         10;     /* 基礎層（欄位標籤、右欄 Lorebook） */
-  --z-hud:          20;     /* 頂部 HUD / 導航欄（搜尋欄、功能按鈕） */
-  --z-menu:         30;     /* 局部菜單（右鍵選單、下拉選項） */
-  --z-drawer-bg:    40;     /* 手機 Drawer 暗色遮罩 */
-  --z-drawer:       50;     /* 手機 Drawer 本體（左側欄、右側欄） */
-  --z-modal-bg:     60;     /* Modal 暗色背景（所有 Modal） */
-  --z-modal:        61;     /* Modal 本體（內容容器） */
-  --z-modal-high:   62;     /* Modal 內部高層（選單、彈窗） */
-  --z-toast:        100;    /* 通知 Toast（頂部居中） */
-  --z-popover:      110;    /* 浮動菜單（Inventory、Consumables） */
 
 }
 
@@ -186,10 +165,15 @@
   background: transparent;
 }
 
-/* ── @theme：只保留字體，移除所有顏色覆寫 ──────────────── */
+/* ── @theme：只保留字體，移除所有顏色覆寫 ────────────────
+ * ⚠️ 這裡只能列**真的載得到**的字體。原本第一順位寫的是 "Inter" 與
+ * "JetBrains Mono"，但 index.html 只載入 Noto Sans TC / Noto Serif TC /
+ * Yuji Syuku 三種——那兩個名字在任何裝置上都不會命中，等於白寫一層，
+ * 而且會讓人以為版面是照 Inter 排的。
+ * `font-sans` 對齊 .font-game-sans（正文都是中文），`font-mono` 用系統等寬。 */
 @theme {
-  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
-  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+  --font-sans: "Noto Sans TC", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
 }
 
 
@@ -440,7 +424,6 @@ body {
   --text-main:       #332c23;
   --text-muted:      #8a7a64;
   --text-stat-label: #7a6a54;
-  --text-stat-value: #332c23;
   --text-danger:     #a8443c;
 
   /* ── 分頁 ── */
@@ -451,10 +434,8 @@ body {
   --btn--text:           #23301f;
   --btn-primary:         #a9c4ae;
   --btn-primary-hover:   #b8d0bc;
-  --btn-primary-active:  #98b49e;
   --btn-secondary:        #cfc3ae;
   --btn-secondary-hover:  #ded3c0;
-  --btn-secondary-active: #bfb29b;
 
   --shadow: 0 2px 6px rgba(92, 74, 50, 0.18);
 
@@ -484,11 +465,6 @@ body {
 
   /* ── 毛玻璃：這個主題不用，一律歸零 ── */
   --glass-sidebar-bg:   #ece4d6;
-  --glass-sidebar-blur: 0px;
-  --glass-border:       #c3b5a0;
-  --glass-bubble-self:  #e5dcc9;
-  --glass-bubble-npc:   #f4eee3;
-  --glass-bubble-blur:  0px;
 
   /* ── RPG 視覺特效：淡色底下這些光暈會變成髒污，全部關掉 ── */
   --fx-vignette:       transparent;
@@ -527,16 +503,6 @@ body {
   --bg-quest-failed:      #efdedb;
   --border-quest-failed:  #d3aba5;
 
-  /* ── 擬物專用 token（對應參考圖的 Tokens 欄）────────────
-       只在這個主題存在，深色主題不會用到 */
-  --tac-radius-sm: 4px;
-  --tac-radius-md: 8px;
-  --tac-radius-lg: 12px;
-
-  --tac-border-thin:   1px;
-  --tac-border-mid:    1.5px;
-  --tac-border-thick:  2px;
-
   /* ── 新擬態的光影對 ──────────────────────────────────────
    * 質感**完全靠這兩個顏色**：左上打高光、右下落陰影，成對出現，
    * 讓元件看起來是從同色背景上「壓出來」或「凹進去」的。
@@ -549,9 +515,7 @@ body {
   --tac-light: rgba(255, 252, 244, 0.95);   /* 左上高亮 */
   --tac-dark:  rgba(148, 128, 100, 0.42);   /* 右下陰影 */
 
-  /* Shadow Levels：對應參考圖的四階 */
-  --tac-shadow-none:  none;
-
+  /* Shadow Levels：凹陷／微凸／高凸三階 */
   /* 凹陷（按下、輸入框、圖示井） */
   --tac-shadow-inner: inset 4px 4px 8px var(--tac-dark),
                       inset -4px -4px 8px var(--tac-light);
@@ -559,10 +523,6 @@ body {
   /* 微凸（一般卡片） */
   --tac-shadow-lift:  -5px -5px 10px var(--tac-light),
                        5px  5px 10px var(--tac-dark);
-
-  /* 高凸（Modal、需要浮起來的東西） */
-  --tac-shadow-float: -8px -8px 18px var(--tac-light),
-                       8px  8px 18px var(--tac-dark);
 
   /* 頂緣細高光：疊在對稱光影之上，補出「邊緣厚度」 */
   --tac-highlight: inset 0 1px 0 rgba(255, 255, 252, 0.7);
@@ -578,11 +538,11 @@ body {
   background-blend-mode: multiply;
 }
 
-/* ── 三種深度 ────────────────────────────────────────────
+/* ── 兩種深度 ────────────────────────────────────────────
  * ⚠️ 一律 `border: none`。新擬態的形狀是光影切出來的，加了邊框
  * 就變回「有描邊的卡片」，對稱光影的效果會被邊框壓掉。
  *
- * 這三個類別**只管光影，不管圓角**——圓角由各組件自己決定（膠囊要
+ * 這兩個類別**只管光影，不管圓角**——圓角由各組件自己決定（膠囊要
  * rounded-full、卡片要 12px）。先前寫在這裡會把組件的圓角蓋掉。
  * 但圓角要夠大光影才有地方過渡，太小會像被削掉的方塊。 */
 [data-theme="parchment"] .tactile-raised {
@@ -590,11 +550,6 @@ body {
      那些邊框在深色主題有用，但在新擬態下會破壞光影 */
   border: none !important;
   box-shadow: var(--tac-shadow-lift), var(--tac-highlight);
-}
-
-[data-theme="parchment"] .tactile-float {
-  border: none !important;
-  box-shadow: var(--tac-shadow-float), var(--tac-highlight);
 }
 
 [data-theme="parchment"] .tactile-sunken {

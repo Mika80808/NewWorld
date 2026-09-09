@@ -13,7 +13,7 @@ import { setFactionRelation } from './factionRelation';
 import { normalizeNpcName, isSameNpcName } from './npcProfile';
 import {
   TimeState, Profile, Quest, MemoryEntry, Npc, ItemEntry, ItemCatalog,
-  LorebookEntry, Message, StatusEffect, Faction, NpcRelation, NpcMemory,
+  LorebookEntry, Message, StatusEffect, Faction, NpcMemory,
 } from '../types';
 
 // ─── 狀態變更對象型別 ──────────────────────────────────────────────────────────
@@ -73,7 +73,7 @@ export type AsyncTask =
       };
     };
 
-export interface ReduceResult {
+interface ReduceResult {
   stateChanges: StateChanges;
   feedback: Feedback;
   asyncTasks: AsyncTask[];
@@ -631,45 +631,6 @@ export function reduceCommands(
         break;
       }
 
-      case 'NPC_RELATION': {
-        const npcName = cmd.parsed.npcName as string;
-        const relationType = cmd.parsed.relationType as NpcRelation['type'];
-        const targetName = cmd.parsed.targetName as string;
-        const note = cmd.parsed.note as string | undefined;
-        const npcIdx = workingNpcs.findIndex(n => isSameNpcName(n.name, npcName));
-        if (npcIdx === -1) break;
-        const isPlayer = targetName.toUpperCase() === 'PLAYER';
-        const targetId: number | 'player' = isPlayer
-          ? 'player'
-          : (workingNpcs.find(n => isSameNpcName(n.name, targetName))?.id ?? -1);
-        if (targetId === -1) break;
-        // 寫入 npc.relations（去重）
-        const npcRelations = (workingNpcs[npcIdx].relations || []).filter(
-          r => r.targetId !== targetId
-        );
-        npcRelations.push({ targetId, type: relationType, note });
-        workingNpcs = workingNpcs.map((n, i) =>
-          i === npcIdx ? { ...n, relations: npcRelations } : n
-        );
-        // 對稱寫入（非 player 目標）
-        if (!isPlayer && typeof targetId === 'number') {
-          const symmetric = ['family', 'ally', 'enemy', 'rival'].includes(relationType);
-          if (symmetric) {
-            const targetIdx = workingNpcs.findIndex(n => n.id === targetId);
-            if (targetIdx !== -1) {
-              const targetRelations = (workingNpcs[targetIdx].relations || []).filter(
-                r => r.targetId !== workingNpcs[npcIdx].id
-              );
-              targetRelations.push({ targetId: workingNpcs[npcIdx].id, type: relationType, note });
-              workingNpcs = workingNpcs.map((n, i) =>
-                i === targetIdx ? { ...n, relations: targetRelations } : n
-              );
-            }
-          }
-        }
-        break;
-      }
-
       case 'NPC_NEW': {
         // 名字一律正規化後才當比對鍵（見 npcProfile.normalizeNpcName）。
         // 指令這側的前後空白 parseKV 已經處理掉了，這裡防的是**沒經過指令解析**
@@ -712,8 +673,6 @@ export function reduceCommands(
           id: Math.max(...workingNpcs.map(n => n.id), 0) + 1,
           name,
           affection: 0,
-          category: '登場人物',
-          isActive: true,
           memories: [],
         };
         workingNpcs = [...workingNpcs, newNpc];
@@ -761,7 +720,7 @@ export function reduceCommands(
       }
 
       case 'NPC_RELATIONSHIP': {
-        // 文字形式的玩家-NPC 關係描述（區別於 NPC_RELATION 的結構化關係）
+        // 文字形式的玩家-NPC 關係描述
         const npcName = cmd.parsed.npcName as string;
         const relationship = cmd.parsed.relationship as string;
         workingNpcs = workingNpcs.map(npc =>

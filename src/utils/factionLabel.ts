@@ -7,7 +7,7 @@ import { Faction, FactionRelation } from '../types';
  * 勢力卡片的三元運算式鏈、`MapModal` 的星圖標籤——而且措辭還不一致
  * （同一個 `ally` 在星圖是「盟友」、在編輯面板是「同盟」）。
  */
-export const FACTION_TYPE_LABEL: Record<Faction['type'], string> = {
+const FACTION_TYPE_LABEL: Record<Faction['type'], string> = {
   race:     '種族',
   guild:    '公會',
   nation:   '國家',
@@ -16,7 +16,7 @@ export const FACTION_TYPE_LABEL: Record<Faction['type'], string> = {
   other:    '其他',
 };
 
-export const FACTION_RELATION_LABEL: Record<FactionRelation['type'], string> = {
+const FACTION_RELATION_LABEL: Record<FactionRelation['type'], string> = {
   ally:    '同盟',
   enemy:   '敵對',
   rival:   '競爭',

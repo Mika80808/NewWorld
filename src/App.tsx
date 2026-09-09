@@ -555,7 +555,6 @@ ${newPool.map((s, i) => `${i + 1}. ${s}`).join('\n')}`;
     if (!import.meta.env.DEV) return;
     (window as any).__performanceMonitor = {
       getScrollMetrics: () => performanceMonitor.getScrollMetrics(),
-      getRenderMetrics: () => performanceMonitor.getRenderMetrics(),
       getReport: () => console.log(performanceMonitor.generateReport()),
       clear: () => performanceMonitor.clear(),
     };
@@ -972,7 +971,7 @@ ${poolText}
     const newNpc: Npc = {
       id: newId, name: '新角色', affection: 0, relationship: '',
       location: '', lastSeenLocation: '',
-      category: 'NPC', isActive: true, isPinned: false, memories: [], thoughts: [],
+      isPinned: false, memories: [], thoughts: [],
     };
     const newLore: LorebookEntry = {
       id: newId + 1, title: '新角色', category: 'NPC', content: '',
@@ -1516,7 +1515,6 @@ ${poolText}
         importance: targets[0].importance,
         source: 'ai_generated',
         createdAt: gameDate,
-        mergeSources: targets,
         // 標籤取聯集：融合後的那一條要能被原本任何一條的條件觸發
         tags: {
           locations: [...new Set(targets.flatMap(m => m.tags?.locations ?? []))],
@@ -2821,11 +2819,9 @@ ${recentContext}
         onClose={() => setIsSaveSlotsModalOpen(false)}
         cloudSaves={cloudSaves}
         currentSlotName={currentSlotName}
-        authUser={authUser}
         onLoadSlot={handleLoadSlot}
         onDeleteSlot={handleDeleteSlot}
         onCreateSlot={handleCreateSlot}
-        showToast={showToast}
       />
 
       {/* Map Modal */}
