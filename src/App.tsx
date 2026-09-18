@@ -2283,7 +2283,7 @@ ${recentContext}
         {/* Left Panel（手機改用左抽屜，這裡直接不掛載，避免同時渲染兩套版面）*/}
         {!isMobile && (
         <div
-          className="w-[260px] shrink-0 flex flex-col px-3 py-4 gap-3 overflow-y-auto"
+          className="scroll-col w-[260px] shrink-0 flex flex-col px-3 py-4 gap-3 overflow-y-auto"
           style={{ zIndex: 20 }}>
 
           <GoalsPanel
@@ -2556,7 +2556,7 @@ ${recentContext}
 
               {/* ⚡ Quick Options Popup Menu */}
               {showQuickMenu && quickOptions.length > 0 && (
-                <div className="quick-options flex flex-col gap-1.5 mb-3 overflow-y-auto animate-in fade-in slide-in-from-bottom-2 duration-200">
+                <div className="quick-options scroll-col flex flex-col gap-1.5 mb-3 overflow-y-auto animate-in fade-in slide-in-from-bottom-2 duration-200">
                   {quickOptions.map((option, idx) => (
                     <button
                       key={idx}
@@ -2707,7 +2707,7 @@ ${recentContext}
 
         {/* Right Panel — 3 Independent Widgets（手機改用右抽屜，不掛載）*/}
         {!isMobile && (
-        <div className="w-[260px] shrink-0 flex flex-col p-3 gap-3 overflow-y-auto z-10">
+        <div className="scroll-col w-[260px] shrink-0 flex flex-col p-3 gap-3 overflow-y-auto z-10">
           {rightPanelWidgets}
         </div>
         )}
@@ -2980,7 +2980,7 @@ ${recentContext}
               </div>
 
               {/* Drawer Body */}
-              <div className="flex-1 overflow-y-auto px-3 py-3 flex flex-col gap-3">
+              <div className="scroll-col flex-1 overflow-y-auto px-3 py-3 flex flex-col gap-3">
 
                 <GoalsPanel
                   currentGoals={currentGoals}
@@ -3113,7 +3113,7 @@ ${recentContext}
               </div>
 
               {/* Drawer Body — 與桌機右欄同一份內容 */}
-              <div className="flex-1 overflow-y-auto p-3 flex flex-col gap-3">
+              <div className="scroll-col flex-1 overflow-y-auto p-3 flex flex-col gap-3">
                 {rightPanelWidgets}
               </div>
             </motion.div>

@@ -193,6 +193,25 @@ body {
 .font-game-serif { font-family: 'Noto Serif TC', serif; line-height: 1.9; letter-spacing: 0.02em; }
 .font-game-spell { font-family: 'Yuji Syuku', serif; line-height: 2; letter-spacing: 0.05em; }
 
+/* ── 直向捲動容器：子項一律不准被壓扁 ────────────────────
+ * 左右兩欄（桌機側欄與手機抽屜）與快速選項清單，都是「高度受限的
+ * `flex flex-col` + `overflow-y-auto`」。這種容器的子項預設
+ * `flex-shrink: 1`——內容超出時**子項先被壓扁**，容器不會變成可捲動。
+ *
+ * ⚠️ 真正的關鍵是子項能被壓到多小。flex 子項的 `min-height: auto` 通常會由
+ * 內容的最小尺寸兜底（一顆單行按鈕壓不到比一行字還矮），所以多數東西只是
+ * 「擠一點」。但**子項本身是捲動容器時（`overflow` 不是 visible），自動最小
+ * 尺寸是 0**——它可以被壓到任意矮，並且把超出的部分自己裁掉，不留任何痕跡。
+ *
+ * GoalsPanel 的根節點正是 `overflow-hidden`。玩家回報「手機看不見冒險摘要」：
+ * 冒險摘要排在那張便條紙最下面，手機抽屜比桌機欄矮，於是只有手機裁到它。
+ * 實測 390×664 直式手機：卡片被壓到 172px 而內容需要 265px，摘要整段落在
+ * 可見範圍外，而且抽屜因為子項讓位而**不可捲動**，玩家連往下滑都救不回來。
+ *
+ * ⚠️ 新增這類容器時要記得掛上這個 class，
+ * `scrollColShrink.test.ts` 會掃 App.tsx 擋住漏掛。 */
+.scroll-col > * { flex-shrink: 0; }
+
 /* ── Mobile Safe Area ─────────────────────────────────── */
 .mobile-input-safe {
   padding-bottom: max(0.5rem, env(safe-area-inset-bottom, 0px));
