@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { buildPrompt, BuildPromptDeps } from '../promptBuilder';
+import { MONTHS_DATA } from '../../constants';
 import { MemoryEntry, Message, Npc, NpcMemory, LorebookEntry, Faction, DiaryEntry } from '../../types';
 
 const mem = (id: string, content: string, over: Partial<MemoryEntry> = {}): MemoryEntry => ({
@@ -1445,5 +1446,45 @@ describe('buildPrompt — actual injected memory accounting', () => {
     let received: Message[]|undefined;
     buildPrompt(deps([mem('m','內容')],(_m,_input,_loc,h)=>{received=h;return true;}),'',history);
     expect(received).toBe(history);
+  });
+});
+
+/**
+ * 玩家回報：「AI 讀不到世界節日。」
+ *
+ * `MONTHS_DATA` 的月份雅稱與節慶描述先前只流向 UI（右欄的 World Memory Widget
+ * 與狀態列 tooltip），`[Current State]` 只給 `Time: 1024年4月15日`。玩家在畫面上
+ * 看得到「四月・雙月之月：霧光許願夜與星織之夜」，AI 只拿到一個數字——
+ * 於是它筆下的四月與十月毫無差別，節慶對它等於不存在。
+ */
+describe('buildPrompt — 世界節日要進得了 prompt', () => {
+  const promptFor = (month: number) =>
+    buildPrompt(
+      { ...deps([], () => false), timeState: { year: 1024, month, day: 15, hour: 12, minute: 0, weather: '晴朗' } },
+      '測試輸入',
+      messages,
+    ).prompt;
+
+  it('注入當月的雅稱與節慶描述', () => {
+    const p = promptFor(4);
+    const april = MONTHS_DATA.find(m => m.id === 4)!;
+    expect(p).toContain(april.elegant);
+    expect(p).toContain(april.desc);
+  });
+
+  it('換一個月就換一份節慶，不是寫死的', () => {
+    const oct = MONTHS_DATA.find(m => m.id === 10)!;
+    const p = promptFor(10);
+    expect(p).toContain(oct.elegant);
+    expect(p).toContain(oct.desc);
+    // 四月的節慶不該出現在十月
+    expect(p).not.toContain(MONTHS_DATA.find(m => m.id === 4)!.desc);
+  });
+
+  // 節慶是逐月變動的內容，放進靜態前綴會讓 context caching 每個月失效一次
+  it('排在 [Current State] 裡，不在靜態前綴', () => {
+    const p = promptFor(4);
+    const april = MONTHS_DATA.find(m => m.id === 4)!;
+    expect(p.indexOf('[Current State]')).toBeLessThan(p.indexOf(april.desc));
   });
 });
