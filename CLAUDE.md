@@ -778,6 +778,17 @@ FACTION_NEW|name=黑牙氏族|type=criminal|desc=盤據東境的盜賊團
     `hoverActionReveal.test.ts` 會掃 `src/**/*.tsx` 擋回歸。
     ⚠️ 判斷依據是 hover 能力不是螢幕寬度——觸控筆電與平板在寬螢幕下一樣需要常駐顯示。
 
+31. **跨欄一律 `col-span-full`，不要寫 `col-span-2`**。`grid-cols-1 sm:grid-cols-2` 的容器
+    在手機只有一條 `minmax(0,1fr)`，子元素寫 `span 2` 會**生出一條隱式欄**
+    （`grid-auto-columns: auto`）。auto 那條依內容吃掉幾乎整個寬度，`1fr` 只剩
+    min-content——中文就是一個字的 18px，同列的卡片變成一直條文字、高度撐到 593px
+    （headless Chromium 實測 `"18px 314px"` vs `col-span-full` 的 `"344px"`）。
+    玩家回報過一次：設定集的「地點」分頁在編輯某一條時整個歪掉。
+    `col-span-full` 是 `grid-column: 1 / -1`，跨滿所有**顯式**欄，一欄兩欄都對。
+    `gridColSpan.test.ts` 掃 `src/**/*.tsx` 擋回歸（有 `grid-cols-1` 的檔案禁用 `col-span-<數字>`）。
+    ⚠️ 與 group-hover 那個坑同一種病：桌機開發時 `sm:grid-cols-2` 生效、真的有兩欄，
+    完全看不出來。
+
 ---
 
 ## 關鍵函數索引

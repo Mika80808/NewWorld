@@ -5,6 +5,44 @@
 
 ---
 
+### Bug 修正｜手機版設定集的分頁卡片歪成一直條 2026-09-19 [Claude Code]
+
+玩家回報：手機版的「地點」欄位歪掉——卡片變成一個字一行，還疊在隔壁卡片旁邊。
+
+`LorebookModal` 的三處編輯表單寫的是 `col-span-2`，而外層容器是
+`grid grid-cols-1 sm:grid-cols-2`。手機只有一條 `minmax(0,1fr)`，子元素要求
+`grid-column: span 2` 時瀏覽器會**生出一條隱式欄**（`grid-auto-columns: auto`）。
+auto 那條依內容吃掉幾乎整個寬度，`1fr` 只剩 min-content——中文就是一個字。
+
+headless Chromium 實測（390px 視窗）：
+
+```
+grid-cols-1 + col-span-2    → gridTemplateColumns: "18px 314px"   卡片 w=26  h=593
+grid-cols-1 + col-span-full → gridTemplateColumns: "344px"        卡片 w=344 h=68
+```
+
+`h=593` 是被同列的鄰居撐起來的，所以畫面上那條直書文字看起來像是疊在旁邊那張
+卡片上——實際上它就只有 26px 寬，整張卡被擠成一條。
+
+**觸發條件是「有東西正在編輯」**，所以平常看不到：一旦展開某一條的編輯表單，
+同一列的其他卡片就全歪了。影響地點／怪物／物品／歷史／其他與勢力六個分頁
+（NPC 分頁沒有跨欄元素，不受影響）。
+
+**修法**：三處都改成 `col-span-full`（`grid-column: 1 / -1`）——跨滿所有**顯式**欄，
+一欄兩欄都對，也不會生出隱式欄。
+
+`gridColSpan.test.ts` 掃 `src/**/*.tsx`：含 `grid-cols-1` 的檔案禁止在 className 裡
+出現 `col-span-<數字>`。已驗證把任一處改回舊寫法就會紅。
+
+⚠️ 與 `group-hover` 那個坑同一種病：桌機開發時 `sm:grid-cols-2` 生效、真的有兩欄，
+完全看不出問題，只有窄螢幕才會炸。
+
+**驗證**：lint 乾淨、977 tests 通過、build 成功。
+
+**檔案**：`src/components/LorebookModal.tsx`、`src/utils/__tests__/gridColSpan.test.ts`（新增）。
+
+---
+
 ### 功能｜AI 供應商可切換：OpenAI 相容／Anthropic／本機模型 2026-09-19 [Claude Code]
 
 玩家回報：受不了 Gemini 的文風，要能接其他 API。

@@ -315,12 +315,16 @@ export const LorebookModal: React.FC<LorebookModalProps> = ({
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         {filtered.map(entry => {
           const isEditing = editingLorebookId === entry.id;
-          // ── 編輯模式（展開佔兩欄） ──────────────────────────────────────
+          // ── 編輯模式（展開佔滿整列） ────────────────────────────────────
+          // ⚠️ 一律 `col-span-full`（grid-column: 1 / -1），不要寫 `col-span-2`。
+          // 外層在手機是 `grid-cols-1`，`span 2` 會**生出一條隱式欄**，
+          // 原本那條 `minmax(0,1fr)` 被擠成 18px（一個中文字的寬度），
+          // 同列的卡片於是變成一個字一行、高度暴增到 593px（實測值）。
           if (isEditing) {
             return (
               <div
                 key={entry.id}
-                className="col-span-2 rounded-[8px] p-4 space-y-3 border"
+                className="col-span-full rounded-[8px] p-4 space-y-3 border"
                 style={{
                   background: 'color-mix(in srgb, var(--bg-elevated) 60%, transparent)',
                   borderColor: 'var(--border-accent)',
@@ -424,7 +428,7 @@ export const LorebookModal: React.FC<LorebookModalProps> = ({
             return (
               <div
                 key={entry.id}
-                className="col-span-2 rounded-[8px] p-4 space-y-3 border"
+                className="col-span-full rounded-[8px] p-4 space-y-3 border"
                 style={{
                   background: 'color-mix(in srgb, var(--bg-elevated) 60%, transparent)',
                   borderColor: 'var(--border-accent)',
@@ -755,7 +759,7 @@ export const LorebookModal: React.FC<LorebookModalProps> = ({
     };
 
     const renderFactionForm = (isEdit: boolean, existing?: Faction) => (
-      <div className="col-span-2 rounded-[8px] p-4 space-y-3 border"
+      <div className="col-span-full rounded-[8px] p-4 space-y-3 border"
         style={{ background: 'color-mix(in srgb, var(--bg-elevated) 60%, transparent)', borderColor: 'var(--border-accent)' }}>
         <div className="flex items-center gap-2 mb-1">
           <div style={{ width: 12, height: 12, borderRadius: '50%', background: factionForm.color, border: '1px solid var(--border-default)', flexShrink: 0 }} />
