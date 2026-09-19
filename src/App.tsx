@@ -30,7 +30,7 @@ const LorebookModal = lazy(() => import('./components/LorebookModal').then(m => 
 const NpcModal      = lazy(() => import('./components/NpcModal').then(m => ({ default: m.NpcModal })));
 const SettingsModal = lazy(() => import('./components/SettingsModal').then(m => ({ default: m.SettingsModal })));
 const MapModal      = lazy(() => import('./components/MapModal').then(m => ({ default: m.MapModal })));
-import { MONTHS_DATA } from './constants';
+import { monthInfo } from './utils/worldCalendar';
 import { useGameStore, saveDataMapper } from './hooks/useGameStore';
 import { useCommandParser } from './hooks/useCommandParser';
 import { useAuth } from './hooks/useAuth';
@@ -584,7 +584,7 @@ ${newPool.map((s, i) => `${i + 1}. ${s}`).join('\n')}`;
     return '夜晚';
   };
   const timeOfDay = getTimeOfDay(timeState.hour);
-  const currentMonthData = MONTHS_DATA.find(m => m.id === timeState.month) || MONTHS_DATA[0];
+  const currentMonthData = monthInfo(timeState.month);
   // 消耗品徽章數量：原本判斷與顯示各算一次 reduce
   const totalItemCount = items.reduce((acc, item) => acc + item.quantity, 0);
   // 背景光暈的色調：隨遊戲時間變化。

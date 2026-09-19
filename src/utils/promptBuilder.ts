@@ -4,6 +4,7 @@ import {
   StatusEffect, Faction,
 } from '../types'
 import { getTotalDaysFromTimeState, getQuestRemainingDays } from './timeUtils'
+import { monthPromptLine } from './worldCalendar'
 import { selectKnownItemNames, describeItem } from './itemCatalog'
 import { relationText } from './affectionLabel'
 import { resolveNpcProfile, npcIdentityBrief, selectKnownNpcNames, isSameNpcName, findNpcLore } from './npcProfile'
@@ -490,6 +491,10 @@ Personality: ${profile.personality}${profile.other ? `\nOther: ${profile.other}`
     section('[Current State]', [
       `Location: ${loc}`,
       `Time: ${timeState.year}年${timeState.month}月${timeState.day}日 ${String(timeState.hour).padStart(2,'0')}:${String(timeState.minute).padStart(2,'0')} | Weather: ${timeState.weather}`,
+      // ⚠️ 月份雅稱與節慶先前只流向 UI，從沒進過 prompt——玩家在右欄看得到
+      // 「四月・雙月之月：霧光許願夜與星織之夜」，AI 只拿到一個數字，
+      // 於是它筆下的四月與十月毫無差別。見 utils/worldCalendar.ts
+      monthPromptLine(timeState.month),
       `HP: ${profile.hp} | MP: ${profile.mp} | Gold: ${profile.gold}`,
       statusEffects.length > 0
         ? `Status Effects: ${statusEffects.map(s => { const dur = s.duration === -1 ? '永久' : `${s.duration} 回合`; return `${s.emoji} ${s.name}（${dur}）`; }).join('、')}`
