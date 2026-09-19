@@ -27,6 +27,7 @@ const deps = (memories: MemoryEntry[], isMemoryTriggered: BuildPromptDeps['isMem
   items: [],
   itemCatalog: {},
   quests: [],
+  currentGoals: [],
   timeState: { year: 1024, month: 4, day: 15, hour: 12, minute: 0, weather: '晴朗' },
   currentLocation: '月湖鎮',
   summaryPool: [],
@@ -1486,5 +1487,61 @@ describe('buildPrompt — 世界節日要進得了 prompt', () => {
     const p = promptFor(4);
     const april = MONTHS_DATA.find(m => m.id === 4)!;
     expect(p.indexOf('[Current State]')).toBeLessThan(p.indexOf(april.desc));
+  });
+});
+
+/**
+ * 玩家回報的鏈路盤點結果之一：當前目標從來沒進過 prompt。
+ *
+ * 寫它的是 `updateAdventureState`（助理 GM 每 3 回合整理一次）、看它的是
+ * GoalsPanel、存它的是 `buildSaveSnapshot`——唯獨主 GM 從來沒拿到過。
+ * 玩家把目標改成「先不要接委託，我要去找伊凡」，GM 完全不知情，
+ * 下一回合照樣推委託；玩家手改目標等於對著空氣講話。
+ */
+describe('buildPrompt — 當前目標要進得了 prompt', () => {
+  const withGoals = (currentGoals: string[]) =>
+    buildPrompt({ ...deps([], () => false), currentGoals }, '測試輸入', messages).prompt;
+
+  it('逐條注入玩家當前追求的方向', () => {
+    const p = withGoals(['先不要接委託，我要去找伊凡', '湊齊三種草藥']);
+    expect(p).toContain('先不要接委託，我要去找伊凡');
+    expect(p).toContain('湊齊三種草藥');
+  });
+
+  it('標題寫明可能由玩家手動改寫——GM 才知道這不見得是自己寫的', () => {
+    expect(withGoals(['隨便一個目標'])).toContain('當前目標');
+    expect(withGoals(['隨便一個目標'])).toContain('玩家手動改寫');
+  });
+
+  // 空區塊整段省略，不補「（無）」佔位（CLAUDE.md 注意事項 19）
+  it('沒有目標時整段不出現', () => {
+    expect(withGoals([])).not.toContain('當前目標');
+  });
+
+  /**
+   * 排在任務之前：任務是接下的委託，目標是玩家自己在追的方向——
+   * 後者可能與任何委託無關，先讀到它才不會被委託清單帶走。
+   */
+  it('排在 [進行中任務] 之前', () => {
+    const p = buildPrompt(
+      {
+        ...deps([], () => false),
+        currentGoals: ['去找伊凡'],
+        quests: [{
+          id: 'q1', shortId: 'k3p', title: '護送商隊', giver: '商會會長',
+          description: '', reward: {}, status: 'active' as const,
+          isGoalMet: false, createdAt: '4/1', createdAtTotalDays: 0,
+        }],
+      },
+      '測試輸入',
+      messages,
+    ).prompt;
+    expect(p.indexOf('當前目標')).toBeLessThan(p.indexOf('[進行中任務]'));
+  });
+
+  // 目標逐回合會變，放進靜態前綴會讓 context caching 失效
+  it('排在 [Current State] 之後，不在靜態前綴', () => {
+    const p = withGoals(['去找伊凡']);
+    expect(p.indexOf('[Current State]')).toBeLessThan(p.indexOf('當前目標'));
   });
 });
