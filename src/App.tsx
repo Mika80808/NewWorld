@@ -1671,7 +1671,7 @@ ${poolText}
   const buildPromptWrapper = (userInput: string, currentMessages: Message[], locationOverride?: string, isPriority?: boolean): BuildPromptResult => {
     const deps: BuildPromptDeps = {
       profile, systemPrompt, npcs, appearingNpcs, lorebookEntries,
-      memories, equipment, items, itemCatalog, quests, timeState, currentLocation,
+      memories, equipment, items, itemCatalog, quests, currentGoals, timeState, currentLocation,
       summaryPool, diaryEntries, statusEffects, factions, loreHints, scanKeywords, isMemoryTriggered,
     };
     return buildPrompt(deps, userInput, currentMessages, locationOverride, isPriority);

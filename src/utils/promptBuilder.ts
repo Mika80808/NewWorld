@@ -25,6 +25,15 @@ export interface BuildPromptDeps {
   items: ItemEntry[]
   itemCatalog: ItemCatalog
   quests: Quest[]
+  /**
+   * 助理 GM 每 3 回合整理出的「當前目標」，玩家也可以在便條紙上手動改寫。
+   *
+   * ⚠️ 先前這份資料**只流向 UI**：寫它的是 `updateAdventureState`、看它的是
+   * GoalsPanel、存它的是 `buildSaveSnapshot`，唯獨主 GM 從來沒拿到過。
+   * 玩家把目標改成「先不要接委託，我要去找伊凡」，GM 完全不知情，
+   * 下一回合照樣推委託——玩家手改目標等於對著空氣講話。
+   */
+  currentGoals: string[]
   timeState: TimeState
   currentLocation: string
   /**
@@ -80,7 +89,7 @@ export function buildPrompt(
 ): BuildPromptResult {
   const {
     profile, systemPrompt, npcs, appearingNpcs, lorebookEntries,
-    memories, equipment, items, itemCatalog, quests, timeState, diaryEntries,
+    memories, equipment, items, itemCatalog, quests, currentGoals, timeState, diaryEntries,
     statusEffects, factions, summaryPool, loreHints,
     scanKeywords, isMemoryTriggered,
   } = deps
@@ -529,6 +538,11 @@ Personality: ${profile.personality}${profile.other ? `\nOther: ${profile.other}`
         .filter(e => e.category === '地點' && e.isActive && e.mapX != null && e.mapY != null)
         .map(e => `${e.title}(${e.mapX},${e.mapY})`)
         .join('、')),
+
+    // 目標排在任務之前：任務是接下的委託，目標是玩家自己在追的方向——
+    // 後者可能與任何委託無關（「先去找伊凡」），先讀到它才不會被委託清單帶走
+    section('[當前目標（玩家正在追求的方向，可能由玩家手動改寫）]',
+      currentGoals.map(g => `- ${g}`).join('\n')),
 
     section('[進行中任務]', (() => {
       const active = quests.filter(q => q.status === 'active')
