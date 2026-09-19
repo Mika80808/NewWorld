@@ -18,7 +18,7 @@ LLM 擔任 GM 的開放式世界文字冒險 RPG，玩家以自由文字輸入�
 - **框架**：React 19 + TypeScript + Vite（`noImplicitAny` 啟用）
 - **測試 / Lint**：`npm test`（vitest，純函數層測試）、`npm run lint`（tsc + eslint，含 react-hooks 規則）——改完功能請跑這兩個
 - **樣式**：Tailwind CSS v4（`@tailwindcss/vite` plugin）
-- **AI**：Google Gemini（`@google/genai`），透過 `callAI` 封裝層呼叫（實作在 `src/hooks/useAIRequest.ts`），不直接散落在各處
+- **AI**：多供應商（Google Gemini／OpenAI 相容／Anthropic），透過 `callAI` 封裝層呼叫（實作在 `src/hooks/useAIRequest.ts`），不直接散落在各處；供應商差異全部收在 `src/utils/aiProviders.ts` 的純函數層
 - **儲存**：Supabase 雲端存檔（Google 登入，強制登入才能遊玩）；API 設定另存 localStorage
 - **主要邏輯檔案**：`src/App.tsx`（state 組裝、handlers、主介面 JSX）
 - **自訂 Hooks**：`src/hooks/useGameStore.ts`（state + 存檔快照/遷移）、`src/hooks/useCommandParser.ts`（指令整合層）、`src/hooks/useAIRequest.ts`（callAI：timeout/abort/retry）、`src/hooks/useAuth.ts`（Supabase 登入與雲端存檔 CRUD）
@@ -32,7 +32,8 @@ LLM 擔任 GM 的開放式世界文字冒險 RPG，玩家以自由文字輸入�
 - `App.tsx` 只保留：state 組裝、handlers、API 呼叫接線、主介面三欄 JSX
 - Prompt 組裝在 `src/utils/promptBuilder.ts`；指令解析採 parse → reduce → effects 三層（`src/utils/commandParser|commandReducer|commandEffects.ts`），`useCommandParser` 只是整合層
 - `src/components/` 純 UI 組件，不持有業務 state
-- **所有 AI 呼叫統一走 `callAI` 函數**（`useAIRequest`），不直接 `new GoogleGenAI(...)` 散落在各地
+- **所有 AI 呼叫統一走 `callAI` 函數**（`useAIRequest`），不直接 `new GoogleGenAI(...)` 或 `fetch` 各家端點散落在各地
+- **新增 AI 供應商＝在 `src/utils/aiProviders.ts` 多一個分支**，不動 `useAIRequest`（它只管 timeout／abort／retry）
 - State 更新一律用 functional update：`setState(prev => ...)`；updater 內不得呼叫其他 setState（updater 必須是純函數）
 - async 函數在 `await` 之後不要讀取閉包捕獲的 state，改讀最新值 ref（見 `App.tsx` 的 `itemsRef` / `summaryPoolRef` / `compressCountRef`）
 
@@ -241,6 +242,39 @@ localStorage key: 'mainGM_config'   → 主 GM 設定
 localStorage key: 'subGM_config'    → 助理 GM 設定
 ```
 
+讀取一律走 `src/utils/gmConfig.ts` 的 `loadMainGMConfig` / `loadSubGMConfig`（`App.tsx` 的
+`useState` 初始化器只呼叫它們）。這兩支是純函數、吃一個 `ConfigStore` 介面，所以測得到——
+先前整段寫在初始化器裡，藏了一個「把 `gemini-2.0-flash` 靜默改寫成 `2.5-flash`」的 bug
+很久沒人發現：那是下拉選單上的正式選項，玩家選了、存了、重整後被改掉，且毫無提示。
+
+⚠️ **不要再在讀取路徑上加「把某個型號改寫成另一個型號」的遷移**。寫在每次讀取都會跑的
+地方就不再是一次性的，它分不出「舊預設殘留」與「玩家真的選了這個」。要淘汰某個型號，
+從捷徑清單拿掉讓它選不到即可。
+
+### 多供應商（`src/utils/aiProviders.ts`）
+
+| 供應商 | 協定 | 端點 |
+|---|---|---|
+| `gemini` | 官方 SDK（`@google/genai`） | 無（SDK 自己處理） |
+| `openai` | OpenAI 相容 `chat/completions` | 可改，預設 OpenAI；OpenRouter／DeepSeek／本機 Ollama / LM Studio 都走這條 |
+| `anthropic` | 原生 `/v1/messages` | 可改，預設 `api.anthropic.com` |
+
+- `PROVIDERS` 是唯一準據：標籤、預設型號、預設端點、取 Key 的網址、型號捷徑清單
+- 型號清單與端點清單都只是**捷徑**，UI 一律留自由輸入（各家改版比部署快）
+- `switchProvider(cfg, id)` 是換供應商的唯一入口——它會把型號與端點一起換掉。
+  只改 `provider` 會留著上一家的 model id，送出才報一個看不懂的 400
+- `requiresApiKey()`：本機端點（localhost／127.0.0.1）沒有金鑰概念。
+  `callAI` 原本的 `if (!key.trim()) return ''` 會讓本機模型完全不發請求且毫無錯誤訊息
+- **共用金鑰只在兩邊同一家時成立**（`useAIRequest` 與設定 UI 兩邊都擋）。
+  拿 Gemini 的 key 去打 OpenAI 只會 401，而勾選框看起來一切正常
+- 瀏覽器直連 Anthropic 必須帶 `anthropic-dangerous-direct-browser-access: true`（這個遊戲沒有後端）
+- HTTP 錯誤訊息刻意做成 `HTTP 429 ...` 的形式：`isRetryable` 以 `\b(429|500|503)\b` 比對，
+  寫成 `HTTP_429` 的話 `_` 兩側都是詞字元、沒有邊界，重試會整個失效
+- `response_format: json_object` 被端點以 400 拒絕時自動拿掉重試一次
+  （本機模型常不支援；prompt 本身已經要求輸出 JSON，直接報錯則是整個助理 GM 停擺）
+- SSE 解析必須保留未完成的尾段（`splitSSEEvents` 回傳 `rest`）。
+  分塊邊界會切在半行 JSON 上，直接 split 會把它當完整事件丟掉，那段文字就靜默消失
+
 **callAI 簽名（`src/hooks/useAIRequest.ts`）：**
 ```typescript
 callAI(prompt: string, options?: {
@@ -255,25 +289,13 @@ callAI(prompt: string, options?: {
 // updateAdventureState 傳 { responseJson: true }（預設 sub）
 // 內建 timeout（main 90s / sub 30s）、retry（timeout/429/500/503，指數退避）、abort
 // timeout 觸發時會讓背景串流停止，不再消耗配額
+// ⚠️ 型號留空時退回「該供應商的預設型號」（meta.defaultModel），不是寫死的 Gemini 型號；UI 端有明講
 ```
 
-**Gemini 模型清單（`SettingsModal.tsx`）**——清單是常用捷徑，下拉最後一項「自訂型號⋯」可自由輸入任何 model id。
+**型號清單是常用捷徑**——每個供應商的下拉最後一項「自訂型號⋯」可自由輸入任何 model id。
 「是否自訂」由「值不在清單上」推導，**不另外存旗標**（存了會跟 `model` 兩份資料互相漂移）。
-⚠️ 型號留空時 `callAI` 會靜默退回 `gemini-2.0-flash`（`cfg.model || ...`），UI 端有明講：
-
-```typescript
-const GEMINI_MODELS = [
-  { value: 'gemini-3.1-pro-preview',    label: 'Gemini 3.1 Pro Preview（最強推理）' },
-  { value: 'gemini-3-flash-preview',    label: 'Gemini 3 Flash Preview（快速／均衡）' },
-  { value: 'gemini-3.1-flash-lite-preview', label: 'Gemini 3.1 Flash Lite Preview（最省費）' },
-  { value: 'gemini-2.5-pro',            label: 'Gemini 2.5 Pro（穩定最強）' },
-  { value: 'gemini-2.5-flash',          label: 'Gemini 2.5 Flash（穩定快速）' },
-  { value: 'gemini-2.5-flash-lite',     label: 'Gemini 2.5 Flash Lite（穩定輕量）' },
-  { value: 'gemini-2.0-flash',          label: 'Gemini 2.0 Flash（舊版快速）' },
-  { value: 'gemini-2.0-flash-lite',     label: 'Gemini 2.0 Flash Lite（舊版輕量）' },
-  { value: 'gemma-4-31b-it',            label: 'Gemma 4 31B（開源模型）' },
-]
-```
+端點同理（「自訂端點⋯」）。完整清單以 `aiProviders.ts` 的 `PROVIDERS` 為準，
+不要複製到這裡——過去複製清單的表格一律長期不同步。
 
 ---
 
@@ -613,7 +635,9 @@ FACTION_NEW|name=黑牙氏族|type=criminal|desc=盤據東境的盜賊團
 | 邏輯集中：App.tsx 組裝 + utils 純函數層 | 業務邏輯可測試，App.tsx 只做接線 |
 | Supabase 雲端存檔（強制登入） | 跨裝置同步；`saveDataMapper` + schema migration 統一入口 |
 | API Key 不進存檔 | 安全性考量 |
-| callAI 封裝層 | 未來換 API 服務只需改一處 |
+| callAI 封裝層 | 換 API 服務只需改一處 |
+| 多供應商抽象成純函數層（`aiProviders.ts`） | 玩家嫌某家的文風／價格／可用性時能自己換，不必改程式重新部署。差異收在純函數裡＝測得到，`useAIRequest` 只剩流程控制 |
+| 供應商差異用「OpenAI 相容」一類涵蓋 | OpenAI／OpenRouter／DeepSeek／本機 Ollama 協定相同只差端點，做成三家會是三份一模一樣的程式碼 |
 | 記憶四層架構 | world / region / scene / npc，依影響範圍分層注入 |
 | `summaryPool` 注入為 `[前情提要]` | 助理 GM 的中期記憶原本只流向日記、從不回主 GM，「最近 20 則」與「日記」之間整段對 AI 不存在 |
 | prompt 靜態層排最前 | Gemini context caching 是前綴匹配；COMMAND FORMAT（約 2.7k 字）原本排在 Recent Chat 之後，永遠不可能命中 |
@@ -784,6 +808,8 @@ FACTION_NEW|name=黑牙氏族|type=criminal|desc=盤據東境的盜賊團
 | `utils/worldCalendar.ts` `monthInfo / monthPromptLine` | 世界曆月份（雅稱＋該月節慶）的唯一查詢入口；`monthPromptLine` 是注入 `[Current State]` 的那一行 |
 | `utils/weather.ts` `normalizeWeather / WEATHER_VALUES` | 天氣詞彙的唯一準據（五種），同義詞收斂；狀態列圖示與天空梯度共用 |
 | `utils/itemCatalog.ts` `selectConsumedItems(pending, sentText)` | 送出時決定扣哪些待用道具（名字還在文字裡才扣） |
+| `utils/aiProviders.ts` `PROVIDERS / providerMeta / buildChatRequest / extractText / extractStreamDelta` | AI 供應商的唯一準據：清單、請求組裝、回應與 SSE 解析（純函數，`useAIRequest` 只管流程） |
+| `utils/gmConfig.ts` `loadMainGMConfig / loadSubGMConfig / switchProvider` | GM API 設定的讀取（含舊 key 一次性搬遷）與換供應商入口 |
 | `utils/affectionColor.ts` `affectionColor(affection)` | 回傳好感度對應 CSS 變數字串（唯一入口） |
 | `utils/affectionLabel.ts` `affectionLabel / relationText` | 好感度語意標籤（衍生值，不存檔）；`relationText` 為顯示與 prompt 注入的共用入口 |
 | `utils/itemCatalog.ts` `registerItemDef / touchItemDef / pruneItemCatalog / selectKnownItemNames` | 道具圖鑑：先寫先贏登錄、更新使用時間、LOD 淘汰、prompt 名稱切片 |
