@@ -329,6 +329,43 @@ body {
   .msg-menu-item { min-height: 44px; }
 }
 
+/* ── 逐列的操作按鈕（★／編輯／刪除）────────────────────────
+ * 與上面 `.msg-actions` 同一個坑，只是套用在「一列一列的清單」上：
+ * NPC 記憶列與場景記憶列的三顆小按鈕原本寫 Tailwind 的
+ * `opacity-0 group-hover:opacity-100`。
+ *
+ * ⚠️ Tailwind v4 把 `group-hover:` 編譯進 `@media (hover: hover)`
+ * （建置產物確認過：`@media(hover:hover){.group-hover\:opacity-100:is(:where(.group):hover *)`），
+ * 觸控裝置（hover: none）那條規則永遠不生效，按鈕固定停在 `opacity: 0`——
+ * 還點得到，但玩家完全看不見，等於編輯與刪除整組消失。
+ *
+ * 判斷依據是 hover 能力而非螢幕寬度：觸控筆電與平板在寬螢幕下一樣需要常駐顯示。
+ *
+ * 用法是一對：列上掛 `hover-actions-host`，按鈕掛 `hover-action`。
+ * 刻意不依賴 Tailwind 的 `group`——`group/mem` 這種具名群組產出的 class
+ * 是 `group/mem` 而不是 `group`，`.group:hover` 比不中。
+ */
+.hover-action { opacity: 1; transition: opacity 0.15s ease; }
+
+@media (hover: hover) {
+  /* 有滑鼠才藏起來，靠 hover 顯露；focus-within 讓鍵盤操作也看得見 */
+  .hover-action { opacity: 0; }
+  .hover-actions-host:hover .hover-action,
+  .hover-actions-host:focus-within .hover-action { opacity: 1; }
+}
+
+@media (hover: none) {
+  /* 觸控的點擊區：原本 p-0.5 配 w-3 的圖示只有約 16px，遠低於可靠門檻。
+   * 固定 px 的理由同 .msg-action-btn——點擊區大小由手指決定，不跟著根字級浮動。 */
+  .hover-action {
+    min-width: 36px;
+    min-height: 36px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+}
+
 /* ── 動畫 ───────────────────────────────────────────────── */
 @keyframes blink-dot {
   0%, 80%, 100% { opacity: 0.2; transform: translateY(0); }

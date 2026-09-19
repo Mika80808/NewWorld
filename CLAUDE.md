@@ -744,6 +744,16 @@ FACTION_NEW|name=黑牙氏族|type=criminal|desc=盤據東境的盜賊團
 
 29. **注入 prompt 的關鍵字掃描必須含玩家本回合的輸入**。`scanKeywords`（`useCommandParser` 注入）只掃 `messages` state，而那份停在送出**之前**。設定集走 `lorebookScanText`、記憶走 `isMemoryTriggered` 的 scanText，兩者都算進 userInput；日記先前漏了，於是玩家問「王城後來怎麼了」時，關鍵字設「王城」的日記要等下一回合才注入——而答案這回合就已經給出去了
 
+30. **「滑過才出現」的操作按鈕不要用 `opacity-0 group-hover:opacity-100`**。Tailwind v4 把
+    `group-hover:` 編譯進 `@media (hover: hover)`（建置產物可驗：
+    `@media(hover:hover){.group-hover\:opacity-100:is(:where(.group):hover *)`），
+    觸控裝置那條規則永遠不生效，按鈕固定停在全透明——還點得到，但玩家完全看不見。
+    這個坑已經咬過兩次：先是對話泡泡的操作列，後是角色記憶的編輯 icon。
+    一律改用 `index.css` 的 `.hover-actions-host` / `.hover-action` 這一對
+    （基準可見，只在 `hover: hover` 時才藏；觸控另給 36px 點擊區），
+    `hoverActionReveal.test.ts` 會掃 `src/**/*.tsx` 擋回歸。
+    ⚠️ 判斷依據是 hover 能力不是螢幕寬度——觸控筆電與平板在寬螢幕下一樣需要常駐顯示。
+
 ---
 
 ## 關鍵函數索引

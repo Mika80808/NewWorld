@@ -897,7 +897,7 @@ const MemoryCard: React.FC<MemoryCardProps> = ({
 
   return (
     <div
-      className="group rounded-[8px] px-3 py-2.5 transition border"
+      className="group hover-actions-host rounded-[8px] px-3 py-2.5 transition border"
       style={{
         background: isCore
           ? 'color-mix(in srgb, var(--color-amber) 8%, transparent)'
@@ -935,7 +935,7 @@ const MemoryCard: React.FC<MemoryCardProps> = ({
             <>
               <button
                 onClick={() => onToggleImportance(mem)}
-                className="opacity-0 group-hover:opacity-100 transition p-0.5 rounded-[8px]"
+                className="hover-action transition p-0.5 rounded-[8px]"
                 style={{ color: isCore ? 'var(--color-amber)' : 'var(--text-muted)' }}
                 title={isCore ? '降為一般記憶' : '設為核心記憶（永遠注入）'}
                 onMouseEnter={e => { e.currentTarget.style.color = 'var(--color-amber)'; }}
@@ -945,7 +945,7 @@ const MemoryCard: React.FC<MemoryCardProps> = ({
               </button>
               <button
                 onClick={() => onStartEdit(mem)}
-                className="opacity-0 group-hover:opacity-100 transition p-0.5 rounded-[8px]"
+                className="hover-action transition p-0.5 rounded-[8px]"
                 style={{ color: 'var(--text-muted)' }}
                 title="編輯記憶"
                 onMouseEnter={e => { e.currentTarget.style.color = 'var(--text-body)'; }}
@@ -955,7 +955,7 @@ const MemoryCard: React.FC<MemoryCardProps> = ({
               </button>
               <button
                 onClick={() => onRemove(mem.id)}
-                className="opacity-0 group-hover:opacity-100 transition p-0.5 rounded-[8px]"
+                className="hover-action transition p-0.5 rounded-[8px]"
                 style={{ color: 'var(--text-muted)' }}
                 title="刪除記憶"
                 onMouseEnter={e => { e.currentTarget.style.color = 'var(--color-rose)'; }}
