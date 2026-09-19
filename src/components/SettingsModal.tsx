@@ -2,30 +2,20 @@ import React, { useState, useRef } from 'react';
 import { Settings, Download, Upload, RotateCcw, Eye, EyeOff } from 'lucide-react';
 import { User } from '@supabase/supabase-js';
 import { GMConfig, SubGMConfig } from '../types';
+import { PROVIDERS, ProviderModel, modelsForEndpoint, normalizeBaseUrl, providerMeta } from '../utils/aiProviders';
+import { switchProvider } from '../utils/gmConfig';
 import { ThemeId, THEMES } from '../utils/theme';
 
-const GEMINI_MODELS = [
-  { value: 'gemini-3.1-pro-preview',    label: 'Gemini 3.1 Pro Preview（最強推理）' },
-  { value: 'gemini-3-flash-preview',    label: 'Gemini 3 Flash Preview（快速／均衡）' },
-  { value: 'gemini-3.1-flash-lite-preview', label: 'Gemini 3.1 Flash Lite Preview（最省費）' },
-  { value: 'gemini-2.5-pro',            label: 'Gemini 2.5 Pro（穩定最強）' },
-  { value: 'gemini-2.5-flash',          label: 'Gemini 2.5 Flash（穩定快速）' },
-  { value: 'gemini-2.5-flash-lite',     label: 'Gemini 2.5 Flash Lite（穩定輕量）' },
-  { value: 'gemini-2.0-flash',          label: 'Gemini 2.0 Flash（舊版快速）' },
-  { value: 'gemini-2.0-flash-lite',     label: 'Gemini 2.0 Flash Lite（舊版輕量）' },
-  { value: 'gemma-4-31b-it',            label: 'Gemma 4 31B（開源模型）' },
-];
-
-/** 下拉選單裡代表「自訂型號」的哨兵值。不會寫進設定，只用來當 select 的 value */
 const CUSTOM_MODEL = '__custom__';
+const CUSTOM_ENDPOINT = '__custom__';
 
-const isKnownModel = (model: string) => GEMINI_MODELS.some(m => m.value === model);
+const isKnownModel = (models: ProviderModel[], model: string) => models.some(m => m.value === model);
 
 /**
  * 模型選擇：下拉清單 ＋ 自訂型號輸入框。
  *
- * 清單是寫死的，Google 一出新型號就得改程式重新部署，玩家只能乾等。
- * 加一個自由輸入的入口之後，清單只是常用捷徑，任何 model id 都能直接用。
+ * 清單依供應商切換，但永遠只是常用捷徑——各家一出新型號就得改程式重新部署，
+ * 玩家只能乾等。留一個自由輸入的入口之後，任何 model id 都能直接用。
  *
  * ⚠️ 「是否處於自訂模式」**不另外存進設定**——由「目前的值不在清單上」推導。
  * 存成旗標的話它會跟著 model 一起進 localStorage，兩份資料之後必然漂移
@@ -35,16 +25,19 @@ const isKnownModel = (model: string) => GEMINI_MODELS.some(m => m.value === mode
 const ModelPicker: React.FC<{
   label: string;
   value: string;
+  models: ProviderModel[];
+  fallbackModel: string;
   onChange: (model: string) => void;
   inputStyle: React.CSSProperties;
-}> = ({ label, value, onChange, inputStyle }) => {
-  const [customMode, setCustomMode] = useState(() => !isKnownModel(value));
-  const showCustom = customMode || !isKnownModel(value);
+}> = ({ label, value, models, fallbackModel, onChange, inputStyle }) => {
+  const [customMode, setCustomMode] = useState(() => !isKnownModel(models, value));
+  const showCustom = customMode || !isKnownModel(models, value);
 
   return (
     <div>
       <label className="text-xs mb-1 block" style={{ color: 'var(--text-body)' }}>{label}</label>
       <select
+        aria-label={label}
         value={showCustom ? CUSTOM_MODEL : value}
         onChange={e => {
           if (e.target.value === CUSTOM_MODEL) {
@@ -59,7 +52,7 @@ const ModelPicker: React.FC<{
         className="w-full border rounded-[8px] px-3 py-2 text-sm outline-none transition"
         style={inputStyle}
       >
-        {GEMINI_MODELS.map(m => (
+        {models.map(m => (
           <option key={m.value} value={m.value}>{m.label}</option>
         ))}
         <option value={CUSTOM_MODEL}>自訂型號⋯</option>
@@ -71,26 +64,113 @@ const ModelPicker: React.FC<{
             type="text"
             value={value}
             onChange={e => onChange(e.target.value.trim())}
-            placeholder="例如 gemini-2.5-flash"
+            placeholder={`例如 ${fallbackModel}`}
             aria-label={`${label} 自訂型號`}
             spellCheck={false}
             autoComplete="off"
             className="w-full border rounded-[8px] px-3 py-2 text-sm outline-none transition mt-2 font-mono"
             style={inputStyle}
           />
-          {/* 空字串在 callAI 會靜默退回 gemini-2.0-flash（`cfg.model || 'gemini-2.0-flash'`），
+          {/* 空字串在 callAI 會靜默退回該供應商的預設型號，
               玩家會以為自己在用某個型號、實際上跑的是另一個，所以明講 */}
           {!value && (
             <p className="text-[11px] mt-1" style={{ color: 'var(--color-amber)' }}>
-              留空會退回 gemini-2.0-flash
+              留空會退回 {fallbackModel}
             </p>
           )}
           <p className="text-[11px] mt-1" style={{ color: 'var(--text-muted)' }}>
-            直接送給 Google SDK 的 model id，打錯要等到送出訊息時才會報錯。
+            直接送給 API 的 model id，打錯要等到送出訊息時才會報錯。
           </p>
         </>
       )}
     </div>
+  );
+};
+
+/**
+ * 供應商與端點選擇。
+ *
+ * OpenAI 相容那一類（OpenAI／OpenRouter／DeepSeek／本機模型）協定相同、只差端點，
+ * 所以端點做成「常用預設 ＋ 自由輸入」，與型號同一套想法。
+ *
+ * ⚠️ 換供應商一律走 `switchProvider`，它會把型號與端點一起換掉。只改 provider
+ * 會留下上一家的 model id，送出才會拿到一個看不懂的 400。
+ */
+const ProviderPicker: React.FC<{
+  value: GMConfig;
+  onChange: (next: Partial<GMConfig>) => void;
+  onSwitchProvider: (provider: string) => void;
+  inputStyle: React.CSSProperties;
+}> = ({ value, onChange, onSwitchProvider, inputStyle }) => {
+  const meta = providerMeta(value.provider);
+  const baseUrl = value.baseUrl ?? '';
+  const matchedPreset = meta.presets.find(p => normalizeBaseUrl(p.baseUrl) === normalizeBaseUrl(baseUrl));
+  const [customEndpoint, setCustomEndpoint] = useState(() => !matchedPreset);
+  const showCustomEndpoint = customEndpoint || !matchedPreset;
+
+  return (
+    <>
+      <div>
+        <label className="text-xs mb-1 block" style={{ color: 'var(--text-body)' }}>供應商</label>
+        <select
+          aria-label="供應商"
+          value={meta.id}
+          onChange={e => { setCustomEndpoint(false); onSwitchProvider(e.target.value); }}
+          className="w-full border rounded-[8px] px-3 py-2 text-sm outline-none transition"
+          style={inputStyle}
+        >
+          {PROVIDERS.map(p => (
+            <option key={p.id} value={p.id}>{p.label}</option>
+          ))}
+        </select>
+        <p className="text-[11px] mt-1" style={{ color: 'var(--text-muted)' }}>{meta.hint}</p>
+      </div>
+
+      {meta.editableBaseUrl && (
+        <div>
+          <label className="text-xs mb-1 block" style={{ color: 'var(--text-body)' }}>端點</label>
+          <select
+            aria-label="端點"
+            value={showCustomEndpoint ? CUSTOM_ENDPOINT : normalizeBaseUrl(baseUrl)}
+            onChange={e => {
+              if (e.target.value === CUSTOM_ENDPOINT) {
+                setCustomEndpoint(true);
+                return;
+              }
+              setCustomEndpoint(false);
+              const preset = meta.presets.find(p => normalizeBaseUrl(p.baseUrl) === e.target.value);
+              // 換端點＝換服務，型號多半也不同，一併帶上該服務的第一個常用型號
+              onChange({ baseUrl: e.target.value, ...(preset?.models[0] ? { model: preset.models[0].value } : {}) });
+            }}
+            className="w-full border rounded-[8px] px-3 py-2 text-sm outline-none transition"
+            style={inputStyle}
+          >
+            {meta.presets.map(p => (
+              <option key={p.baseUrl} value={normalizeBaseUrl(p.baseUrl)}>{p.label}</option>
+            ))}
+            <option value={CUSTOM_ENDPOINT}>自訂端點⋯</option>
+          </select>
+          {showCustomEndpoint && (
+            <>
+              <input
+                type="text"
+                value={baseUrl}
+                onChange={e => onChange({ baseUrl: e.target.value.trim() })}
+                placeholder={meta.defaultBaseUrl}
+                aria-label="自訂端點"
+                spellCheck={false}
+                autoComplete="off"
+                className="w-full border rounded-[8px] px-3 py-2 text-sm outline-none transition mt-2 font-mono"
+                style={inputStyle}
+              />
+              <p className="text-[11px] mt-1" style={{ color: 'var(--text-muted)' }}>
+                填到 <span className="font-mono">/v1</span> 為止即可，系統會自己接上路徑。
+              </p>
+            </>
+          )}
+        </div>
+      )}
+    </>
   );
 };
 
@@ -129,6 +209,12 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
   const [draftMain, setDraftMain] = useState<GMConfig>(mainGMConfig);
   const [draftSub, setDraftSub] = useState<SubGMConfig>(subGMConfig);
+
+  const mainMeta = providerMeta(draftMain.provider);
+  const subMeta = providerMeta(draftSub.provider);
+  // 兩邊不同家時共用金鑰沒有意義（拿 Gemini 的 key 去打 OpenAI 只會 401），
+  // callAI 那側也擋掉了，這裡把勾選框一起關起來免得玩家以為有生效
+  const canShareKey = draftMain.provider === draftSub.provider;
 
   if (!isOpen) return null;
 
@@ -273,6 +359,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           <div className="rounded-[8px] p-4 space-y-3" style={sectionStyle}>
             <p className="text-xs font-bold uppercase tracking-wider" style={{ color: 'var(--text-title)' }}>主 GM</p>
 
+            <ProviderPicker
+              value={draftMain}
+              onChange={patch => setDraftMain(p => ({ ...p, ...patch }))}
+              onSwitchProvider={provider => setDraftMain(p => switchProvider(p, provider))}
+              inputStyle={inputStyle}
+            />
+
             <div>
               <label className="text-xs mb-1 block" style={{ color: 'var(--text-body)' }}>API Key</label>
               <div className="relative">
@@ -280,7 +373,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   type={showMainKey ? 'text' : 'password'}
                   value={draftMain.apiKey}
                   onChange={e => setDraftMain(p => ({ ...p, apiKey: e.target.value }))}
-                  placeholder="貼上 Gemini API Key..."
+                  placeholder={mainMeta.keyPlaceholder}
                   className="w-full border rounded-[8px] px-3 py-2 text-sm outline-none transition pr-10 "
                   style={inputStyle}
                 />
@@ -302,6 +395,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             <ModelPicker
               label="模型"
               value={draftMain.model}
+              models={modelsForEndpoint(draftMain.provider, draftMain.baseUrl ?? '')}
+              fallbackModel={mainMeta.defaultModel}
               onChange={model => setDraftMain(p => ({ ...p, model }))}
               inputStyle={inputStyle}
             />
@@ -325,17 +420,33 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           <div className="rounded-[8px] p-4 space-y-3" style={sectionStyle}>
             <p className="text-xs font-bold uppercase tracking-wider" style={{ color: 'var(--text-title)' }}>助理 GM</p>
 
-            <label className="flex items-center gap-2 text-sm cursor-pointer select-none" style={{ color: 'var(--text-body)' }}>
+            <ProviderPicker
+              value={draftSub}
+              onChange={patch => setDraftSub(p => ({ ...p, ...patch }))}
+              onSwitchProvider={provider => setDraftSub(p => switchProvider(p, provider))}
+              inputStyle={inputStyle}
+            />
+
+            <label
+              className="flex items-center gap-2 text-sm select-none"
+              style={{ color: canShareKey ? 'var(--text-body)' : 'var(--text-muted)', cursor: canShareKey ? 'pointer' : 'not-allowed' }}
+            >
               <input
                 type="checkbox"
-                checked={draftSub.useSameKey}
+                checked={canShareKey && draftSub.useSameKey}
+                disabled={!canShareKey}
                 onChange={e => setDraftSub(p => ({ ...p, useSameKey: e.target.checked }))}
                 style={{ accentColor: 'var(--tab-active)' }}
               />
               使用與主 GM 相同的 API Key
             </label>
+            {!canShareKey && (
+              <p className="text-[11px]" style={{ color: 'var(--text-muted)' }}>
+                兩邊供應商不同，助理 GM 需要自己的 Key。
+              </p>
+            )}
 
-            {!draftSub.useSameKey && (
+            {(!draftSub.useSameKey || !canShareKey) && (
               <div>
                 <label className="text-xs mb-1 block" style={{ color: 'var(--text-body)' }}>助理 GM API Key</label>
                 <div className="relative">
@@ -363,6 +474,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             <ModelPicker
               label="模型"
               value={draftSub.model}
+              models={modelsForEndpoint(draftSub.provider, draftSub.baseUrl ?? '')}
+              fallbackModel={subMeta.defaultModel}
               onChange={model => setDraftSub(p => ({ ...p, model }))}
               inputStyle={inputStyle}
             />
@@ -386,7 +499,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           <div className="space-y-2">
             <div className="text-xs space-y-0.5" style={{ color: 'var(--text-muted)' }}>
               <p>最後儲存：{formatLastSaved(mainGMConfig.lastSaved)}</p>
-              <p>當前生效：{mainGMConfig.model || '—'}</p>
+              <p>當前生效：{providerMeta(mainGMConfig.provider).label}／{mainGMConfig.model || '—'}</p>
             </div>
             <button
               onClick={handleSave}
@@ -399,7 +512,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             </button>
             <p className="text-[11px]" style={{ color: 'var(--text-muted)' }}>
               API Key 只存在本機瀏覽器，不會上傳。取得：{' '}
-              <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer" className="hover:underline" style={{ color: 'var(--color-blue)' }}>aistudio.google.com</a>
+              <a href={mainMeta.keyUrl} target="_blank" rel="noopener noreferrer" className="hover:underline" style={{ color: 'var(--color-blue)' }}>
+                {new URL(mainMeta.keyUrl).hostname}
+              </a>
             </p>
           </div>
 

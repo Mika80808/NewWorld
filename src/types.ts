@@ -1,3 +1,5 @@
+import type { ProviderId } from './utils/aiProviders';
+
 export interface TimeState {
   year: number;
   month: number;
@@ -266,10 +268,16 @@ export interface Message {
 }
 
 export interface GMConfig {
-  provider: 'gemini';
+  /** AI 供應商，見 utils/aiProviders.ts 的 PROVIDERS */
+  provider: ProviderId;
   apiKey: string;
   model: string;
   maxTokens: number;
+  /**
+   * API 端點。OpenAI 相容那一類靠它區分 OpenAI／OpenRouter／DeepSeek／本機模型，
+   * Gemini 走官方 SDK 沒有這個概念，留空即可（callAI 會忽略）。
+   */
+  baseUrl?: string;
   lastSaved: string;
 }
 

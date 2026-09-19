@@ -47,6 +47,7 @@ import { describeItem, registerItemDef, normalizeItemName, selectConsumedItems }
 import { updateNpcFootprints, resolveOnStageNames } from './utils/npcPresence';
 import { findNpcLore } from './utils/npcProfile';
 import { nextVisibleMessageCount, isScrolledToBottom } from './utils/visibleMessages';
+import { loadMainGMConfig, loadSubGMConfig } from './utils/gmConfig';
 import { editMemoryContent, selectMergeableMemories, selectCompatibleMergeGroup, canApplyMemoryMerge, replaceMemoriesWithMerged, MIN_MERGE_CANDIDATES } from './utils/memoryStore';
 import { SaveSlotsModal } from './components/SaveSlotsModal';
 
@@ -329,41 +330,9 @@ ${newPool.map((s, i) => `${i + 1}. ${s}`).join('\n')}`;
   } = useAuth();
 
   // ─── API 設定（不屬於遊戲存檔，獨立存於 localStorage）───────────────────────
-  const [mainGMConfig, setMainGMConfig] = useState<GMConfig>(() => {
-    try {
-      // 一次性 migrate：舊 gemini_api_key → mainGM_config
-      const oldKey = localStorage.getItem('gemini_api_key');
-      if (oldKey && !localStorage.getItem('mainGM_config')) {
-        const cfg: GMConfig = {
-          provider: 'gemini', apiKey: oldKey, model: 'gemini-2.5-flash',
-          maxTokens: 2048, lastSaved: new Date().toISOString(),
-        };
-        localStorage.setItem('mainGM_config', JSON.stringify(cfg));
-        localStorage.removeItem('gemini_api_key');
-        localStorage.removeItem('gemini_max_tokens');
-        return cfg;
-      }
-      const raw = localStorage.getItem('mainGM_config');
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        if (parsed.model === 'gemini-2.0-flash') parsed.model = 'gemini-2.5-flash';
-        return { provider: 'gemini', model: 'gemini-2.5-flash', maxTokens: 2048, apiKey: '', lastSaved: '', ...parsed };
-      }
-    } catch { /* ignore */ }
-    return { provider: 'gemini', apiKey: '', model: 'gemini-2.5-flash', maxTokens: 2048, lastSaved: '' };
-  });
-
-  const [subGMConfig, setSubGMConfig] = useState<SubGMConfig>(() => {
-    try {
-      const raw = localStorage.getItem('subGM_config');
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        if (parsed.model === 'gemini-2.0-flash') parsed.model = 'gemini-2.5-flash';
-        return { provider: 'gemini', model: 'gemini-2.5-flash', maxTokens: 512, apiKey: '', useSameKey: true, lastSaved: '', ...parsed };
-      }
-    } catch { /* ignore */ }
-    return { provider: 'gemini', apiKey: '', model: 'gemini-2.5-flash', maxTokens: 512, useSameKey: true, lastSaved: '' };
-  });
+  // 讀取與舊格式搬遷都在 utils/gmConfig.ts（純函數，可測試）
+  const [mainGMConfig, setMainGMConfig] = useState<GMConfig>(() => loadMainGMConfig(localStorage));
+  const [subGMConfig, setSubGMConfig] = useState<SubGMConfig>(() => loadSubGMConfig(localStorage));
 
   // ─── AI 請求（D7：timeout / abort / retry）────────────────────────────────
   const { callAI, abort: abortAI, aiRequestStatus, setAiRequestStatus } = useAIRequest(mainGMConfig, subGMConfig);

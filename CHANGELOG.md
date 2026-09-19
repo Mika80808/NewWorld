@@ -5,6 +5,64 @@
 
 ---
 
+### 功能｜AI 供應商可切換：OpenAI 相容／Anthropic／本機模型 2026-09-19 [Claude Code]
+
+玩家回報：受不了 Gemini 的文風，要能接其他 API。
+
+整個遊戲原本寫死 Google Gemini——`callAI` 直接 `new GoogleGenAI(...)`，設定畫面的
+型號清單也只有 Gemini 型號。想換一家（文風、價格、可用性都是理由）只能改程式重新部署。
+
+**新增 `src/utils/aiProviders.ts`（純函數層）**，把「怎麼發請求、怎麼讀回應」抽出來，
+`useAIRequest` 只留 timeout／abort／retry 的流程控制。新增一家＝這裡多一個分支。
+
+| 供應商 | 協定 | 涵蓋 |
+|---|---|---|
+| `gemini` | 官方 SDK（行為完全不動） | Google |
+| `openai` | OpenAI 相容 `chat/completions` | OpenAI、OpenRouter、DeepSeek、本機 Ollama / LM Studio |
+| `anthropic` | 原生 `/v1/messages` | Claude |
+
+OpenAI 相容的幾家協定相同、只差端點，所以端點做成「常用預設 ＋ 自由輸入」，
+與型號同一套想法——做成三個獨立供應商會是三份一模一樣的程式碼。
+
+**一路踩到的地方，都用測試釘住**：
+
+- **SSE 分塊會切在半行 JSON 上**。直接對緩衝區 split 會把半行當完整事件丟給 parse，
+  那段文字就靜默消失。`splitSSEEvents` 一律回傳未完成的 `rest`
+- **`HTTP_429` 這種錯誤訊息會讓重試整個失效**。既有的 `isRetryable` 以
+  `\b(429|500|503)\b` 比對，`_` 兩側都是詞字元、沒有邊界。訊息固定寫成 `HTTP 429 ...`
+- **GPT-5／o 系列只吃 `max_completion_tokens`**，其餘相容服務只吃 `max_tokens`，依 model id 分
+- **`response_format: json_object` 不是每家都支援**（本機模型尤其常見）。
+  400 就拿掉重試一次，直接報錯是整個助理 GM 停擺。另外 OpenAI 的 json 模式要求訊息裡
+  出現 "json" 字樣，所以那段 system 指示同時滿足兩件事
+- **本機模型沒有金鑰概念**。`callAI` 原本的 `if (!key.trim()) return ''` 會讓本機端點
+  完全不發請求，而且毫無錯誤訊息——玩家只看到 AI 不回話
+- **共用金鑰只在兩邊同一家時成立**。拿 Gemini 的 key 去打 OpenAI 只會 401，
+  而那個勾選框看起來一切正常。`useAIRequest` 與設定 UI 兩邊都擋，UI 端會鎖住勾選框並說明
+- **換供應商必須連型號一起換**（`switchProvider`）。只改 provider 會留著上一家的
+  model id，送出才報一個看不懂的 400
+- 瀏覽器直連 Anthropic 要帶 `anthropic-dangerous-direct-browser-access: true`（這個遊戲沒有後端）
+
+**順手修掉一個吃掉玩家選擇的 bug**：`App.tsx` 的兩個 `useState` 初始化器裡各有一行
+`if (parsed.model === 'gemini-2.0-flash') parsed.model = 'gemini-2.5-flash'`。
+但 `gemini-2.0-flash` **是下拉選單上的正式選項**（「Gemini 2.0 Flash（舊版快速）」），
+於是：玩家選它 → 存檔 → 重整 → 靜默變回 2.5-flash，毫無提示。
+
+寫在每次讀取都會跑的路徑上的「一次性遷移」就不再是一次性的，它分不出「舊預設殘留」
+與「玩家真的選了這個」。讀取邏輯一併抽進 `src/utils/gmConfig.ts`（純函數、吃
+`ConfigStore` 介面），這才測得到——藏在 `useState` 初始化器裡是它活這麼久的原因。
+
+**型號留空的退路也跟著修**：原本寫死退回 `gemini-2.0-flash`，換成 OpenAI 之後會拿
+一個 Gemini 型號去打 OpenAI。改成該供應商的 `defaultModel`，UI 上的提示文字同步。
+
+**驗證**：lint 乾淨、976 tests 通過、build 成功。
+`gemini-2.0-flash` 那條回歸測試已確認「把舊程式碼貼回去就會紅」。
+
+**檔案**：`src/utils/aiProviders.ts`（新增）、`src/utils/gmConfig.ts`（新增）、
+`src/hooks/useAIRequest.ts`、`src/components/SettingsModal.tsx`、`src/App.tsx`、`src/types.ts`、
+四個測試檔（`aiProviders` / `gmConfig` / `useAIRequest.providers` / `SettingsModalProvider`）。
+
+---
+
 ### Bug 修正｜角色記憶的編輯 icon 在手機上看不見 2026-09-19 [Claude Code]
 
 玩家回報：修改角色記憶的編輯 icon 看不見。

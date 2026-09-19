@@ -5,6 +5,7 @@ import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { SettingsModal } from '../SettingsModal';
 import { GMConfig, SubGMConfig } from '../../types';
+import { providerMeta } from '../../utils/aiProviders';
 
 const noop = () => {};
 
@@ -30,8 +31,9 @@ const renderModal = (over: { main?: Partial<GMConfig>; setMain?: (c: GMConfig) =
   );
 };
 
-/** 主 GM 與助理 GM 各一個「模型」下拉，取第一個＝主 GM */
-const mainSelect = () => screen.getAllByRole('combobox')[0];
+/** 主 GM 與助理 GM 各一個「模型」下拉，取第一個＝主 GM
+ *  （同一個 Modal 裡還有「供應商」與「端點」下拉，所以要認 label 不能認順序） */
+const mainSelect = () => screen.getAllByLabelText('模型')[0];
 const customInput = () => screen.queryAllByLabelText(/自訂型號/)[0];
 
 beforeEach(() => {
@@ -122,18 +124,19 @@ describe('SettingsModal 模型選擇 — 自訂型號', () => {
    * `callAI` 是 `cfg.model || 'gemini-2.0-flash'`——留空會靜默跑另一個型號，
    * 玩家卻以為自己在用剛剛打的那個。這條釘住警告有出現。
    */
-  it('清空型號時警告會退回 gemini-2.0-flash', async () => {
+  it('清空型號時警告會說出實際會被用掉的預設型號', async () => {
     const user = userEvent.setup();
     renderModal();
     await user.selectOptions(mainSelect(), '__custom__');
     await user.clear(customInput() as HTMLInputElement);
-    expect(screen.getByText(/留空會退回 gemini-2.0-flash/)).toBeInTheDocument();
+    // 退回的是「目前這家供應商的預設型號」，不是寫死的某個 Gemini 型號
+    expect(screen.getByText(new RegExp(`留空會退回 ${providerMeta('gemini').defaultModel}`))).toBeInTheDocument();
   });
 
   it('助理 GM 也有各自獨立的自訂型號欄位', async () => {
     const user = userEvent.setup();
     renderModal();
-    const subSelect = screen.getAllByRole('combobox')[1];
+    const subSelect = screen.getAllByLabelText('模型')[1];
     await user.selectOptions(subSelect, '__custom__');
     // 只有助理那一個進入自訂模式，主 GM 不受影響
     expect(screen.queryAllByLabelText(/自訂型號/)).toHaveLength(1);
