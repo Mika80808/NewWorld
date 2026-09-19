@@ -65,12 +65,12 @@ export const SceneMemoryWidget: React.FC<SceneMemoryWidgetProps> = ({
     cancelEdit();
   };
 
-  const iconBtn = 'opacity-0 group-focus-within/mem:opacity-100 group-hover/mem:opacity-100 transition p-0.5 rounded-[8px] shrink-0';
+  const iconBtn = 'hover-action transition p-0.5 rounded-[8px] shrink-0';
 
   const renderRow = (mem: MemoryEntry, dotColor: string) => {
     const isEditing = editingId === mem.id;
     return (
-      <li key={mem.id} className="group/mem flex items-start gap-2 text-xs leading-relaxed" style={{ color: 'var(--text-muted)' }}>
+      <li key={mem.id} className="group/mem hover-actions-host flex items-start gap-2 text-xs leading-relaxed" style={{ color: 'var(--text-muted)' }}>
         <span className="mt-1.5 w-1 h-1 rounded-full shrink-0" style={{ background: dotColor, opacity: 0.7 }} />
         {isEditing ? (
           <div className="flex-1 flex items-start gap-1">

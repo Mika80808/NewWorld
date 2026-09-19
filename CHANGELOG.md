@@ -5,6 +5,42 @@
 
 ---
 
+### Bug 修正｜角色記憶的編輯 icon 在手機上看不見 2026-09-19 [Claude Code]
+
+玩家回報：修改角色記憶的編輯 icon 看不見。
+
+**同一個坑第二次咬人。** 專案裡早就記過一次（`index.css` 的 `.msg-actions` 那段註解），
+這次犯在別的地方：NPC 記憶列的三顆按鈕（★核心／編輯／刪除）寫的是 Tailwind 的
+`opacity-0 group-hover:opacity-100`。
+
+**建置產物實證**：
+
+```
+@media(hover:hover){ .group-hover\:opacity-100:is(:where(.group):hover *){opacity:1} }
+```
+
+`group-hover:` 被包進 `@media (hover: hover)`。觸控裝置（`hover: none`）那條規則
+永遠不生效，按鈕固定停在 `opacity: 0`——還點得到，但玩家完全看不見，
+等於★／編輯／刪除整組消失。
+
+**場景記憶列（`SceneMemoryWidget`）也中**，只是多了一個
+`group-focus-within/mem:opacity-100` 當逃生口：按鈕本身還是從全透明開始，
+得先誤觸到才會現形。一併修掉。
+
+**修法**：`index.css` 新增 `.hover-actions-host` / `.hover-action` 這一對——
+基準狀態可見，只有 `@media (hover: hover)` 裡才藏起來並靠 hover／focus-within 顯露，
+`@media (hover: none)` 另給 36px 點擊區（原本 `p-0.5` 配 `w-3` 圖示只有約 16px）。
+
+刻意不依賴 Tailwind 的 `group`：`group/mem` 這種具名群組產出的 class 是 `group/mem`
+而不是 `group`，`.group:hover` 比不中。
+
+判斷依據是 hover 能力而非螢幕寬度——觸控筆電與平板在寬螢幕下一樣需要常駐顯示。
+
+`hoverActionReveal.test.ts` 掃 `src/**/*.tsx` 擋回歸（驗證過把任一顆改回舊寫法就會紅）。
+裝飾性的 `group-hover/npc:opacity-40` 不在此限——那種看不見沒有損失。
+
+---
+
 ### Bug 修正｜AI 讀不到「當前目標」 2026-09-19 [Claude Code]
 
 接續節日那一條的鏈路盤點。同一個形狀：資料一直都在，只是沒人送進 prompt。
