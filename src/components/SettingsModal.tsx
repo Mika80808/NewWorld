@@ -4,6 +4,10 @@ import { User } from '@supabase/supabase-js';
 import { GMConfig, SubGMConfig } from '../types';
 import { PROVIDERS, ProviderModel, modelsForEndpoint, normalizeBaseUrl, providerMeta } from '../utils/aiProviders';
 import { switchProvider } from '../utils/gmConfig';
+import {
+  GMProfile, MAX_PROFILES, applyProfile, loadProfiles, matchProfile,
+  profileFromConfig, profileSummary, removeProfile, saveProfiles, upsertProfile,
+} from '../utils/gmProfiles';
 import { ThemeId, THEMES } from '../utils/theme';
 
 const CUSTOM_MODEL = '__custom__';
@@ -174,6 +178,119 @@ const ProviderPicker: React.FC<{
   );
 };
 
+/**
+ * 設定檔列：套用／另存／刪除一組供應商設定。
+ *
+ * 玩家要在不同模型之間換來換去比文風，而 GM 設定各只存一組——換一家就得把
+ * 上一家的金鑰、端點、型號整串重打。設定檔是一個「存起來的常用組合」清單。
+ *
+ * ⚠️ 套用是把值**複製**進草稿，不是用 id 參照那張設定檔（見 utils/gmProfiles.ts）。
+ * 「目前是哪一張」也由值推導，不存旗標——套用之後手動改個型號，存旗標的話
+ * 畫面會繼續顯示一個已經不成立的名字。
+ */
+const ProfileBar: React.FC<{
+  config: GMConfig;
+  profiles: GMProfile[];
+  onApply: (profile: GMProfile) => void;
+  onSaveAs: (label: string) => void;
+  onOverwrite: (profile: GMProfile) => void;
+  onDelete: (profile: GMProfile) => void;
+  inputStyle: React.CSSProperties;
+}> = ({ config, profiles, onApply, onSaveAs, onOverwrite, onDelete, inputStyle }) => {
+  const [naming, setNaming] = useState(false);
+  const [label, setLabel] = useState('');
+  const current = matchProfile(config, profiles);
+  const full = profiles.length >= MAX_PROFILES;
+
+  const commit = () => {
+    if (!label.trim()) return;
+    onSaveAs(label);
+    setLabel('');
+    setNaming(false);
+  };
+
+  return (
+    <div className="space-y-2">
+      <label className="text-xs block" style={{ color: 'var(--text-body)' }}>設定檔</label>
+
+      <div className="flex gap-2">
+        <select
+          aria-label="設定檔"
+          value={current?.id ?? ''}
+          onChange={e => {
+            const picked = profiles.find(p => p.id === e.target.value);
+            if (picked) onApply(picked);
+          }}
+          className="flex-1 min-w-0 border rounded-[8px] px-3 py-2 text-sm outline-none transition"
+          style={inputStyle}
+        >
+          {/* 沒有對應的設定檔時要有一個可顯示的值，否則 select 會自己選中第一張、
+              看起來像已經套用了那組設定 */}
+          <option value="">{profiles.length ? '（未套用設定檔）' : '（尚無設定檔）'}</option>
+          {profiles.map(p => (
+            <option key={p.id} value={p.id}>{profileSummary(p)}</option>
+          ))}
+        </select>
+
+        {current ? (
+          <>
+            <button
+              onClick={() => onOverwrite(current)}
+              title="以目前的設定覆寫這張設定檔"
+              className="px-3 py-2 rounded-[8px] text-xs shrink-0 transition"
+              style={{ background: 'var(--bg-sys-field)', color: 'var(--text-body)', border: '1px solid var(--border-default)' }}
+            >更新</button>
+            <button
+              onClick={() => onDelete(current)}
+              title="刪除這張設定檔"
+              className="px-3 py-2 rounded-[8px] text-xs shrink-0 transition"
+              style={{ background: 'var(--bg-sys-field)', color: 'var(--text-danger)', border: '1px solid var(--border-default)' }}
+            >刪除</button>
+          </>
+        ) : (
+          <button
+            onClick={() => setNaming(v => !v)}
+            disabled={full}
+            title={full ? `最多 ${MAX_PROFILES} 張` : '把目前的設定存成設定檔'}
+            className="px-3 py-2 rounded-[8px] text-xs shrink-0 transition"
+            style={{
+              background: 'var(--bg-sys-field)',
+              color: full ? 'var(--text-muted)' : 'var(--text-body)',
+              border: '1px solid var(--border-default)',
+              cursor: full ? 'not-allowed' : 'pointer',
+            }}
+          >另存</button>
+        )}
+      </div>
+
+      {naming && !current && (
+        <div className="flex gap-2">
+          <input
+            type="text"
+            value={label}
+            autoFocus
+            onChange={e => setLabel(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') commit(); if (e.key === 'Escape') setNaming(false); }}
+            placeholder="設定檔名稱，例如「DeepSeek 省錢」"
+            aria-label="設定檔名稱"
+            className="flex-1 min-w-0 border rounded-[8px] px-3 py-2 text-sm outline-none transition"
+            style={inputStyle}
+          />
+          <button
+            onClick={commit}
+            className="px-3 py-2 rounded-[8px] text-xs shrink-0"
+            style={{ background: 'var(--btn-primary)', color: 'var(--btn--text)' }}
+          >儲存</button>
+        </div>
+      )}
+
+      <p className="text-[11px]" style={{ color: 'var(--text-muted)' }}>
+        設定檔含 API Key，與其他設定一樣只存在本機瀏覽器，不會上傳，也不隨遊戲存檔匯出。
+      </p>
+    </div>
+  );
+};
+
 interface SettingsModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -209,6 +326,18 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
   const [draftMain, setDraftMain] = useState<GMConfig>(mainGMConfig);
   const [draftSub, setDraftSub] = useState<SubGMConfig>(subGMConfig);
+
+  // 設定檔清單是兩個 GM 共用的一份（同一批服務，主／助理都可能用到）
+  const [profiles, setProfiles] = useState<GMProfile[]>(() => loadProfiles(localStorage));
+
+  const persistProfiles = (next: GMProfile[]) => {
+    if (!saveProfiles(localStorage, next)) {
+      setSaveError('設定檔未能寫入，請允許瀏覽器儲存資料後重試。');
+      return;
+    }
+    setSaveError(null);
+    setProfiles(next);
+  };
 
   const mainMeta = providerMeta(draftMain.provider);
   const subMeta = providerMeta(draftSub.provider);
@@ -359,6 +488,16 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           <div className="rounded-[8px] p-4 space-y-3" style={sectionStyle}>
             <p className="text-xs font-bold uppercase tracking-wider" style={{ color: 'var(--text-title)' }}>主 GM</p>
 
+            <ProfileBar
+              config={draftMain}
+              profiles={profiles}
+              onApply={p => setDraftMain(prev => applyProfile(prev, p))}
+              onSaveAs={label => persistProfiles(upsertProfile(profiles, profileFromConfig(draftMain, label)))}
+              onOverwrite={p => persistProfiles(upsertProfile(profiles, { ...profileFromConfig(draftMain, p.label), id: p.id }))}
+              onDelete={p => persistProfiles(removeProfile(profiles, p.id))}
+              inputStyle={inputStyle}
+            />
+
             <ProviderPicker
               value={draftMain}
               onChange={patch => setDraftMain(p => ({ ...p, ...patch }))}
@@ -419,6 +558,16 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           {/* ── 助理 GM ── */}
           <div className="rounded-[8px] p-4 space-y-3" style={sectionStyle}>
             <p className="text-xs font-bold uppercase tracking-wider" style={{ color: 'var(--text-title)' }}>助理 GM</p>
+
+            <ProfileBar
+              config={draftSub}
+              profiles={profiles}
+              onApply={p => setDraftSub(prev => applyProfile(prev, p))}
+              onSaveAs={label => persistProfiles(upsertProfile(profiles, profileFromConfig(draftSub, label)))}
+              onOverwrite={p => persistProfiles(upsertProfile(profiles, { ...profileFromConfig(draftSub, p.label), id: p.id }))}
+              onDelete={p => persistProfiles(removeProfile(profiles, p.id))}
+              inputStyle={inputStyle}
+            />
 
             <ProviderPicker
               value={draftSub}

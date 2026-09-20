@@ -238,8 +238,9 @@ onMouseLeave={e => e.currentTarget.style.background = 'var(--btn-primary)'}
 玩家 API 設定**不隨存檔匯出/匯入**，單獨存在 localStorage：
 
 ```
-localStorage key: 'mainGM_config'   → 主 GM 設定
+localStorage key: 'mainGM_config'   → 主 GM 設定（實際在用的那一份）
 localStorage key: 'subGM_config'    → 助理 GM 設定
+localStorage key: 'gm_profiles'     → 設定檔清單（存起來的常用組合，見下）
 ```
 
 讀取一律走 `src/utils/gmConfig.ts` 的 `loadMainGMConfig` / `loadSubGMConfig`（`App.tsx` 的
@@ -291,6 +292,35 @@ callAI(prompt: string, options?: {
 // timeout 觸發時會讓背景串流停止，不再消耗配額
 // ⚠️ 型號留空時退回「該供應商的預設型號」（meta.defaultModel），不是寫死的 Gemini 型號；UI 端有明講
 ```
+
+### 設定檔（`src/utils/gmProfiles.ts`）
+
+玩家要在不同模型之間換來換去比文風，而 GM 設定各只存一組——換一家就得把上一家的
+金鑰、端點、型號整串重打。設定檔是一個「存起來的常用組合」清單（上限 `MAX_PROFILES`）。
+
+- ⚠️ **套用是把值複製進 GM 設定，不是用 id 參照**。GM 設定仍是「實際在用的那一份」的
+  唯一準據。存 id 的話，刪掉設定檔會讓遊戲突然沒有 API 可用，而且兩份資料必然漂移
+- ⚠️ **「目前是哪一張」由值推導（`matchProfile`），不存 `currentProfileId`**。
+  存旗標的話，套用後手動改個型號，畫面會繼續顯示一個已經不成立的名字
+  （同 `ModelPicker` 的「是否自訂」）
+- `applyProfile` **不碰 `useSameKey` 與 `lastSaved`**——那是那份設定自己的狀態，
+  被設定檔帶走的話，套用一次就把「共用主 GM 金鑰」的選擇洗掉
+- 壞掉的**單一條目**丟掉、其餘照常讀回（`normalizeProfile` 回 null 即丟）。
+  玩家存了五組其中一組因改版少了欄位，不能連另外四組的金鑰一起弄丟
+- `saveProfiles` 寫不進去回 `false`，UI 要明講（配額滿、無痕模式），不靜默失敗
+- 設定檔含 API Key，與 GM 設定同樣**只存 localStorage、不進遊戲存檔**
+
+### 錯誤訊息要指得出下一步（`describeAIError`）
+
+⚠️ **失敗時一律把原因顯示出來，不要只丟「請檢查設定或網路連線」**。
+玩家換供應商連不上時，金鑰錯、型號打錯、那家不讓瀏覽器直連是三件完全不同的事，
+共用一句罐頭訊息等於沒有任何線索——玩家只能回報「連接失敗」。
+
+- HTTP 狀態碼翻成該檢查什麼，並**保留供應商回的原文**
+- 瀏覽器對 CORS 失敗只給一個沒有細節的 `TypeError: Failed to fetch`（規格上不讓 JS
+  讀到原因，避免拿來探測內網），所以只能講「可能是」並指向 DevTools Console；
+  Safari 是 `Load failed`、Firefox 是 `NetworkError`，三種措辭都要認得
+- 顯示位置是**重試列**不是 Toast：Toast 三秒就消失又沒有寬度上限，放不下需要讀兩行的訊息
 
 **型號清單是常用捷徑**——每個供應商的下拉最後一項「自訂型號⋯」可自由輸入任何 model id。
 「是否自訂」由「值不在清單上」推導，**不另外存旗標**（存了會跟 `model` 兩份資料互相漂移）。
@@ -821,6 +851,8 @@ FACTION_NEW|name=黑牙氏族|type=criminal|desc=盤據東境的盜賊團
 | `utils/itemCatalog.ts` `selectConsumedItems(pending, sentText)` | 送出時決定扣哪些待用道具（名字還在文字裡才扣） |
 | `utils/aiProviders.ts` `PROVIDERS / providerMeta / buildChatRequest / extractText / extractStreamDelta` | AI 供應商的唯一準據：清單、請求組裝、回應與 SSE 解析（純函數，`useAIRequest` 只管流程） |
 | `utils/gmConfig.ts` `loadMainGMConfig / loadSubGMConfig / switchProvider` | GM API 設定的讀取（含舊 key 一次性搬遷）與換供應商入口 |
+| `utils/gmProfiles.ts` `loadProfiles / applyProfile / matchProfile / upsertProfile` | 多組 API 設定檔：套用是複製值、「目前哪一張」由值推導 |
+| `utils/aiProviders.ts` `describeAIError(error)` | 把 AI 呼叫的失敗翻成指得出下一步的一句話（顯示在重試列） |
 | `utils/affectionColor.ts` `affectionColor(affection)` | 回傳好感度對應 CSS 變數字串（唯一入口） |
 | `utils/affectionLabel.ts` `affectionLabel / relationText` | 好感度語意標籤（衍生值，不存檔）；`relationText` 為顯示與 prompt 注入的共用入口 |
 | `utils/itemCatalog.ts` `registerItemDef / touchItemDef / pruneItemCatalog / selectKnownItemNames` | 道具圖鑑：先寫先贏登錄、更新使用時間、LOD 淘汰、prompt 名稱切片 |

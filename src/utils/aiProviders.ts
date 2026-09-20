@@ -319,3 +319,44 @@ export function requiresApiKey(provider: string, baseUrl: string): boolean {
   if (provider === 'gemini') return true;
   return !/^https?:\/\/(localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\])(:|\/|$)/i.test(normalizeBaseUrl(baseUrl));
 }
+
+/**
+ * 把 AI 呼叫的錯誤翻成玩家看得懂、而且**指得出下一步**的一句話。
+ *
+ * 先前 `handleSendMessage` 一律丟「API 呼叫失敗，請檢查設定或網路連線」，
+ * 真正的訊息只進 `console.error`。玩家換了供應商連不上時完全無從判斷是金鑰錯、
+ * 型號打錯、還是那家根本不讓瀏覽器直連——只能回報「連接失敗」。
+ *
+ * ⚠️ 瀏覽器對 CORS 失敗只會給一個沒有細節的 `TypeError: Failed to fetch`：
+ * 規格上不讓 JS 讀到原因，避免拿來探測內網。所以這裡只能講「可能是」，
+ * 並指向 DevTools Console——那裡才有瀏覽器自己印的那行 CORS 說明。
+ */
+export function describeAIError(error: unknown): string {
+  if (error instanceof DOMException && error.name === 'AbortError') return '已取消';
+  if (!(error instanceof Error)) return '未知錯誤';
+
+  const message = error.message;
+  if (message === 'REQUEST_TIMEOUT') return '請求超時';
+
+  const status = message.match(/^HTTP (\d{3})/)?.[1];
+  const detail = message.replace(/^HTTP \d{3}\s*/, '').trim();
+  const withDetail = (text: string) => (detail ? `${text}（${detail}）` : text);
+
+  switch (status) {
+    case '400': return withDetail('請求被拒絕，多半是型號 id 打錯或該端點不支援某個參數');
+    case '401': return withDetail('API Key 無效');
+    case '403': return withDetail('這把 Key 沒有權限，或該地區／來源被擋');
+    case '404': return withDetail('端點或型號不存在，檢查端點網址與型號 id');
+    case '413': return withDetail('送出的內容太長');
+    case '429': return withDetail('額度用盡或請求太頻繁');
+    case '500': case '502': case '503': case '504':
+      return withDetail('供應商那端出錯，稍後再試');
+  }
+  if (status) return withDetail(`HTTP ${status}`);
+
+  // fetch 連 HTTP 狀態都拿不到：CORS、網址打錯、DNS、離線都長這樣
+  if (/failed to fetch|networkerror|load failed/i.test(message)) {
+    return '連不上端點。可能是端點網址錯了，或該服務不允許從瀏覽器直接呼叫（CORS）；開瀏覽器主控台看那行紅字可以確認';
+  }
+  return message;
+}
