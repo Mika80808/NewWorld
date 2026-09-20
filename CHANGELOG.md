@@ -5,6 +5,54 @@
 
 ---
 
+### 功能｜多組 API 設定檔，以及看得懂的失敗原因 2026-09-20 [Claude Code]
+
+玩家回報兩件事：DeepSeek 的 API 連接失敗，還有「希望能多存幾組，這樣才能在不同模型間交換」。
+
+## 設定檔（`src/utils/gmProfiles.ts`）
+
+GM 設定各只存一組，換一家就得把上一家的金鑰、端點、型號整串重打。新增設定檔清單
+（`gm_profiles`，上限 `MAX_PROFILES` 12 張），主 GM 與助理 GM 共用同一份，各自選要套哪張。
+UI 在兩個 GM 區塊最上方：下拉選取即套用，旁邊是「另存／更新／刪除」。
+
+兩個刻意的設計：
+
+- **套用是把值複製進 GM 設定，不是用 id 參照**。GM 設定仍是「實際在用的那一份」的唯一
+  準據。存 id 的話，刪掉設定檔會讓遊戲突然沒有 API 可用，而且兩份資料必然漂移
+- **「目前是哪一張」由值推導，不存 `currentProfileId`**。存旗標的話，套用後手動改個型號，
+  畫面會繼續顯示一個已經不成立的名字（同 `ModelPicker` 的「是否自訂」）
+
+其餘防衛：`applyProfile` 不碰 `useSameKey`（否則套用一次就把「共用主 GM 金鑰」洗掉）；
+壞掉的單一條目丟掉、其餘照常讀回（五組裡壞一組不能連另外四組的金鑰一起弄丟）；
+`saveProfiles` 寫不進去回 `false` 讓 UI 明講，不靜默失敗。
+
+## 失敗原因（`describeAIError`）
+
+`handleSendMessage` 原本一律丟「❌ API 呼叫失敗，請檢查設定或網路連線」，真正的訊息只進
+`console.error`——而且那行還寫著 `Error calling Gemini API`，換供應商之後就不對了。
+
+金鑰錯、型號打錯、那家不讓瀏覽器直連，是三件完全不同的事，共用一句罐頭訊息等於沒有
+任何線索。現在 HTTP 狀態碼翻成該檢查什麼並保留供應商原文；fetch 連狀態碼都拿不到時
+（CORS、網址錯、DNS、離線都長這樣）點名 CORS 與端點網址，並指向瀏覽器主控台——
+規格上瀏覽器不讓 JS 讀到 CORS 失敗的原因，只有主控台那行紅字講得清楚。
+Safari 的 `Load failed` 與 Firefox 的 `NetworkError` 措辭不同，一併認得。
+
+**顯示位置改到重試列**，不是 Toast：Toast 三秒就消失又沒有寬度上限，放不下需要讀兩行的
+訊息。重試列本來就會掛在那裡直到玩家按取消。
+
+## 關於 DeepSeek 連不上
+
+沙箱的網路政策擋掉 `api.deepseek.com`（`gateway answered 403 to CONNECT`），
+所以**無法從這裡驗證它的 CORS 態度**，沒有在程式裡針對它做任何假設性修改。
+改完之後遊戲會把實際原因顯示出來，由玩家的瀏覽器給出答案。
+
+**驗證**：lint 乾淨、1009 tests 通過（新增 32 條）、build 成功。
+
+**檔案**：`src/utils/gmProfiles.ts`（新增）、`src/utils/aiProviders.ts`、
+`src/components/SettingsModal.tsx`、`src/App.tsx`，三個測試檔。
+
+---
+
 ### Bug 修正｜手機版設定集的分頁卡片歪成一直條 2026-09-19 [Claude Code]
 
 玩家回報：手機版的「地點」欄位歪掉——卡片變成一個字一行，還疊在隔壁卡片旁邊。

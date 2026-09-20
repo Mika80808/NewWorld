@@ -48,6 +48,7 @@ import { updateNpcFootprints, resolveOnStageNames } from './utils/npcPresence';
 import { findNpcLore } from './utils/npcProfile';
 import { nextVisibleMessageCount, isScrolledToBottom } from './utils/visibleMessages';
 import { loadMainGMConfig, loadSubGMConfig } from './utils/gmConfig';
+import { describeAIError } from './utils/aiProviders';
 import { editMemoryContent, selectMergeableMemories, selectCompatibleMergeGroup, canApplyMemoryMerge, replaceMemoriesWithMerged, MIN_MERGE_CANDIDATES } from './utils/memoryStore';
 import { SaveSlotsModal } from './components/SaveSlotsModal';
 
@@ -338,6 +339,13 @@ ${newPool.map((s, i) => `${i + 1}. ${s}`).join('\n')}`;
   const { callAI, abort: abortAI, aiRequestStatus, setAiRequestStatus } = useAIRequest(mainGMConfig, subGMConfig);
   // isLoading 由 aiRequestStatus 派生，其他地方不需改動
   const isLoading = aiRequestStatus === 'loading';
+  /**
+   * 失敗原因的完整說明。
+   *
+   * Toast 三秒就消失、又沒有寬度上限，放不下「這家不讓瀏覽器直連」這種需要讀
+   * 兩行的訊息。重試列本來就會一直掛在那裡直到玩家按取消，是這段文字該待的地方。
+   */
+  const [aiErrorDetail, setAiErrorDetail] = useState<string | null>(null);
   // 儲存最後一次用戶輸入，供 abort 後重試用。
   // 用 state 而非 ref：中斷／超時／錯誤列的「重試」鈕是用這個值決定要不要顯示，
   // 而寫 ref 不會觸發重繪——先前只是剛好靠 aiRequestStatus 的變動順帶重繪才看起來正常。
@@ -1686,6 +1694,7 @@ ${recentContext}
     const newMessages = historyToUse ? [...historyToUse, userMessage] : [...messages, userMessage];
     setMessages(newMessages);
     // 送出時不立即上傳雲端：AI 回應後的自動存檔（含本則玩家訊息）已涵蓋，上傳次數減半
+    setAiErrorDetail(null);
     setAiRequestStatus('loading');
 
     let aiMessageId: number | null = null;
@@ -1821,10 +1830,16 @@ ${recentContext}
         setAiRequestStatus('aborted');
       } else if (error instanceof Error && error.message === 'REQUEST_TIMEOUT') {
         showToast('⏱ 請求超時，可點「重試」再試一次');
+        setAiErrorDetail(null);
         setAiRequestStatus('timeout');
       } else {
-        console.error('Error calling Gemini API:', error);
-        showToast('❌ API 呼叫失敗，請檢查設定或網路連線');
+        // 錯誤原文一律帶出來。先前只丟一句「請檢查設定或網路連線」，
+        // 換供應商連不上時玩家完全無從判斷是金鑰錯、型號打錯、還是那家
+        // 不讓瀏覽器直連——只能回報「連接失敗」。
+        console.error('AI 呼叫失敗:', error);
+        // Toast 只負責「出事了」；完整原因留在重試列，因為它不會三秒後消失
+        showToast('❌ AI 呼叫失敗');
+        setAiErrorDetail(describeAIError(error));
         setAiRequestStatus('error');
       }
     } finally {
@@ -2593,11 +2608,11 @@ ${recentContext}
 
               {/* D7：中斷 / 超時 / 錯誤 重試列 */}
               {(aiRequestStatus === 'aborted' || aiRequestStatus === 'timeout' || aiRequestStatus === 'error') && (
-                <div className="mt-1 flex items-center gap-2 text-xs" style={{ color: 'var(--text-muted)' }}>
-                  <span>
+                <div className="mt-1 flex items-start gap-2 text-xs flex-wrap" style={{ color: 'var(--text-muted)' }}>
+                  <span className="min-w-0">
                     {aiRequestStatus === 'aborted'  && '已中斷'}
                     {aiRequestStatus === 'timeout'  && '請求超時'}
-                    {aiRequestStatus === 'error'    && '發生錯誤'}
+                    {aiRequestStatus === 'error'    && (aiErrorDetail ?? '發生錯誤')}
                   </span>
                   {lastInput && (
                     <button
@@ -2605,13 +2620,13 @@ ${recentContext}
                       style={{ background: 'var(--btn-primary)', color: 'var(--btn--text)' }}
                       onMouseEnter={e => (e.currentTarget.style.background = 'var(--btn-primary-hover)')}
                       onMouseLeave={e => (e.currentTarget.style.background = 'var(--btn-primary)')}
-                      onClick={() => { setAiRequestStatus('idle'); handleSendMessage(lastInput); }}
+                      onClick={() => { setAiErrorDetail(null); setAiRequestStatus('idle'); handleSendMessage(lastInput); }}
                     >重試</button>
                   )}
                   <button
                     className="px-2 py-0.5 rounded text-xs"
                     style={{ color: 'var(--text-muted)' }}
-                    onClick={() => setAiRequestStatus('idle')}
+                    onClick={() => { setAiErrorDetail(null); setAiRequestStatus('idle'); }}
                   >取消</button>
                 </div>
               )}
