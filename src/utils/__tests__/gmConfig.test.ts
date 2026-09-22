@@ -3,7 +3,7 @@ import {
   MAIN_GM_DEFAULTS, MAIN_GM_STORAGE_KEY, SUB_GM_DEFAULTS, SUB_GM_STORAGE_KEY,
   ConfigStore, loadMainGMConfig, loadSubGMConfig, normalizeGMConfig, parseGMConfig, switchProvider,
 } from '../gmConfig';
-import { providerMeta } from '../aiProviders';
+import { GEMINI_DEFAULT_MODEL, providerMeta } from '../aiProviders';
 
 function memoryStore(initial: Record<string, string> = {}): ConfigStore & { data: Record<string, string> } {
   const data = { ...initial };
@@ -34,6 +34,16 @@ describe('parseGMConfig', () => {
     const cfg = parseGMConfig(JSON.stringify({ apiKey: 'abc' }), MAIN_GM_DEFAULTS);
     expect(cfg.apiKey).toBe('abc');
     expect(cfg.maxTokens).toBe(MAIN_GM_DEFAULTS.maxTokens);
+  });
+});
+
+describe('預設型號的單一來源', () => {
+  // 先前這個字串在 PROVIDERS、MAIN_GM_DEFAULTS、SUB_GM_DEFAULTS 三處各寫一份。
+  // Google 鎖掉 2.5 家族時，要修得記得改三個地方——而漏掉任何一個都是新玩家開不了遊戲
+  it('主／助理 GM 的預設型號都讀 GEMINI_DEFAULT_MODEL', () => {
+    expect(MAIN_GM_DEFAULTS.model).toBe(GEMINI_DEFAULT_MODEL);
+    expect(SUB_GM_DEFAULTS.model).toBe(GEMINI_DEFAULT_MODEL);
+    expect(providerMeta('gemini').defaultModel).toBe(GEMINI_DEFAULT_MODEL);
   });
 });
 

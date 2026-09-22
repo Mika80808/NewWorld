@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  PROVIDERS, buildChatRequest, dataLinesOf, extractErrorMessage, extractStreamDelta,
+  GEMINI_DEFAULT_MODEL, PROVIDERS, buildChatRequest, dataLinesOf, extractErrorMessage, extractStreamDelta,
   extractText, isProviderId, modelsForEndpoint, normalizeBaseUrl, openAITokenField,
   providerMeta, requiresApiKey, splitSSEEvents,
 } from '../aiProviders';
@@ -21,6 +21,25 @@ describe('供應商清單', () => {
     expect(providerMeta('nope').id).toBe(PROVIDERS[0].id);
     expect(isProviderId('openai')).toBe(true);
     expect(isProviderId('nope')).toBe(false);
+  });
+
+  /**
+   * Google 把 2.5／2.0 家族鎖成「只有既有用戶能用」，新帳號呼叫直接 404：
+   *   This model models/gemini-2.5-pro is no longer available to new users.
+   * 預設型號踩在那個家族上的話，新裝的人一選 Gemini 就開不了遊戲。
+   */
+  it('Gemini 預設型號不在被鎖的 2.x 家族裡', () => {
+    expect(GEMINI_DEFAULT_MODEL).not.toMatch(/^gemini-2\./);
+    expect(providerMeta('gemini').defaultModel).toBe(GEMINI_DEFAULT_MODEL);
+  });
+
+  it('預設型號一定在自己的捷徑清單上，否則下拉會顯示成「自訂型號」', () => {
+    for (const p of PROVIDERS) {
+      const models = modelsForEndpoint(p.id, p.defaultBaseUrl);
+      // 本機端點那類沒有捷徑清單，不在此限
+      if (models.length === 0) continue;
+      expect(models.map(m => m.value)).toContain(p.defaultModel);
+    }
   });
 
   it('端點決定型號捷徑清單', () => {

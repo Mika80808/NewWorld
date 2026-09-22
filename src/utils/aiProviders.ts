@@ -41,15 +41,35 @@ export interface ProviderMeta {
   presets: EndpointPreset[];
 }
 
+/**
+ * Gemini 的預設型號。**唯一準據**——`PROVIDERS` 與 `gmConfig` 的兩組預設值都讀這裡。
+ *
+ * ⚠️ 先前這個字串在三個地方各寫一份（`PROVIDERS.defaultModel`、`MAIN_GM_DEFAULTS`、
+ * `SUB_GM_DEFAULTS`）。Google 把 2.5 家族鎖成「只有既有用戶能用」之後，新裝的人
+ * 一選 Gemini 就是 404，而要修得記得改三個地方。
+ */
+export const GEMINI_DEFAULT_MODEL = 'gemini-3-flash-preview';
+
+/**
+ * ⚠️ 2.5／2.0 家族 Google 已鎖成「只有既有用戶能用」，新帳號呼叫直接 404：
+ *
+ *   This model models/gemini-2.5-pro is no longer available to new users.
+ *   Please update your code to use models/gemini-3.1-pro-preview
+ *
+ * 刻意**不從清單移除**：還在用的既有帳號照樣叫得到，而且官方停用日是 2026/10/16，
+ * 之前都還能跑。改成在標籤上講清楚，讓玩家自己判斷——照 CLAUDE.md 的規則，
+ * 淘汰型號是從清單拿掉或標註，**絕不在讀取路徑上把 A 改寫成 B**
+ * （那條規則正是 `gemini-2.0-flash` 被靜默改寫的那個 bug 留下的）。
+ */
 const GEMINI_MODELS: ProviderModel[] = [
   { value: 'gemini-3.1-pro-preview',        label: 'Gemini 3.1 Pro Preview（最強推理）' },
-  { value: 'gemini-3-flash-preview',        label: 'Gemini 3 Flash Preview（快速／均衡）' },
+  { value: 'gemini-3-flash-preview',        label: 'Gemini 3 Flash Preview（快速／均衡・預設）' },
   { value: 'gemini-3.1-flash-lite-preview', label: 'Gemini 3.1 Flash Lite Preview（最省費）' },
-  { value: 'gemini-2.5-pro',                label: 'Gemini 2.5 Pro（穩定最強）' },
-  { value: 'gemini-2.5-flash',              label: 'Gemini 2.5 Flash（穩定快速）' },
-  { value: 'gemini-2.5-flash-lite',         label: 'Gemini 2.5 Flash Lite（穩定輕量）' },
-  { value: 'gemini-2.0-flash',              label: 'Gemini 2.0 Flash（舊版快速）' },
-  { value: 'gemini-2.0-flash-lite',         label: 'Gemini 2.0 Flash Lite（舊版輕量）' },
+  { value: 'gemini-2.5-pro',                label: 'Gemini 2.5 Pro（新帳號不可用・10/16 停用）' },
+  { value: 'gemini-2.5-flash',              label: 'Gemini 2.5 Flash（新帳號不可用・10/16 停用）' },
+  { value: 'gemini-2.5-flash-lite',         label: 'Gemini 2.5 Flash Lite（新帳號不可用・10/16 停用）' },
+  { value: 'gemini-2.0-flash',              label: 'Gemini 2.0 Flash（舊版・新帳號多半不可用）' },
+  { value: 'gemini-2.0-flash-lite',         label: 'Gemini 2.0 Flash Lite（舊版・新帳號多半不可用）' },
   { value: 'gemma-4-31b-it',                label: 'Gemma 4 31B（開源模型）' },
 ];
 
@@ -109,7 +129,7 @@ export const PROVIDERS: ProviderMeta[] = [
     hint: '官方 SDK，免費額度最寬鬆',
     editableBaseUrl: false,
     defaultBaseUrl: '',
-    defaultModel: 'gemini-2.5-flash',
+    defaultModel: GEMINI_DEFAULT_MODEL,
     keyUrl: 'https://aistudio.google.com/app/apikey',
     keyPlaceholder: '貼上 Gemini API Key...',
     presets: [{ label: 'Google', baseUrl: '', keyUrl: 'https://aistudio.google.com/app/apikey', models: GEMINI_MODELS }],
@@ -331,6 +351,53 @@ export function requiresApiKey(provider: string, baseUrl: string): boolean {
  * 規格上不讓 JS 讀到原因，避免拿來探測內網。所以這裡只能講「可能是」，
  * 並指向 DevTools Console——那裡才有瀏覽器自己印的那行 CORS 說明。
  */
+/**
+ * 把供應商包了好幾層的錯誤攤平。
+ *
+ * Gemini SDK 丟出來的 `Error.message` 是一整串 JSON，而且**裡面還包一層 JSON 字串**：
+ *
+ *   {"error":{"message":"{\n \"error\": {\n \"code\": 404, \"message\": \"This model
+ *   models/gemini-2.5-pro is no longer available to new users...\"}}","code":404}}
+ *
+ * 直接顯示就是一整面括號與跳脫字元，玩家讀不出「原來是型號被下架了」。
+ * 而最內層那句話是 Google 自己寫的、還指名了該換哪個型號——正是我們要給玩家的下一步。
+ */
+export function unwrapProviderError(raw: string): { code?: number; text: string } {
+  let text = raw.trim();
+  let code: number | undefined;
+
+  // 巢狀最多剝三層就停：來源是外部字串，沒有上限的話畸形輸入可以讓它一直繞
+  for (let depth = 0; depth < 3; depth++) {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(text);
+    } catch {
+      break;
+    }
+    const node = (parsed && typeof parsed === 'object' && 'error' in parsed
+      ? (parsed as Record<string, any>).error
+      : parsed) as Record<string, any> | null;
+    if (!node || typeof node !== 'object') break;
+
+    if (typeof node.code === 'number') code = node.code;
+    if (typeof node.message !== 'string' || !node.message.trim()) break;
+    text = node.message.trim();
+  }
+
+  return { code, text };
+}
+
+/**
+ * 把 AI 呼叫的錯誤翻成玩家看得懂、而且**指得出下一步**的一句話。
+ *
+ * 先前 `handleSendMessage` 一律丟「API 呼叫失敗，請檢查設定或網路連線」，
+ * 真正的訊息只進 `console.error`。玩家換了供應商連不上時完全無從判斷是金鑰錯、
+ * 型號打錯、還是那家根本不讓瀏覽器直連——只能回報「連接失敗」。
+ *
+ * ⚠️ 瀏覽器對 CORS 失敗只會給一個沒有細節的 `TypeError: Failed to fetch`：
+ * 規格上不讓 JS 讀到原因，避免拿來探測內網。所以這裡只能講「可能是」，
+ * 並指向 DevTools Console——那裡才有瀏覽器自己印的那行 CORS 說明。
+ */
 export function describeAIError(error: unknown): string {
   if (error instanceof DOMException && error.name === 'AbortError') return '已取消';
   if (!(error instanceof Error)) return '未知錯誤';
@@ -338,15 +405,18 @@ export function describeAIError(error: unknown): string {
   const message = error.message;
   if (message === 'REQUEST_TIMEOUT') return '請求超時';
 
-  const status = message.match(/^HTTP (\d{3})/)?.[1];
-  const detail = message.replace(/^HTTP \d{3}\s*/, '').trim();
+  // 兩條路：fetch 那側自己組成 `HTTP 429 ...`；Gemini SDK 丟的是巢狀 JSON
+  const httpPrefix = message.match(/^HTTP (\d{3})/)?.[1];
+  const unwrapped = unwrapProviderError(message);
+  const status = httpPrefix ?? (unwrapped.code != null ? String(unwrapped.code) : undefined);
+  const detail = (httpPrefix ? message.replace(/^HTTP \d{3}\s*/, '') : unwrapped.text).trim();
   const withDetail = (text: string) => (detail ? `${text}（${detail}）` : text);
 
   switch (status) {
     case '400': return withDetail('請求被拒絕，多半是型號 id 打錯或該端點不支援某個參數');
     case '401': return withDetail('API Key 無效');
     case '403': return withDetail('這把 Key 沒有權限，或該地區／來源被擋');
-    case '404': return withDetail('端點或型號不存在，檢查端點網址與型號 id');
+    case '404': return withDetail('型號或端點不存在——型號可能已下架，換一個再試');
     case '413': return withDetail('送出的內容太長');
     case '429': return withDetail('額度用盡或請求太頻繁');
     case '500': case '502': case '503': case '504':
@@ -358,5 +428,5 @@ export function describeAIError(error: unknown): string {
   if (/failed to fetch|networkerror|load failed/i.test(message)) {
     return '連不上端點。可能是端點網址錯了，或該服務不允許從瀏覽器直接呼叫（CORS）；開瀏覽器主控台看那行紅字可以確認';
   }
-  return message;
+  return detail || message;
 }

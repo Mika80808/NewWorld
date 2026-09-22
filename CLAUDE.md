@@ -261,6 +261,12 @@ localStorage key: 'gm_profiles'     → 設定檔清單（存起來的常用組�
 | `anthropic` | 原生 `/v1/messages` | 可改，預設 `api.anthropic.com` |
 
 - `PROVIDERS` 是唯一準據：標籤、預設型號、預設端點、取 Key 的網址、型號捷徑清單
+- ⚠️ **Gemini 的預設型號是 `GEMINI_DEFAULT_MODEL` 這一個常數**，`PROVIDERS` 與
+  `gmConfig` 的兩組預設值都讀它。先前三處各寫一份 `gemini-2.5-flash`，Google 把
+  2.5 家族鎖成「只有既有用戶能用」之後，新裝的人一選 Gemini 就 404，而要修得記得
+  改三個地方。`aiProviders.test.ts` 與 `gmConfig.test.ts` 兩邊都釘著
+- **型號下架時改標籤或從清單拿掉，絕不在讀取路徑改寫**。2.5／2.0 家族刻意留在清單上
+  （既有帳號還叫得到，官方停用日是 2026/10/16），只在標籤寫明「新帳號不可用」
 - 型號清單與端點清單都只是**捷徑**，UI 一律留自由輸入（各家改版比部署快）
 - `switchProvider(cfg, id)` 是換供應商的唯一入口——它會把型號與端點一起換掉。
   只改 `provider` 會留著上一家的 model id，送出才報一個看不懂的 400
@@ -321,6 +327,10 @@ callAI(prompt: string, options?: {
   讀到原因，避免拿來探測內網），所以只能講「可能是」並指向 DevTools Console；
   Safari 是 `Load failed`、Firefox 是 `NetworkError`，三種措辭都要認得
 - 顯示位置是**重試列**不是 Toast：Toast 三秒就消失又沒有寬度上限，放不下需要讀兩行的訊息
+- ⚠️ **供應商的錯誤可能包好幾層 JSON**，一律先過 `unwrapProviderError`。Gemini SDK 的
+  `Error.message` 是一串 JSON，`message` 欄位裡**還包一層 JSON 字串**；直接顯示就是
+  一整面括號與跳脫字元。而最內層那句是 Google 自己寫的、還指名該換哪個型號——
+  正是要給玩家的下一步。剝離有三層上限（外部字串，沒上限的話畸形輸入可以繞不完）
 
 **型號清單是常用捷徑**——每個供應商的下拉最後一項「自訂型號⋯」可自由輸入任何 model id。
 「是否自訂」由「值不在清單上」推導，**不另外存旗標**（存了會跟 `model` 兩份資料互相漂移）。
@@ -852,7 +862,7 @@ FACTION_NEW|name=黑牙氏族|type=criminal|desc=盤據東境的盜賊團
 | `utils/aiProviders.ts` `PROVIDERS / providerMeta / buildChatRequest / extractText / extractStreamDelta` | AI 供應商的唯一準據：清單、請求組裝、回應與 SSE 解析（純函數，`useAIRequest` 只管流程） |
 | `utils/gmConfig.ts` `loadMainGMConfig / loadSubGMConfig / switchProvider` | GM API 設定的讀取（含舊 key 一次性搬遷）與換供應商入口 |
 | `utils/gmProfiles.ts` `loadProfiles / applyProfile / matchProfile / upsertProfile` | 多組 API 設定檔：套用是複製值、「目前哪一張」由值推導 |
-| `utils/aiProviders.ts` `describeAIError(error)` | 把 AI 呼叫的失敗翻成指得出下一步的一句話（顯示在重試列） |
+| `utils/aiProviders.ts` `describeAIError / unwrapProviderError` | 把 AI 呼叫的失敗翻成指得出下一步的一句話（顯示在重試列）；後者剝掉供應商包的多層 JSON |
 | `utils/affectionColor.ts` `affectionColor(affection)` | 回傳好感度對應 CSS 變數字串（唯一入口） |
 | `utils/affectionLabel.ts` `affectionLabel / relationText` | 好感度語意標籤（衍生值，不存檔）；`relationText` 為顯示與 prompt 注入的共用入口 |
 | `utils/itemCatalog.ts` `registerItemDef / touchItemDef / pruneItemCatalog / selectKnownItemNames` | 道具圖鑑：先寫先贏登錄、更新使用時間、LOD 淘汰、prompt 名稱切片 |
