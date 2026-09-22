@@ -5,6 +5,58 @@
 
 ---
 
+### Bug 修正｜Gemini 預設型號已被 Google 鎖住，新玩家一開就 404 2026-09-22 [Claude Code]
+
+玩家貼回來的原始錯誤：
+
+```
+This model models/gemini-2.5-pro is no longer available to new users.
+Please update your code to use models/gemini-3.1-pro-preview
+```
+
+Google 把 2.5（與 2.0）家族鎖成「只有既有用戶能用」，新帳號呼叫一律 404。
+官方停用日是 2026/10/16，但**限制早就生效**。
+
+## 真正的問題不是那個型號，是預設值
+
+`gemini-2.5-flash` 同屬被鎖的家族，而它是三個地方的預設值：`PROVIDERS.defaultModel`、
+`MAIN_GM_DEFAULTS`、`SUB_GM_DEFAULTS`。也就是說**任何新裝的人選 Gemini 都開不了遊戲**，
+而要修得記得改三個地方。
+
+改成單一常數 `GEMINI_DEFAULT_MODEL`（值為 `gemini-3-flash-preview`），三處都讀它。
+兩支測試分別釘住「預設不在 `gemini-2.x` 家族」與「三處值一致」。順帶補一條：
+每個供應商的預設型號都必須在自己的捷徑清單上，否則下拉會把它顯示成「自訂型號」。
+
+## 2.5／2.0 刻意留在清單上
+
+照 CLAUDE.md 的規則，淘汰型號是從清單拿掉或標註，**絕不在讀取路徑上把 A 改寫成 B**
+（那條規則正是 `gemini-2.0-flash` 被靜默改寫的那個 bug 留下的）。既有帳號到 10/16
+之前都還叫得到，直接刪掉等於替玩家做決定。改成在標籤上寫「新帳號不可用・10/16 停用」。
+
+## 錯誤訊息被 JSON 淹掉
+
+玩家貼回來的那串，外層是一個 JSON，`message` 欄位裡**還包一層 JSON 字串**。
+`describeAIError` 拿到的就是那整團，原樣顯示在重試列等於沒修好——一整面括號與
+跳脫字元，讀不出「原來是型號被下架了」。
+
+新增 `unwrapProviderError` 遞迴剝殼（上限三層，來源是外部字串，沒上限的話畸形輸入
+可以繞不完），取出最內層的 `code` 與 `message`。現在玩家看到的是：
+
+```
+型號或端點不存在——型號可能已下架，換一個再試（This model models/gemini-2.5-pro is
+no longer available to new users. Please update your code to use
+models/gemini-3.1-pro-preview for the latest features and improvements.）
+```
+
+Google 自己指名了替代型號，那正是玩家需要的下一步，不能被吞掉。
+測試直接用玩家貼回來的原文當資料。
+
+**驗證**：lint 乾淨、1015 tests 通過（新增 6 條）、build 成功。
+
+**檔案**：`src/utils/aiProviders.ts`、`src/utils/gmConfig.ts`、三個測試檔。
+
+---
+
 ### 功能｜多組 API 設定檔，以及看得懂的失敗原因 2026-09-20 [Claude Code]
 
 玩家回報兩件事：DeepSeek 的 API 連接失敗，還有「希望能多存幾組，這樣才能在不同模型間交換」。

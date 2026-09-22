@@ -1,5 +1,5 @@
 import { GMConfig, SubGMConfig } from '../types';
-import { DEFAULT_PROVIDER, isProviderId, normalizeBaseUrl, providerMeta } from './aiProviders';
+import { DEFAULT_PROVIDER, GEMINI_DEFAULT_MODEL, isProviderId, normalizeBaseUrl, providerMeta } from './aiProviders';
 
 /**
  * 主／助理 GM 的 API 設定讀取（localStorage，不隨存檔匯出匯入）。
@@ -9,11 +9,11 @@ import { DEFAULT_PROVIDER, isProviderId, normalizeBaseUrl, providerMeta } from '
  */
 
 export const MAIN_GM_DEFAULTS: GMConfig = {
-  provider: 'gemini', apiKey: '', model: 'gemini-2.5-flash', maxTokens: 2048, lastSaved: '',
+  provider: 'gemini', apiKey: '', model: GEMINI_DEFAULT_MODEL, maxTokens: 2048, lastSaved: '',
 };
 
 export const SUB_GM_DEFAULTS: SubGMConfig = {
-  provider: 'gemini', apiKey: '', model: 'gemini-2.5-flash', maxTokens: 512, useSameKey: true, lastSaved: '',
+  provider: 'gemini', apiKey: '', model: GEMINI_DEFAULT_MODEL, maxTokens: 512, useSameKey: true, lastSaved: '',
 };
 
 /**
