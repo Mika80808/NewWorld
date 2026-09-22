@@ -12,7 +12,7 @@ describe('describeAIError', () => {
     expect(describeAIError(new Error('HTTP 401 Incorrect API key'))).toContain('Incorrect API key');
     expect(describeAIError(new Error('HTTP 404 model not found'))).toContain('型號');
     expect(describeAIError(new Error('HTTP 404 model not found'))).toContain('已下架');
-    expect(describeAIError(new Error('HTTP 429 rate limit'))).toContain('額度');
+    expect(describeAIError(new Error('HTTP 429 rate limit'))).toContain('太頻繁');
     expect(describeAIError(new Error('HTTP 400 bad param'))).toContain('型號 id');
     expect(describeAIError(new Error('HTTP 503 upstream'))).toContain('供應商那端');
   });
@@ -38,6 +38,15 @@ describe('describeAIError', () => {
   it('逾時與取消各自有自己的說法', () => {
     expect(describeAIError(new Error('REQUEST_TIMEOUT'))).toBe('請求超時');
     expect(describeAIError(new DOMException('Aborted', 'AbortError'))).toBe('已取消');
+  });
+
+  it('402 講的是錢不是設定，並保留供應商給的儲值連結', () => {
+    // 玩家實際遇到的第二種失敗：型號檢查過了，卡在計費
+    const raw = '{"error":{"message":"{\\n \\"error\\": {\\n \\"code\\": 402,\\n \\"message\\": \\"Your prepayment credits are depleted. Please go to AI Studio at https://ai.studio/projects to manage your project and billing.\\",\\n \\"status\\": \\"RESOURCE_EXHAUSTED\\"\\n }\\n}\\n","code":402,"status":""}}';
+    const text = describeAIError(new Error(raw));
+    expect(text).toContain('額度用完');
+    expect(text).toContain('儲值');
+    expect(text).toContain('https://ai.studio/projects');
   });
 
   it('Gemini SDK 的巢狀 JSON 要攤平成最內層那句人話', () => {

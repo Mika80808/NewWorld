@@ -5,6 +5,33 @@
 
 ---
 
+### Bug 修正｜402（額度用完）顯示成看不懂的 HTTP 代碼 2026-09-22 [Claude Code]
+
+玩家換到 `gemini-3-flash-preview` 之後遇到的第二種失敗：
+
+```
+Your prepayment credits are depleted. Please go to AI Studio at
+https://ai.studio/projects to manage your project and billing.
+```
+
+402 不在 `describeAIError` 的對照表裡，只會退回「HTTP 402（原文）」。
+而這是**錢的問題不是設定的問題**——玩家再怎麼檢查金鑰與型號都不會有進展。
+
+補上 402 的說法（「帳戶額度用完了，要去供應商後台儲值，或改用其他供應商」），
+供應商原文照樣保留，因為那句話裡帶著儲值頁的網址，正是玩家最需要的東西。
+
+順手修掉 429 的措辭：原本寫「額度用盡或請求太頻繁」，與 402 的語意重疊。
+429 是速率上限，402 才是餘額歸零，兩者要分得開。
+
+⚠️ 402 **不可加進 `isRetryable`**。餘額歸零重試幾次都一樣，只會把 90 秒的
+timeout 白白耗完；那個正則只收 429/500/503 是對的。
+
+**驗證**：lint 乾淨、1016 tests 通過、build 成功。測試用玩家貼回來的原文當資料。
+
+**檔案**：`src/utils/aiProviders.ts`、`src/utils/__tests__/describeAIError.test.ts`。
+
+---
+
 ### Bug 修正｜Gemini 預設型號已被 Google 鎖住，新玩家一開就 404 2026-09-22 [Claude Code]
 
 玩家貼回來的原始錯誤：

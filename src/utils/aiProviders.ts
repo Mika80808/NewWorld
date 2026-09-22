@@ -417,8 +417,11 @@ export function describeAIError(error: unknown): string {
     case '401': return withDetail('API Key 無效');
     case '403': return withDetail('這把 Key 沒有權限，或該地區／來源被擋');
     case '404': return withDetail('型號或端點不存在——型號可能已下架，換一個再試');
+    // 402 是「錢的問題」不是「設定的問題」。Google 的預付額度用完就回這個，
+    // 訊息裡帶著儲值頁的網址——玩家最需要的正是那個連結
+    case '402': return withDetail('帳戶額度用完了，要去供應商後台儲值，或改用其他供應商');
     case '413': return withDetail('送出的內容太長');
-    case '429': return withDetail('額度用盡或請求太頻繁');
+    case '429': return withDetail('請求太頻繁，或免費額度的速率上限到了');
     case '500': case '502': case '503': case '504':
       return withDetail('供應商那端出錯，稍後再試');
   }
